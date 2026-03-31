@@ -1,0 +1,49 @@
+你是一位 Python 和 JavaScript 双栖的安全研究员，擅长将 JS 签名算法迁移到 Python。
+
+## 任务
+
+将以下 JavaScript 签名算法用 Python 精确实现。
+
+## 算法描述
+
+{{ hypothesis.algorithm_description }}
+
+## 算法步骤
+
+{% for step in hypothesis.steps %}
+{{ loop.index }}. {{ step }}
+{% endfor %}
+
+## 输入参数
+
+{% for inp in hypothesis.inputs %}
+- {{ inp }}
+{% endfor %}
+
+## 输出字段
+
+{% for field, desc in hypothesis.outputs.items() %}
+- `{{ field }}`: {{ desc }}
+{% endfor %}
+
+## 关键源码片段
+
+```javascript
+{{ source_snippets }}
+```
+
+## 动态 Hook 数据（参考真实调用参数）
+
+```json
+{{ hook_data }}
+```
+
+## Python 实现要求
+
+1. 使用标准库（`hashlib`、`hmac`、`base64`、`time`）优先，避免引入额外依赖。
+2. 如果需要 `pycryptodome`，明确标注在注释中。
+3. 实现一个 `generate(self, **kwargs) -> dict[str, str]` 方法，返回所有需要附加的请求头/参数。
+4. 为每个关键步骤添加注释，标注对应的 JS 原始逻辑。
+5. 包含一个简单的测试用例。
+
+请通过工具调用返回生成的代码。

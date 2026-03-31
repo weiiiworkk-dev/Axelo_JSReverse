@@ -1,0 +1,38 @@
+你是一位 Node.js 和 Python 工程师，擅长构建 JS 执行桥接服务。
+
+## 任务
+
+目标 JS 算法依赖浏览器特定 API，无法直接用 Python 重写。
+需要生成：
+1. 一个 Node.js HTTP 服务（Express），在 isolated-vm 中执行原始 JS，暴露 token 生成接口
+2. 一个 Python 客户端，调用该服务
+
+## 已知信息
+
+**目标函数**: {{ hypothesis.generator_func_ids | join(', ') }}
+
+**算法描述**: {{ hypothesis.algorithm_description }}
+
+**输入**: {{ hypothesis.inputs | join(', ') }}
+
+**输出字段**: {{ hypothesis.outputs.keys() | join(', ') }}
+
+**原始 JS bundle 路径**: {{ bundle_path }}
+
+## 生成要求
+
+### Node.js Bridge Server (bridge_server.js)
+- Express + isolated-vm
+- POST `/generate` 接口，接受 `{url, method, body, headers}` JSON
+- 在沙箱中加载目标 JS 模块，调用生成函数
+- 返回 `{headers: {field: value, ...}}`
+- 错误时返回 `{error: "..."}`
+- 监听端口 {{ bridge_port }}
+
+### Python Bridge Client (bridge_client.py)
+- 基于 `httpx`
+- `get_headers(url, method, body) -> dict[str, str]`
+- 自动启动/停止 bridge_server.js 子进程
+- 超时和重试处理
+
+请通过工具调用返回两个文件的代码内容。

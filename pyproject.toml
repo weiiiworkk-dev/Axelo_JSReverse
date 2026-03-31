@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "axelo-jsreverse"
+version = "0.1.0"
+description = "AI-powered web JS reverse engineering system"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "playwright>=1.48.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "sqlmodel>=0.0.22",
+    "typer>=0.13.0",
+    "rich>=13.9.0",
+    "jinja2>=3.1.0",
+    "structlog>=24.4.0",
+    "anyio>=4.6.0",
+    "aiofiles>=24.1.0",
+    # 记忆层
+    "faiss-cpu>=1.8.0",
+    "sentence-transformers>=3.3.0",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.26.0",
+    # 验证层
+    "deepdiff>=8.0.0",
+]
+
+[project.scripts]
+axelo = "axelo.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["axelo"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

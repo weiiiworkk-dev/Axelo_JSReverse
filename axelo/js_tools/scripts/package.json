@@ -1,0 +1,21 @@
+{
+  "name": "axelo-js-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Axelo JSReverse Node.js tool scripts",
+  "scripts": {
+    "install-tools": "npm install"
+  },
+  "dependencies": {
+    "webcrack": "^2.14.0",
+    "deobfuscator": "^1.1.0",
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "@babel/generator": "^7.26.0",
+    "@babel/types": "^7.26.0",
+    "isolated-vm": "^5.0.0",
+    "prettier": "^3.4.0",
+    "acorn": "^8.14.0"
+  }
+}
