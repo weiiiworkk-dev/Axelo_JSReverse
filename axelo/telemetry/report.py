@@ -42,6 +42,7 @@ def write_run_report(
         "compliance": target.compliance.model_dump(mode="json"),
         "session_state": target.session_state.model_dump(mode="json"),
         "trace": target.trace.model_dump(mode="json"),
+        "execution_plan": target.execution_plan.model_dump(mode="json") if target.execution_plan else None,
         "policy": policy.as_dict(),
         "result": {
             "difficulty_level": difficulty_level,

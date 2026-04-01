@@ -22,3 +22,11 @@ def test_session_pool_marks_blocked(tmp_path):
     updated = pool.release("https://example.com/path", session, success=False, status_code=403, error="blocked")
     assert updated.blocked is True
     assert updated.blocked_reason == "HTTP 403"
+
+
+def test_session_pool_rotates_away_from_cooling_session(tmp_path):
+    pool = SessionPool(tmp_path)
+    first = pool.acquire("https://example.com/path")
+    failed = pool.release("https://example.com/path", first, success=False, status_code=500, error="temporary")
+    next_session = pool.acquire("https://example.com/path", exclude_keys={failed.session_key})
+    assert next_session.session_key != failed.session_key

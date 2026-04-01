@@ -6,6 +6,7 @@ from pathlib import Path
 import structlog
 
 from axelo.models.codegen import GeneratedCode
+from axelo.models.execution import VerificationMode
 from axelo.models.target import TargetSite
 from axelo.verification.comparator import CompareResult, TokenComparator
 from axelo.verification.data_quality import DataQualityResult, evaluate_data_quality
@@ -48,6 +49,10 @@ class VerificationEngine:
         if script_path is None or not script_path.exists():
             return VerificationResult(ok=False, report="verification failed: generated crawler file is missing")
 
+        verification_mode = target.execution_plan.verification_mode if target.execution_plan else VerificationMode.STANDARD
+        if verification_mode == VerificationMode.NONE:
+            return VerificationResult(ok=True, score=1.0, strategy_used=generated.output_mode, report="verification skipped by execution plan")
+
         stability_samples: list[tuple[dict[str, str], object]] = []
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -72,8 +77,12 @@ class VerificationEngine:
             if target.target_requests:
                 compare_result = self._comparator.compare(gen_headers, target.target_requests[0])
 
-            data_quality = evaluate_data_quality(replay_result.generated_data)
-            stability = await self._stability_check(script_path, target, stability_samples)
+            if verification_mode == VerificationMode.BASIC:
+                data_quality = evaluate_data_quality(replay_result.generated_data)
+                stability = StabilityResult(ok=True, score=1.0, runs=max(1, len(stability_samples)), consistent_header_keys=True, consistent_output_shape=True)
+            else:
+                data_quality = evaluate_data_quality(replay_result.generated_data)
+                stability = await self._stability_check(script_path, target, stability_samples)
 
             live_ok = (not live_verify) or replay_result.ok
             format_ok = compare_result.ok if compare_result else True
@@ -124,6 +133,11 @@ class VerificationEngine:
     ) -> StabilityResult:
         samples = list(existing_samples)
         desired_runs = max(1, target.compliance.stability_runs)
+        verification_mode = target.execution_plan.verification_mode if target.execution_plan else VerificationMode.STANDARD
+        if verification_mode == VerificationMode.BASIC:
+            desired_runs = 1
+        elif verification_mode == VerificationMode.STRICT:
+            desired_runs = max(desired_runs, 3)
         while len(samples) < desired_runs:
             execution: CrawlExecutionResult = await self._replayer.execute_crawl(script_path, target)
             if execution.error:

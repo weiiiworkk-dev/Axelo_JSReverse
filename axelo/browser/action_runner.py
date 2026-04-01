@@ -15,7 +15,10 @@ class ActionRunResult(BaseModel):
 
 
 def default_action_flow(target: TargetSite, policy: RuntimePolicy) -> list[BrowserAction]:
-    actions = list(target.site_profile.action_flow)
+    if target.execution_plan and not target.execution_plan.enable_action_flow:
+        actions: list[BrowserAction] = []
+    else:
+        actions = list(target.site_profile.action_flow)
     if actions:
         return actions
     return [

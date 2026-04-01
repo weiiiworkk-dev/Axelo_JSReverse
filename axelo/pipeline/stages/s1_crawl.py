@@ -35,44 +35,86 @@ class CrawlStage(PipelineStage):
         session_store = SessionStateStore(settings.sessions_dir)
         browser_state_store = BrowserStateStore(session_store)
         session_pool = SessionPool(settings.sessions_dir)
-        active_session = session_pool.acquire(target.url, target.session_state)
-        if not active_session.session_key:
-            active_session.session_key = target.session_id
-        target.session_state = active_session
+        action_runner = ActionRunner()
 
         trace_path = crawl_dir / "playwright_trace.zip"
-        driver = BrowserDriver(settings.browser, settings.headless)
-        interceptor = NetworkInterceptor()
-        action_runner = ActionRunner()
+        all_captures = []
+        api_calls = []
+        js_urls: list[str] = []
+        decisions: list[Decision] = []
         action_result_summary = ""
+        used_session_keys: set[str] = set()
+        max_attempts = max(1, target.execution_plan.max_crawl_retries if target.execution_plan else policy.max_runtime_retries)
 
-        async with driver:
-            page = await driver.launch(
-                policy.apply_to_profile(target.browser_profile),
-                session_state=target.session_state,
-                trace_path=trace_path if policy.enable_trace_capture else None,
-            )
-            interceptor.attach(page)
+        for attempt in range(1, max_attempts + 1):
+            active_session = session_pool.acquire(target.url, target.session_state, exclude_keys=used_session_keys)
+            if not active_session.session_key:
+                active_session.session_key = target.session_id
+            used_session_keys.add(active_session.session_key)
+            target.session_state = active_session
+
+            driver = BrowserDriver(settings.browser, settings.headless)
+            interceptor = NetworkInterceptor()
 
             try:
-                action_result = await action_runner.run(page, target, policy)
-                action_result_summary = f"actions={action_result.executed}, failures={len(action_result.failures)}"
+                async with driver:
+                    page = await driver.launch(
+                        policy.apply_to_profile(target.browser_profile),
+                        session_state=target.session_state,
+                        trace_path=trace_path if policy.enable_trace_capture and attempt == 1 else None,
+                    )
+                    interceptor.attach(page)
+
+                    try:
+                        action_result = await action_runner.run(page, target, policy)
+                        action_result_summary = (
+                            f"attempt={attempt} actions={action_result.executed}, failures={len(action_result.failures)}"
+                        )
+                    except Exception as exc:
+                        action_result_summary = f"attempt={attempt} action_flow_failed={exc}"
+                        log.warning("action_flow_failed", error=str(exc), attempt=attempt)
+
+                    await interceptor.drain()
+                    target.session_state = await browser_state_store.persist_context(
+                        state.session_id,
+                        target.session_state.domain or page.url,
+                        driver.context,
+                        target.session_state,
+                    )
             except Exception as exc:
-                action_result_summary = f"action_flow_failed={exc}"
-                log.warning("action_flow_failed", error=str(exc))
+                target.session_state = session_pool.release(
+                    target.url,
+                    target.session_state,
+                    success=False,
+                    error=str(exc),
+                )
+                session_store.save(state.session_id, target.session_state)
+                if attempt == max_attempts:
+                    return StageResult(
+                        stage_name=self.name,
+                        success=False,
+                        error=str(exc),
+                        summary=f"crawl failed after {attempt} attempts",
+                    )
+                continue
 
-            await interceptor.drain()
-            target.session_state = await browser_state_store.persist_context(
-                state.session_id,
-                target.session_state.domain or page.url,
-                driver.context,
+            all_captures = interceptor.captures
+            api_calls = interceptor.get_api_calls()
+            js_urls = interceptor.js_urls
+            dominant_status = max((capture.response_status for capture in all_captures if capture.response_status), default=200)
+            target.session_state = session_pool.release(
+                target.url,
                 target.session_state,
+                success=bool(api_calls),
+                status_code=dominant_status,
+                error="" if api_calls else "no_api_calls_captured",
             )
+            session_store.save(state.session_id, target.session_state)
+            if api_calls:
+                break
 
-        all_captures = interceptor.captures
-        api_calls = interceptor.get_api_calls()
         target.captured_requests = all_captures
-        target.js_urls = interceptor.js_urls
+        target.js_urls = js_urls
         target.trace.trace_zip_path = str(trace_path) if trace_path.exists() else ""
 
         if target.known_endpoint:
@@ -87,16 +129,6 @@ class CrawlStage(PipelineStage):
             encoding="utf-8",
         )
         target.trace.network_log_path = str(captures_path)
-
-        dominant_status = max((capture.response_status for capture in all_captures if capture.response_status), default=200)
-        target.session_state = session_pool.release(
-            target.url,
-            target.session_state,
-            success=bool(api_calls),
-            status_code=dominant_status,
-            error="" if api_calls else "no_api_calls_captured",
-        )
-        session_store.save(state.session_id, target.session_state)
 
         options = [f"[{i + 1}] {capture.method} {capture.url[:80]}" for i, capture in enumerate(api_calls[:15])]
         options.append("all")
@@ -113,7 +145,11 @@ class CrawlStage(PipelineStage):
             artifact_path=captures_path,
             default="all",
         )
-        outcome = await mode.gate(decision, state)
+        decisions.append(decision)
+
+        outcome = "all"
+        if target.execution_plan is None or target.execution_plan.enable_target_confirmation:
+            outcome = await mode.gate(decision, state)
 
         if outcome in {"all", "skip"}:
             target.target_requests = api_calls[:5]
@@ -131,7 +167,7 @@ class CrawlStage(PipelineStage):
             stage_name=self.name,
             success=True,
             artifacts={"captures": captures_path, "target": target_path, "trace": trace_path},
-            decisions=[decision],
+            decisions=decisions,
             summary=(
                 f"Captured {len(all_captures)} requests, confirmed {len(target.target_requests)} targets, "
                 f"persisted session state to {target.session_state.storage_state_path or 'memory'}"

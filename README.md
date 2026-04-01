@@ -9,6 +9,9 @@ Axelo JSReverse is an AI-assisted reverse-engineering pipeline for web request s
 - Persistent `SessionState` with Playwright storage state and cookie support
 - Browser `ActionRunner` for scripted crawl flows beyond static navigation
 - File-backed `SessionPool` with health tracking and block detection
+- `Planner`-driven execution tiers with adapter reuse before expensive analysis
+- `AdapterRegistry` for verified crawler/artifact reuse across runs
+- `CostGovernor` for budget-aware degradation and lighter verification modes
 - Explicit manual review gate for `extreme` targets
 - Structured `SignatureSpec` generation in addition to natural-language hypotheses
 - Verification extended with header comparison, data-quality checks, and stability checks
@@ -19,16 +22,17 @@ Axelo JSReverse is an AI-assisted reverse-engineering pipeline for web request s
 Primary runtime path:
 
 1. `axelo/wizard.py` or `axelo/cli.py` builds a `RunConfig`
-2. `axelo/orchestrator/master.py` builds a `TargetSite`, resolves runtime policy, and starts workflow tracking
-3. `axelo/pipeline/stages/s1_crawl.py` opens the target in Playwright, executes actions, captures traffic, and persists session state
-4. `axelo/pipeline/stages/s2_fetch.py` downloads JavaScript bundles
-5. `axelo/pipeline/stages/s3_deobfuscate.py` normalizes bundle content
-6. `axelo/pipeline/stages/s4_static.py` extracts candidates using static analysis
-7. `axelo/pipeline/stages/s5_dynamic.py` validates runtime behavior
-8. `axelo/pipeline/stages/s6_ai_analyze.py` produces AI hypotheses and a structured `SignatureSpec`
-9. `axelo/pipeline/stages/s7_codegen.py` generates Python crawler code or a JS bridge plus a crawler manifest
-10. `axelo/verification/engine.py` replays the generated code and evaluates correctness, data quality, and stability
-11. `axelo/memory` stores reusable patterns
+2. `axelo/orchestrator/master.py` builds a `TargetSite`, asks the `Planner` for an `ExecutionPlan`, and starts workflow tracking
+3. `axelo/storage/adapter_registry.py` is checked before any expensive browser or AI stage
+4. `axelo/pipeline/stages/s1_crawl.py` opens the target in Playwright only when the plan requires it, executes actions, captures traffic, rotates sessions, and persists session state
+5. `axelo/pipeline/stages/s2_fetch.py` downloads JavaScript bundles
+6. `axelo/pipeline/stages/s3_deobfuscate.py` normalizes bundle content
+7. `axelo/pipeline/stages/s4_static.py` extracts candidates using static analysis
+8. `axelo/pipeline/stages/s5_dynamic.py` validates runtime behavior when the plan and budget still allow it
+9. `axelo/pipeline/stages/s6_ai_analyze.py` produces AI hypotheses and a structured `SignatureSpec`
+10. `axelo/pipeline/stages/s7_codegen.py` generates Python crawler code or a JS bridge plus a crawler manifest
+11. `axelo/verification/engine.py` replays the generated code and evaluates correctness, data quality, and stability according to the verification mode
+12. `axelo/memory` stores reusable patterns
 
 Compatibility path:
 
@@ -37,11 +41,17 @@ Compatibility path:
 ## Key Modules
 
 - `axelo/models/`
-  - canonical runtime models including `TargetSite`, `PipelineState`, `SessionState`, `SiteProfile`, `CompliancePolicy`, `TraceArtifact`, and `SignatureSpec`
+  - canonical runtime models including `TargetSite`, `PipelineState`, `SessionState`, `SiteProfile`, `CompliancePolicy`, `TraceArtifact`, `ExecutionPlan`, and `SignatureSpec`
+- `axelo/planner/`
+  - execution planning and tier selection
 - `axelo/browser/`
   - browser driver, action runner, state persistence helpers, session pool, trace capture
+- `axelo/storage/adapter_registry.py`
+  - verified crawler/artifact reuse registry
+- `axelo/cost/governor.py`
+  - budget-aware plan degradation and verification tuning
 - `axelo/policies/runtime.py`
-  - maps target metadata to crawl timing, login behavior, and browser policy
+  - maps target metadata plus execution tier to crawl timing and browser policy
 - `axelo/orchestrator/`
   - master orchestration, workflow checkpoints, recovery helpers
 - `axelo/analysis/`
@@ -102,7 +112,19 @@ Each run may produce:
 - `output/requirements.txt`
 - `output/crawler_manifest.json`
 - `run_report.json`
+- adapter-registry entries under `workspace/adapter_registry/`
 - workflow checkpoint files under the workflow store
+
+## Execution Tiers
+
+- `adapter_reuse`
+  - reuses a previously verified crawler and manifest before opening a browser
+- `browser_light`
+  - reduced-cost browser discovery for known endpoints or constrained budgets
+- `browser_full`
+  - full action flow, analysis, codegen, and strict verification
+- `manual_review`
+  - stops early with a recoverable manual-review checkpoint
 
 ## Manual Review Gate
 

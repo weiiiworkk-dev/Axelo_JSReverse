@@ -64,6 +64,7 @@ class PipelineState(BaseModel):
     error: str | None = None
     workflow_status: str = "running"
     manual_review_reason: str = ""
+    execution_plan: dict[str, Any] = Field(default_factory=dict)
 
     def get_stage(self, name: str) -> StageRecord | None:
         for stage in self.stages:

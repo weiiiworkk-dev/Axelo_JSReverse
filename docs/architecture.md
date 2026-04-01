@@ -30,12 +30,35 @@ Main components:
 - `axelo/models/target.py`
 - `axelo/models/site_profile.py`
 - `axelo/models/compliance.py`
+- `axelo/models/execution.py`
 
 Important characteristics:
 
 - one canonical `RunConfig`
 - 9-step wizard
 - user-provided crawl context carried end-to-end
+- structured `ExecutionPlan` attached to every run
+
+## Planning Plane
+
+Purpose:
+
+- choose the cheapest safe execution tier first
+- reuse verified adapters before browser work
+- degrade gracefully when the budget is tight
+
+Main components:
+
+- `axelo/planner/strategy.py`
+- `axelo/storage/adapter_registry.py`
+- `axelo/cost/governor.py`
+
+Important characteristics:
+
+- adapter-first planning
+- tiered execution: `adapter_reuse`, `browser_light`, `browser_full`, `manual_review`
+- budget-aware degradation
+- verification-mode selection
 
 ## Workflow Plane
 
@@ -57,6 +80,7 @@ Important characteristics:
 - stage-level checkpoint writes
 - recoverable workflow metadata
 - explicit `waiting_manual_review` state for extreme targets
+- planning checkpoints and adapter-reuse checkpoints
 
 ## Execution Plane
 
@@ -83,6 +107,7 @@ Important characteristics:
 - Playwright storage-state persistence
 - cookie persistence
 - file-backed session pool
+- cooldown-aware session rotation
 - trace artifact generation
 - action-flow execution beyond simple `goto`
 
@@ -134,6 +159,7 @@ Important characteristics:
 - crawler manifest generation
 - data-quality scoring
 - repeated-run stability validation
+- verification mode control through the execution plan
 
 ## Observability Plane
 
@@ -158,14 +184,17 @@ Important characteristics:
 ## End-to-End Flow
 
 1. Input is collected through CLI or wizard into `RunConfig`
-2. `MasterOrchestrator` creates `TargetSite`, runtime policy, workflow state, and trace metadata
-3. `CrawlStage` executes browser actions, records network captures, persists session state, and stores a Playwright trace
-4. Fetch, deobfuscation, static analysis, and dynamic analysis stages build evidence
-5. AI analysis and `SignatureSpec` construction produce machine-usable signature metadata
-6. Code generation emits crawler artifacts and a manifest
-7. Verification replays the crawler and evaluates correctness, data quality, and stability
-8. Memory write-back stores reusable knowledge
-9. The orchestrator finalizes the run report and latest workflow checkpoint
+2. `MasterOrchestrator` creates `TargetSite`, workflow state, and trace metadata
+3. The `Planner` resolves an `ExecutionPlan`
+4. The adapter registry is checked before any browser or AI cost is incurred
+5. `CrawlStage` executes browser actions only when the selected tier requires it, records network captures, persists session state, and stores a Playwright trace when enabled
+6. Fetch, deobfuscation, static analysis, and dynamic analysis stages build evidence
+7. AI analysis and `SignatureSpec` construction produce machine-usable signature metadata
+8. Code generation emits crawler artifacts and a manifest
+9. Verification replays the crawler and evaluates correctness, data quality, and stability using the selected verification mode
+10. Verified outputs are eligible for adapter-registry persistence
+11. Memory write-back stores reusable knowledge
+12. The orchestrator finalizes the run report and latest workflow checkpoint
 
 ## Main Runtime Models
 
@@ -183,6 +212,8 @@ Important characteristics:
   - executable intermediate representation of the signing strategy
 - `TraceArtifact`
   - trace file paths and capture metadata
+- `ExecutionPlan`
+  - selected tier, verification mode, cache hints, retries, and degradation notes
 
 ## Current Guarantees
 
@@ -190,12 +221,15 @@ Important characteristics:
 - mock integration pipeline passes
 - full test suite passes in the current repository state
 - workflow state, session state, and trace metadata are persisted as files
+- verified adapters can be cached and reused across runs
 
 ## Design Intent
 
 The system is designed for staged automation with auditability and human control, not for opaque single-shot generation. The most important design choices in the current architecture are:
 
 - a single primary orchestration path
+- adapter-first planning before expensive execution
+- budget-aware execution degradation
 - structured runtime models instead of ad-hoc dictionaries
 - explicit recovery artifacts
 - explicit manual review for high-risk targets

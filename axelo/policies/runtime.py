@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from axelo.models.execution import ExecutionTier
 from axelo.models.target import BrowserProfile, TargetSite
 
 
@@ -73,6 +74,26 @@ def resolve_runtime_policy(target: TargetSite) -> RuntimePolicy:
     if target.known_endpoint:
         post_wait_ms = max(1000, post_wait_ms - 500)
 
+    plan = target.execution_plan
+    if plan:
+        if plan.tier == ExecutionTier.BROWSER_LIGHT:
+            goto_wait_until = "domcontentloaded" if target.known_endpoint else "load"
+            post_wait_ms = min(post_wait_ms, 1200)
+            max_runtime_retries = min(max_runtime_retries, plan.max_crawl_retries)
+        elif plan.tier == ExecutionTier.ADAPTER_REUSE:
+            force_stealth = False
+            post_wait_ms = 0
+            max_runtime_retries = 1
+        elif plan.tier == ExecutionTier.MANUAL_REVIEW:
+            post_wait_ms = 0
+            max_runtime_retries = 1
+
+        requires_persistent_session = requires_persistent_session or plan.tier == ExecutionTier.BROWSER_FULL
+        enable_trace_capture = plan.enable_trace_capture
+        max_runtime_retries = max(1, min(max_runtime_retries, plan.max_crawl_retries))
+    else:
+        enable_trace_capture = True
+
     return RuntimePolicy(
         antibot_type=antibot,
         crawl_rate=rate,
@@ -84,6 +105,6 @@ def resolve_runtime_policy(target: TargetSite) -> RuntimePolicy:
         goto_wait_until=goto_wait_until,
         force_stealth=force_stealth,
         requires_persistent_session=requires_persistent_session,
-        enable_trace_capture=True,
+        enable_trace_capture=enable_trace_capture,
         max_runtime_retries=max_runtime_retries,
     )

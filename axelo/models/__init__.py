@@ -10,6 +10,7 @@ from .analysis import (
 from .bundle import DeobfuscationResult, JSBundle
 from .codegen import GeneratedCode
 from .compliance import CompliancePolicy
+from .execution import ExecutionPlan, ExecutionTier, VerificationMode
 from .pipeline import Decision, DecisionType, PipelineState, StageRecord, StageResult, StageStatus
 from .run_config import AntiBotType, CrawlRate, OutputFormat, RunConfig, RunMode
 from .session_state import SessionState
@@ -26,6 +27,8 @@ __all__ = [
     "BrowserActionType",
     "BrowserProfile",
     "CompliancePolicy",
+    "ExecutionPlan",
+    "ExecutionTier",
     "CrawlRate",
     "Decision",
     "DecisionType",
@@ -50,5 +53,6 @@ __all__ = [
     "TargetSite",
     "TokenCandidate",
     "TraceArtifact",
+    "VerificationMode",
     "WorkflowCheckpoint",
 ]

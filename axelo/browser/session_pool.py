@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from pathlib import Path
 from urllib.parse import urlparse
@@ -39,14 +39,22 @@ class SessionPool:
             encoding="utf-8",
         )
 
-    def acquire(self, url: str, current: SessionState | None = None) -> SessionState:
+    def acquire(self, url: str, current: SessionState | None = None, exclude_keys: set[str] | None = None) -> SessionState:
         domain = urlparse(url).netloc
         sessions = self._load_pool(domain)
-        if current and current.session_key:
+        exclude_keys = exclude_keys or set()
+        now = datetime.now()
+        if current and current.session_key and not current.blocked and (current.cooldown_until is None or current.cooldown_until <= now):
             return current
-        candidates = [session for session in sessions if not session.blocked]
+        candidates = [
+            session
+            for session in sessions
+            if not session.blocked
+            and session.session_key not in exclude_keys
+            and (session.cooldown_until is None or session.cooldown_until <= now)
+        ]
         if candidates:
-            candidates.sort(key=lambda session: (session.health_score, session.updated_at), reverse=True)
+            candidates.sort(key=lambda session: (session.health_score, -session.consecutive_failures, session.updated_at), reverse=True)
             return candidates[0]
         return SessionState(session_key=str(uuid.uuid4())[:8], domain=domain)
 
@@ -60,11 +68,16 @@ class SessionPool:
             session.health_score = min(1.0, session.health_score + 0.05)
             session.blocked = False
             session.blocked_reason = ""
+            session.consecutive_failures = 0
+            session.cooldown_until = None
         else:
             session.health_score = max(0.0, session.health_score - 0.2)
+            session.consecutive_failures += 1
+            session.cooldown_until = datetime.now() + timedelta(seconds=min(300, 10 * session.consecutive_failures))
             if status_code in {401, 403, 429}:
                 session.blocked = True
                 session.blocked_reason = f"HTTP {status_code}"
+                session.cooldown_until = datetime.now() + timedelta(minutes=5)
 
         sessions = self._load_pool(domain)
         remaining = [item for item in sessions if item.session_key != session.session_key]

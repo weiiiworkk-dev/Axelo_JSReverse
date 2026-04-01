@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from axelo.models.compliance import CompliancePolicy
+from axelo.models.execution import ExecutionPlan
 from axelo.models.session_state import SessionState
 from axelo.models.site_profile import SiteProfile
 from axelo.models.trace import TraceArtifact
@@ -55,6 +56,7 @@ class TargetSite(BaseModel):
     compliance: CompliancePolicy = Field(default_factory=CompliancePolicy)
     session_state: SessionState = Field(default_factory=SessionState)
     trace: TraceArtifact = Field(default_factory=TraceArtifact)
+    execution_plan: ExecutionPlan | None = None
     known_endpoint: str = ""
     antibot_type: str = "unknown"
     requires_login: bool | None = None

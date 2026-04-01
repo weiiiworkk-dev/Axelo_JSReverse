@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import structlog
 
@@ -15,7 +16,7 @@ from axelo.ai.client import AIClient
 from axelo.analysis import ASTAnalyzer, build_signature_spec
 from axelo.classifier.rules import DifficultyScore, classify
 from axelo.config import settings
-from axelo.cost.tracker import CostBudget, CostRecord
+from axelo.cost import CostBudget, CostGovernor, CostRecord
 from axelo.js_tools.runner import NodeRunner
 from axelo.memory.db import MemoryDB
 from axelo.memory.retriever import MemoryRetriever
@@ -23,14 +24,17 @@ from axelo.memory.vector_store import VectorStore
 from axelo.memory.writer import MemoryWriter
 from axelo.models.analysis import AnalysisResult, DynamicAnalysis, StaticAnalysis
 from axelo.models.codegen import GeneratedCode
+from axelo.models.execution import ExecutionPlan, ExecutionTier, VerificationMode
 from axelo.models.pipeline import Decision, DecisionType, PipelineState
 from axelo.models.target import BrowserProfile, TargetSite
 from axelo.modes.registry import create_mode
 from axelo.orchestrator.workflow_runtime import WorkflowRuntime
+from axelo.planner import Planner
 from axelo.patterns.common import match_profile
 from axelo.policies import resolve_runtime_policy
-from axelo.storage import SessionStore, WorkflowStore
+from axelo.storage import AdapterRegistry, SessionStore, WorkflowStore
 from axelo.telemetry import write_run_report
+from axelo.verification.engine import VerificationEngine
 
 from axelo.pipeline.stages import CrawlStage, DeobfuscateStage, DynamicAnalysisStage, FetchStage, StaticAnalysisStage
 
@@ -48,6 +52,8 @@ class MasterResult:
     cost: CostRecord | None = None
     output_dir: Path | None = None
     report_path: Path | None = None
+    execution_plan: ExecutionPlan | None = None
+    adapter_reused: bool = False
     error: str | None = None
     completed: bool = False
 
@@ -58,6 +64,8 @@ class MasterOrchestrator:
     def __init__(self) -> None:
         self._store = SessionStore(settings.sessions_dir)
         self._workflow_store = WorkflowStore(settings.sessions_dir)
+        self._adapter_registry = AdapterRegistry(settings.workspace)
+        self._planner = Planner(self._adapter_registry)
         mem_dir = settings.workspace / "memory"
         self._db = MemoryDB(mem_dir / "axelo.db")
         self._vs = VectorStore(mem_dir / "vectors")
@@ -82,6 +90,7 @@ class MasterOrchestrator:
         mode = create_mode(mode_name)
         cost = CostRecord(session_id=sid)
         budget = CostBudget(max_usd=budget_usd)
+        governor = CostGovernor(max_usd=budget_usd)
         result = MasterResult(session_id=sid, url=url)
         analysis: AnalysisResult | None = None
         generated: GeneratedCode | None = None
@@ -118,20 +127,26 @@ class MasterOrchestrator:
 
         memory_ctx = self._retriever.query_for_url(url, goal)
         known_site_profile = match_profile(url)
+        target.site_profile.domain = urlparse(url).netloc
         if known_site_profile:
-            target.site_profile.domain = url
+            target.site_profile.domain = urlparse(url).netloc
             target.site_profile.difficulty_hint = known_site_profile.difficulty
             target.site_profile.extraction_hints = list(known_site_profile.analysis_hints)
             target.site_profile.notes = [f"category={known_site_profile.category}", f"strategy={known_site_profile.strategy}"]
 
         target.interaction_goal = _build_enriched_goal(target, goal, runtime_policy, known_site_profile)
         result.output_dir = session_dir / "output"
+        plan_decision = self._planner.build(target, budget_usd=budget_usd, memory_ctx=memory_ctx)
+        target.execution_plan = plan_decision.plan
+        state.execution_plan = target.execution_plan.model_dump(mode="json")
+        result.execution_plan = target.execution_plan
 
         async def finalize(completed: bool) -> MasterResult:
             result.analysis = analysis
             result.generated = generated
             result.verified = verified
             result.cost = cost
+            result.execution_plan = target.execution_plan
             result.completed = completed and result.error is None
             state.completed = result.completed
             state.error = result.error
@@ -158,6 +173,79 @@ class MasterOrchestrator:
             )
             result.report_path = report_path
             return result
+
+        target.trace = workflow.checkpoint(
+            sid,
+            target.trace,
+            "planning",
+            "completed",
+            summary=f"tier={target.execution_plan.tier.value} cost={target.execution_plan.estimated_cost}",
+        )
+        state.workflow_status = "running"
+        self._store.save(state)
+
+        if target.execution_plan.tier == ExecutionTier.MANUAL_REVIEW:
+            analysis = AnalysisResult(session_id=sid, manual_review_required=True)
+            state.workflow_status = "waiting_manual_review"
+            state.manual_review_reason = "; ".join(target.execution_plan.reasons)
+            self._store.save(state)
+            target.trace = workflow.request_manual_review(
+                sid,
+                target.trace,
+                "planning",
+                summary=state.manual_review_reason or "Planner requested manual review",
+            )
+            result.error = "manual review required by execution plan"
+            return await finalize(False)
+
+        output_dir = session_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if target.execution_plan.tier == ExecutionTier.ADAPTER_REUSE and plan_decision.adapter is not None:
+            target.trace = workflow.checkpoint(sid, target.trace, "adapter_reuse", "running", summary=plan_decision.adapter.registry_key)
+            reused, reuse_verified = await self._reuse_adapter(
+                sid=sid,
+                target=target,
+                adapter=plan_decision.adapter,
+                output_dir=output_dir,
+            )
+            if reuse_verified:
+                generated = reused
+                verified = True
+                result.generated = generated
+                result.output_dir = output_dir
+                result.adapter_reused = True
+                target.trace = workflow.checkpoint(
+                    sid,
+                    target.trace,
+                    "adapter_reuse",
+                    "completed",
+                    summary="Verified adapter reused successfully",
+                    artifacts=_artifact_map(
+                        {
+                            key: path
+                            for key, path in {
+                                "crawler_script": generated.crawler_script_path,
+                                "bridge_server": generated.bridge_server_path,
+                                "manifest": generated.manifest_path,
+                                "session_state": generated.session_state_path,
+                            }.items()
+                            if path is not None
+                        }
+                    ),
+                )
+                return await finalize(True)
+
+            target.execution_plan = _escalate_execution_plan(target.execution_plan, "Adapter reuse failed verification; escalating to full pipeline.")
+            state.execution_plan = target.execution_plan.model_dump(mode="json")
+            self._store.save(state)
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "adapter_reuse",
+                "failed",
+                summary="Adapter verification failed, escalated to full pipeline",
+            )
 
         runner = NodeRunner(settings.node_bin)
         await runner.start()
@@ -287,7 +375,7 @@ class MasterOrchestrator:
                 self._store.save(state)
 
             dynamic: DynamicAnalysis | None = None
-            if difficulty.recommended_path in ("static+dynamic", "full+human") and not budget.should_skip_dynamic(cost):
+            if difficulty.recommended_path in ("static+dynamic", "full+human") and governor.allow_dynamic(cost, target.execution_plan):
                 target.trace = workflow.checkpoint(sid, target.trace, "s5_dynamic", "running")
                 state.current_stage_index = 4
                 self._store.save(state)
@@ -310,7 +398,7 @@ class MasterOrchestrator:
 
             analysis = AnalysisResult(session_id=sid, static=static_results, dynamic=dynamic)
 
-            if budget.should_skip_ai(cost):
+            if not governor.allow_ai(cost, target.execution_plan):
                 result.error = "budget exhausted before AI analysis"
                 return await finalize(False)
 
@@ -398,6 +486,7 @@ class MasterOrchestrator:
             target.trace = workflow.checkpoint(sid, target.trace, "verify", "running")
             state.current_stage_index = 8
             self._store.save(state)
+            target.compliance.stability_runs = governor.stability_runs(target, target.execution_plan)
             verifier = VerifierAgent(ai_client, cost, budget)
             max_verify_retries = max(1, target.compliance.max_auto_verify_retries)
             for attempt in range(max_verify_retries):
@@ -429,6 +518,8 @@ class MasterOrchestrator:
                 "completed" if verified else "failed",
                 summary=generated.verification_notes[:300],
             )
+            if verified and generated and target.execution_plan.should_persist_adapter:
+                self._adapter_registry.register(target, generated, analysis, verified=True)
 
         except Exception as exc:
             result.error = str(exc)
@@ -471,6 +562,39 @@ class MasterOrchestrator:
             uncached.append(bundle)
         return uncached, cached_static
 
+    async def _reuse_adapter(
+        self,
+        *,
+        sid: str,
+        target: TargetSite,
+        adapter,
+        output_dir: Path,
+    ) -> tuple[GeneratedCode, bool]:
+        materialized = self._adapter_registry.materialize(adapter, output_dir)
+        if materialized.session_state_path:
+            target.session_state.storage_state_path = str(materialized.session_state_path)
+
+        generated = GeneratedCode(
+            session_id=sid,
+            output_mode=adapter.output_mode,
+            crawler_script_path=materialized.crawler_script_path,
+            bridge_server_path=materialized.bridge_server_path,
+            manifest_path=materialized.manifest_path,
+            session_state_path=materialized.session_state_path,
+            verified=False,
+            verification_notes="adapter registry reuse candidate",
+        )
+
+        verifier = VerificationEngine()
+        verification = await verifier.verify(
+            generated,
+            target,
+            live_verify=target.compliance.allow_live_verification,
+        )
+        generated.verified = verification.ok
+        generated.verification_notes = verification.report
+        return generated, verification.ok
+
 
 def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_site_profile) -> str:
     login_context = "unknown"
@@ -509,3 +633,24 @@ def _read_requirements(path: Path | None) -> list[str]:
         if stripped and not stripped.startswith("#"):
             items.append(stripped)
     return items
+
+
+def _escalate_execution_plan(plan: ExecutionPlan, reason: str) -> ExecutionPlan:
+    escalated = plan.model_copy(deep=True)
+    escalated.tier = ExecutionTier.BROWSER_FULL
+    escalated.adapter_hit = False
+    escalated.adapter_key = ""
+    escalated.requires_browser = True
+    escalated.requires_dynamic_analysis = True
+    escalated.requires_ai = True
+    escalated.skip_fetch_and_static = False
+    escalated.skip_codegen = False
+    escalated.should_persist_adapter = True
+    escalated.enable_trace_capture = True
+    escalated.enable_action_flow = True
+    escalated.enable_target_confirmation = True
+    escalated.max_crawl_retries = max(2, escalated.max_crawl_retries)
+    escalated.max_session_rotations = max(2, escalated.max_session_rotations)
+    escalated.verification_mode = VerificationMode.STANDARD
+    escalated.reasons.append(reason)
+    return escalated

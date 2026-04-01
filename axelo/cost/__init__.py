@@ -1,3 +1,4 @@
+from .governor import CostGovernor
 from .tracker import CostRecord, CostBudget
 
-__all__ = ["CostRecord", "CostBudget"]
+__all__ = ["CostBudget", "CostGovernor", "CostRecord"]
