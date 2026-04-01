@@ -1,11 +1,16 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+
+from dataclasses import dataclass
 from pathlib import Path
+
+import structlog
+
 from axelo.models.codegen import GeneratedCode
 from axelo.models.target import TargetSite
-from axelo.verification.replayer import RequestReplayer, ReplayResult
-from axelo.verification.comparator import TokenComparator, CompareResult
-import structlog
+from axelo.verification.comparator import CompareResult, TokenComparator
+from axelo.verification.data_quality import DataQualityResult, evaluate_data_quality
+from axelo.verification.replayer import CrawlExecutionResult, ReplayResult, RequestReplayer
+from axelo.verification.stability import StabilityResult, evaluate_stability
 
 log = structlog.get_logger()
 
@@ -18,6 +23,8 @@ class VerificationResult:
     score: float = 0.0
     replay: ReplayResult | None = None
     compare: CompareResult | None = None
+    data_quality: DataQualityResult | None = None
+    stability: StabilityResult | None = None
     attempts: int = 0
     strategy_used: str = ""
     report: str = ""
@@ -25,15 +32,7 @@ class VerificationResult:
 
 
 class VerificationEngine:
-    """
-    验证生成代码的正确性。
-
-    流程：
-    1. 用生成脚本产生 headers
-    2. 实际发送请求（可选）
-    3. 格式比对 generated headers vs ground truth
-    4. 失败时根据错误类型切换策略重试
-    """
+    """Verify generated code by replaying requests, checking data quality, and measuring stability."""
 
     def __init__(self) -> None:
         self._replayer = RequestReplayer()
@@ -45,26 +44,19 @@ class VerificationEngine:
         target: TargetSite,
         live_verify: bool = True,
     ) -> VerificationResult:
-        """
-        live_verify=True：实际发送请求（需要网络）
-        live_verify=False：只做格式比对（离线安全）
-        """
         script_path = generated.crawler_script_path
-
         if script_path is None or not script_path.exists():
-            return VerificationResult(
-                ok=False,
-                report="验证失败：未找到生成的爬虫文件",
-            )
+            return VerificationResult(ok=False, report="verification failed: generated crawler file is missing")
+
+        stability_samples: list[tuple[dict[str, str], object]] = []
 
         for attempt in range(1, MAX_RETRIES + 1):
             log.info("verify_attempt", attempt=attempt, script=str(script_path))
 
-            gen_headers, replay_result = await self._replayer.replay_with_script(
-                script_path, target
-            )
+            gen_headers, replay_result = await self._replayer.replay_with_script(script_path, target)
+            if replay_result.generated_data is not None:
+                stability_samples.append((gen_headers, replay_result.generated_data))
 
-            # 无法生成 headers
             if not gen_headers:
                 if attempt < MAX_RETRIES:
                     log.warning("verify_no_headers", attempt=attempt)
@@ -73,54 +65,89 @@ class VerificationEngine:
                     ok=False,
                     attempts=attempt,
                     replay=replay_result,
-                    report=f"crawl() 执行失败: {replay_result.error}",
+                    report=f"crawl() execution failed: {replay_result.error}",
                 )
 
-            # 格式比对
             compare_result: CompareResult | None = None
             if target.target_requests:
                 compare_result = self._comparator.compare(gen_headers, target.target_requests[0])
 
-            # 综合判断
+            data_quality = evaluate_data_quality(replay_result.generated_data)
+            stability = await self._stability_check(script_path, target, stability_samples)
+
             live_ok = (not live_verify) or replay_result.ok
             format_ok = compare_result.ok if compare_result else True
-            overall_ok = live_ok and format_ok
-            score = compare_result.score if compare_result else (1.0 if live_ok else 0.0)
+            quality_ok = data_quality.ok
+            stability_ok = stability.ok
+            overall_ok = live_ok and format_ok and quality_ok and stability_ok
 
-            report_lines = [f"=== 验证报告（第 {attempt} 次）==="]
+            score_parts = [
+                compare_result.score if compare_result else (1.0 if live_ok else 0.0),
+                data_quality.score,
+                stability.score,
+            ]
+            score = round(sum(score_parts) / len(score_parts), 3)
+
+            report_lines = [f"=== verification report (attempt {attempt}) ==="]
             if compare_result:
                 report_lines.append(compare_result.summary())
             report_lines.append(replay_result.summary())
+            report_lines.append(data_quality.summary())
+            report_lines.append(stability.summary())
 
             result = VerificationResult(
                 ok=overall_ok,
                 score=score,
                 replay=replay_result,
                 compare=compare_result,
+                data_quality=data_quality,
+                stability=stability,
                 attempts=attempt,
-                strategy_used="standalone",
+                strategy_used=generated.output_mode,
                 report="\n".join(report_lines),
             )
 
             if overall_ok or attempt == MAX_RETRIES:
                 return result
 
-            # 分析失败原因，决定重试策略
-            retry_reason = _diagnose_failure(compare_result, replay_result)
+            retry_reason = _diagnose_failure(compare_result, replay_result, data_quality, stability)
             log.info("verify_retry", reason=retry_reason, attempt=attempt)
             result.retry_reason = retry_reason
 
-        return VerificationResult(ok=False, attempts=MAX_RETRIES, report="超过最大重试次数")
+        return VerificationResult(ok=False, attempts=MAX_RETRIES, report="exceeded maximum retry attempts")
+
+    async def _stability_check(
+        self,
+        script_path: Path,
+        target: TargetSite,
+        existing_samples: list[tuple[dict[str, str], object]],
+    ) -> StabilityResult:
+        samples = list(existing_samples)
+        desired_runs = max(1, target.compliance.stability_runs)
+        while len(samples) < desired_runs:
+            execution: CrawlExecutionResult = await self._replayer.execute_crawl(script_path, target)
+            if execution.error:
+                break
+            samples.append((execution.headers, execution.crawl_data))
+        return evaluate_stability(samples)
 
 
-def _diagnose_failure(compare: CompareResult | None, replay: ReplayResult) -> str:
-    """分析失败原因，返回诊断描述"""
+def _diagnose_failure(
+    compare: CompareResult | None,
+    replay: ReplayResult,
+    data_quality: DataQualityResult,
+    stability: StabilityResult,
+) -> str:
     if not replay.ok and replay.status_code == 403:
-        return "HTTP 403：签名被拒绝，算法可能有误"
+        return "HTTP 403: signature rejected or session blocked"
     if not replay.ok and replay.status_code == 401:
-        return "HTTP 401：认证失败，token 字段可能缺失"
+        return "HTTP 401: authentication failed"
     if compare and compare.missing:
-        return f"缺少字段：{compare.missing}"
+        return f"missing fields: {compare.missing}"
     if compare and compare.score < 0.5:
-        return f"格式匹配率低（{compare.score:.0%}），算法输出格式不对"
-    return "未知失败原因"
+        return f"header format mismatch: {compare.score:.0%}"
+    if not data_quality.ok:
+        return f"data quality too low: {data_quality.notes}"
+    if not stability.ok:
+        return f"stability check failed: {stability.notes}"
+    return "unknown verification failure"

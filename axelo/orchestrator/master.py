@@ -1,45 +1,40 @@
 from __future__ import annotations
+
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from datetime import datetime
+
 import structlog
 
-from axelo.config import settings
-from axelo.models.pipeline import PipelineState
-from axelo.models.target import TargetSite, BrowserProfile
-from axelo.models.analysis import AnalysisResult, StaticAnalysis, DynamicAnalysis
-from axelo.models.codegen import GeneratedCode
-from axelo.modes.base import ModeController
-from axelo.modes.registry import create_mode
-from axelo.storage.session_store import SessionStore
-from axelo.cost.tracker import CostRecord, CostBudget
-from axelo.memory.db import MemoryDB
-from axelo.memory.vector_store import VectorStore
-from axelo.memory.retriever import MemoryRetriever
-from axelo.memory.writer import MemoryWriter
-from axelo.classifier.rules import classify, DifficultyScore
-from axelo.patterns.common import match_profile
-from axelo.js_tools.runner import NodeRunner
-from axelo.analysis.static.ast_analyzer import ASTAnalyzer
-from axelo.policies import resolve_runtime_policy
-from axelo.telemetry import write_run_report
-from axelo.ai.client import AIClient
-from axelo.agents.scanner import ScannerAgent
-from axelo.agents.hypothesis import HypothesisAgent
 from axelo.agents.codegen_agent import CodeGenAgent
-from axelo.agents.verifier_agent import VerifierAgent
+from axelo.agents.hypothesis import HypothesisAgent
 from axelo.agents.memory_writer_agent import MemoryWriterAgent
+from axelo.agents.scanner import ScannerAgent
+from axelo.agents.verifier_agent import VerifierAgent
+from axelo.ai.client import AIClient
+from axelo.analysis import ASTAnalyzer, build_signature_spec
+from axelo.classifier.rules import DifficultyScore, classify
+from axelo.config import settings
+from axelo.cost.tracker import CostBudget, CostRecord
+from axelo.js_tools.runner import NodeRunner
+from axelo.memory.db import MemoryDB
+from axelo.memory.retriever import MemoryRetriever
+from axelo.memory.vector_store import VectorStore
+from axelo.memory.writer import MemoryWriter
+from axelo.models.analysis import AnalysisResult, DynamicAnalysis, StaticAnalysis
+from axelo.models.codegen import GeneratedCode
+from axelo.models.pipeline import Decision, DecisionType, PipelineState
+from axelo.models.target import BrowserProfile, TargetSite
+from axelo.modes.registry import create_mode
+from axelo.orchestrator.workflow_runtime import WorkflowRuntime
+from axelo.patterns.common import match_profile
+from axelo.policies import resolve_runtime_policy
+from axelo.storage import SessionStore, WorkflowStore
+from axelo.telemetry import write_run_report
 
-# 各阶段 Stage
-from axelo.pipeline.stages import (
-    CrawlStage, FetchStage, DeobfuscateStage,
-    StaticAnalysisStage, DynamicAnalysisStage,
-)
+from axelo.pipeline.stages import CrawlStage, DeobfuscateStage, DynamicAnalysisStage, FetchStage, StaticAnalysisStage
 
 log = structlog.get_logger()
-
-MAX_VERIFY_RETRIES = 2
 
 
 @dataclass
@@ -58,21 +53,11 @@ class MasterResult:
 
 
 class MasterOrchestrator:
-    """
-    总控编排器。
-
-    职责：
-    1. 查记忆库 → 确认是否有已知模式
-    2. 分流难度 → 选择执行路径（rules_only / static_only / static+dynamic / full+human）
-    3. 按路径调度各阶段（数据采集 → 分析 → AI → 代码生成 → 验证）
-    4. 控制成本（分层模型调用、预算守护）
-    5. 失败时切换策略重试
-    6. 写入记忆库
-    """
+    """Primary orchestrator for the current Axelo runtime."""
 
     def __init__(self) -> None:
-        # 基础设施
         self._store = SessionStore(settings.sessions_dir)
+        self._workflow_store = WorkflowStore(settings.sessions_dir)
         mem_dir = settings.workspace / "memory"
         self._db = MemoryDB(mem_dir / "axelo.db")
         self._vs = VectorStore(mem_dir / "vectors")
@@ -98,20 +83,24 @@ class MasterOrchestrator:
         cost = CostRecord(session_id=sid)
         budget = CostBudget(max_usd=budget_usd)
         result = MasterResult(session_id=sid, url=url)
+        analysis: AnalysisResult | None = None
+        generated: GeneratedCode | None = None
+        verified = False
 
-        # 确保工作目录存在
         session_dir = settings.session_dir(sid)
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        # 构建 PipelineState
         state = PipelineState(session_id=sid, mode=mode_name)
         if resume:
             loaded = self._store.load(sid)
             if loaded:
                 state = loaded
-                log.info("session_resumed", session_id=sid)
+                log.info("session_resumed", session_id=sid, workflow_status=state.workflow_status)
+        self._store.save(state)
 
-        # 构建目标
+        workflow = WorkflowRuntime(self._workflow_store)
+        trace = workflow.load_or_create(sid)
+
         target = TargetSite(
             url=url,
             session_id=sid,
@@ -122,270 +111,393 @@ class MasterOrchestrator:
             requires_login=requires_login,
             output_format=output_format,
             crawl_rate=crawl_rate,
+            trace=trace,
         )
         runtime_policy = resolve_runtime_policy(target)
         target.browser_profile = runtime_policy.apply_to_profile(target.browser_profile)
 
-        # 1. 查记忆库 + 匹配已知模式
         memory_ctx = self._retriever.query_for_url(url, goal)
-        site_profile = match_profile(url)
+        known_site_profile = match_profile(url)
+        if known_site_profile:
+            target.site_profile.domain = url
+            target.site_profile.difficulty_hint = known_site_profile.difficulty
+            target.site_profile.extraction_hints = list(known_site_profile.analysis_hints)
+            target.site_profile.notes = [f"category={known_site_profile.category}", f"strategy={known_site_profile.strategy}"]
 
-        log.info(
-            "master_start",
-            session_id=sid,
-            url=url,
-            known_pattern=memory_ctx.get("known_pattern") is not None,
-            site_profile=site_profile.category if site_profile else None,
-        )
+        target.interaction_goal = _build_enriched_goal(target, goal, runtime_policy, known_site_profile)
+        result.output_dir = session_dir / "output"
 
-        # 给 AI 注入站点先验知识 + 用户提供的上下文
-        login_context = "不确定"
-        if requires_login is True:
-            login_context = "需要登录态（Cookie 模拟）"
-        elif requires_login is False:
-            login_context = "无需登录（匿名接口）"
-
-        user_ctx_parts = [
-            f"已知接口路径: {known_endpoint or '需要自动发现'}",
-            f"反爬虫防护: {antibot_type}",
-            f"登录需求: {login_context}",
-            f"输出格式: {output_format}",
-            f"爬取频率: {crawl_rate}",
-            f"抓取等待策略: {runtime_policy.goto_wait_until} + {runtime_policy.post_navigation_wait_ms}ms",
-        ]
-        user_ctx = "  |  ".join(user_ctx_parts)
-
-        enriched_goal = f"{goal}\n\n[用户上下文] {user_ctx}"
-        if site_profile:
-            enriched_goal += (
-                f"\n[先验知识] 站点类型: {site_profile.category}，"
-                f"典型算法: {site_profile.typical_algorithm}，"
-                f"关键信号: {site_profile.key_signals[:3]}"
+        async def finalize(completed: bool) -> MasterResult:
+            result.analysis = analysis
+            result.generated = generated
+            result.verified = verified
+            result.cost = cost
+            result.completed = completed and result.error is None
+            state.completed = result.completed
+            state.error = result.error
+            state.workflow_status = "completed" if result.completed else state.workflow_status
+            state.last_updated = __import__("datetime").datetime.now()
+            self._store.save(state)
+            if result.generated:
+                result.output_dir = result.generated.crawler_script_path.parent if result.generated.crawler_script_path else result.output_dir
+            report_path = write_run_report(
+                session_dir / "run_report.json",
+                session_id=sid,
+                target=target,
+                policy=runtime_policy,
+                difficulty_level=result.difficulty.level if result.difficulty else None,
+                verified=verified,
+                completed=result.completed,
+                total_cost_usd=cost.total_usd,
+                total_tokens=cost.total_tokens,
+                ai_calls=cost.ai_calls,
+                browser_sessions=cost.browser_sessions,
+                node_calls=cost.node_calls,
+                analysis=analysis,
+                generated=generated,
             )
-        target.interaction_goal = enriched_goal
+            result.report_path = report_path
+            return result
 
-        # 启动 Node.js 运行器
         runner = NodeRunner(settings.node_bin)
         await runner.start()
         cost.add_node_call()
 
         try:
-            ai_client = AIClient(
-                api_key=settings.anthropic_api_key,
-                model=settings.model,
-            )
+            ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
             ast_analyzer = ASTAnalyzer(runner)
 
-            # ── 阶段1-3：数据采集 ──────────────────────────────────
             crawl_stage = CrawlStage()
             fetch_stage = FetchStage()
             deob_stage = DeobfuscateStage(runner)
+            static_stage = StaticAnalysisStage(ast_analyzer)
 
+            target.trace = workflow.checkpoint(sid, target.trace, "master", "started", summary="Run started")
+            state.workflow_status = "running"
+            self._store.save(state)
+
+            target.trace = workflow.checkpoint(sid, target.trace, "s1_crawl", "running")
+            state.current_stage_index = 0
+            self._store.save(state)
             crawl_result = await crawl_stage.execute(state, mode, target=target)
             if not crawl_result.success:
                 result.error = crawl_result.error
-                return result
+                target.trace = workflow.checkpoint(sid, target.trace, "s1_crawl", "failed", summary=result.error or "")
+                return await finalize(False)
             target = crawl_result.next_input.get("target", target)
             cost.add_browser_session()
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "s1_crawl",
+                "completed",
+                summary=crawl_result.summary,
+                artifacts=_artifact_map(crawl_result.artifacts),
+            )
 
+            target.trace = workflow.checkpoint(sid, target.trace, "s2_fetch", "running")
+            state.current_stage_index = 1
+            self._store.save(state)
             fetch_result = await fetch_stage.execute(state, mode, target=target)
             if not fetch_result.success:
                 result.error = fetch_result.error
-                return result
+                target.trace = workflow.checkpoint(sid, target.trace, "s2_fetch", "failed", summary=result.error or "")
+                return await finalize(False)
             bundles = fetch_result.next_input.get("bundles", [])
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "s2_fetch",
+                "completed",
+                summary=fetch_result.summary,
+                artifacts=_artifact_map(fetch_result.artifacts),
+            )
 
-            # 检查 Bundle 缓存（静态分析结果可能已缓存）
             bundles, cached_static = await self._check_bundle_cache(bundles)
 
+            target.trace = workflow.checkpoint(sid, target.trace, "s3_deobfuscate", "running")
+            state.current_stage_index = 2
+            self._store.save(state)
             deob_result = await deob_stage.execute(state, mode, bundles=bundles)
+            if not deob_result.success:
+                result.error = deob_result.error
+                target.trace = workflow.checkpoint(sid, target.trace, "s3_deobfuscate", "failed", summary=result.error or "")
+                return await finalize(False)
             bundles = deob_result.next_input.get("bundles", bundles)
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "s3_deobfuscate",
+                "completed",
+                summary=deob_result.summary,
+                artifacts=_artifact_map(deob_result.artifacts),
+            )
 
-            # ── 阶段4：静态分析 ────────────────────────────────────
-            static_stage = StaticAnalysisStage(ast_analyzer)
+            target.trace = workflow.checkpoint(sid, target.trace, "s4_static", "running")
+            state.current_stage_index = 3
+            self._store.save(state)
             static_result = await static_stage.execute(state, mode, bundles=bundles)
+            if not static_result.success:
+                result.error = static_result.error
+                target.trace = workflow.checkpoint(sid, target.trace, "s4_static", "failed", summary=result.error or "")
+                return await finalize(False)
             static_results: dict[str, StaticAnalysis] = {
                 **cached_static,
                 **static_result.next_input.get("static_results", {}),
             }
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "s4_static",
+                "completed",
+                summary=static_result.summary,
+                artifacts=_artifact_map(static_result.artifacts),
+            )
 
-            # ── 难度分类 ───────────────────────────────────────────
-            known_pattern = self._db.get_site_pattern(
-                memory_ctx.get("domain", "")
-            ) if memory_ctx.get("known_pattern") else None
+            known_pattern = self._db.get_site_pattern(memory_ctx.get("domain", "")) if memory_ctx.get("known_pattern") else None
             difficulty = classify(target, static_results, known_pattern)
             result.difficulty = difficulty
 
-            log.info(
-                "difficulty_classified",
-                level=difficulty.level,
-                score=difficulty.score,
-                path=difficulty.recommended_path,
-                reasons=difficulty.reasons[:2],
-            )
-
-            # ── 阶段5：动态分析（按难度决定是否执行）─────────────────
-            dynamic: DynamicAnalysis | None = None
-
-            needs_dynamic = (
-                difficulty.recommended_path in ("static+dynamic", "full+human")
-                and not budget.should_skip_dynamic(cost)
-            )
-
-            if needs_dynamic:
-                dyn_stage = DynamicAnalysisStage()
-                dyn_result = await dyn_stage.execute(
-                    state, mode, target=target, static_results=static_results
+            if difficulty.level == "extreme" and target.compliance.require_manual_for_extreme:
+                analysis = AnalysisResult(session_id=sid, static=static_results, manual_review_required=True)
+                state.workflow_status = "waiting_manual_review"
+                state.manual_review_reason = "Extreme target requires manual review"
+                self._store.save(state)
+                target.trace = workflow.request_manual_review(
+                    sid,
+                    target.trace,
+                    "difficulty",
+                    summary=f"Extreme site classified: {difficulty.reasons}",
                 )
+
+                decision = Decision(
+                    stage="difficulty",
+                    decision_type=DecisionType.MANUAL_REVIEW,
+                    prompt="Target classified as extreme. Manual review is required before continuing.",
+                    options=["stop_for_manual_review", "force_continue"],
+                    default="stop_for_manual_review",
+                    context_summary=", ".join(difficulty.reasons),
+                )
+                outcome = await mode.gate(decision, state)
+                if outcome != "force_continue":
+                    result.error = "manual review required for extreme target"
+                    return await finalize(False)
+                state.workflow_status = "running"
+                state.manual_review_reason = ""
+                self._store.save(state)
+
+            dynamic: DynamicAnalysis | None = None
+            if difficulty.recommended_path in ("static+dynamic", "full+human") and not budget.should_skip_dynamic(cost):
+                target.trace = workflow.checkpoint(sid, target.trace, "s5_dynamic", "running")
+                state.current_stage_index = 4
+                self._store.save(state)
+                dyn_stage = DynamicAnalysisStage()
+                dyn_result = await dyn_stage.execute(state, mode, target=target, static_results=static_results)
+                if not dyn_result.success:
+                    result.error = dyn_result.error
+                    target.trace = workflow.checkpoint(sid, target.trace, "s5_dynamic", "failed", summary=result.error or "")
+                    return await finalize(False)
                 dynamic = dyn_result.next_input.get("dynamic")
                 cost.add_browser_session()
+                target.trace = workflow.checkpoint(
+                    sid,
+                    target.trace,
+                    "s5_dynamic",
+                    "completed",
+                    summary=dyn_result.summary,
+                    artifacts=_artifact_map(dyn_result.artifacts),
+                )
 
-            analysis = AnalysisResult(
-                session_id=sid,
-                static=static_results,
-                dynamic=dynamic,
-            )
-            result.analysis = analysis
+            analysis = AnalysisResult(session_id=sid, static=static_results, dynamic=dynamic)
 
-            # ── AI 角色链：Scanner → Hypothesis ───────────────────
             if budget.should_skip_ai(cost):
-                log.warning("budget_skip_ai")
-                result.error = "预算不足，跳过AI分析"
-                return result
+                result.error = "budget exhausted before AI analysis"
+                return await finalize(False)
 
+            target.trace = workflow.checkpoint(sid, target.trace, "scanner", "running")
+            state.current_stage_index = 5
+            self._store.save(state)
             scanner = ScannerAgent(ai_client, cost, budget, retriever=self._retriever)
             scan_report = await scanner.scan(target, static_results)
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "scanner",
+                "completed",
+                summary=f"difficulty={scan_report.estimated_difficulty}",
+            )
 
-            hypothesis_agent = HypothesisAgent(
-                ai_client, cost, budget, retriever=self._retriever
-            )
-            hypothesis = await hypothesis_agent.generate(
-                target, static_results, dynamic, scan_report
-            )
+            target.trace = workflow.checkpoint(sid, target.trace, "hypothesis", "running")
+            state.current_stage_index = 6
+            self._store.save(state)
+            hypothesis_agent = HypothesisAgent(ai_client, cost, budget, retriever=self._retriever)
+            hypothesis = await hypothesis_agent.generate(target, static_results, dynamic, scan_report)
+            signature_spec = build_signature_spec(target, hypothesis, static_results, dynamic)
+            hypothesis.signature_spec = signature_spec
             analysis.ai_hypothesis = hypothesis
+            analysis.signature_spec = signature_spec
             analysis.overall_confidence = hypothesis.confidence
-            analysis.ready_for_codegen = hypothesis.confidence > 0.5
+            analysis.ready_for_codegen = hypothesis.confidence > 0.5 and signature_spec.codegen_strategy != "manual_required"
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "hypothesis",
+                "completed",
+                summary=f"confidence={hypothesis.confidence:.2f} strategy={signature_spec.codegen_strategy}",
+            )
 
-            # ── 人工决策点（non-auto 模式）─────────────────────────
             if not analysis.ready_for_codegen and mode_name != "auto":
-                from axelo.models.pipeline import Decision, DecisionType
                 decision = Decision(
                     stage="master",
                     decision_type=DecisionType.APPROVE_STAGE,
-                    prompt=f"AI 置信度较低（{hypothesis.confidence:.0%}），是否继续生成代码？",
-                    options=["继续生成", "放弃"],
-                    default="继续生成",
+                    prompt=f"AI confidence is low ({hypothesis.confidence:.0%}). Continue with code generation?",
+                    options=["continue", "stop"],
+                    default="continue",
                 )
                 outcome = await mode.gate(decision, state)
-                if outcome == "放弃":
-                    result.error = "用户放弃低置信度结果"
-                    return result
+                if outcome == "stop":
+                    result.error = "user declined low-confidence result"
+                    return await finalize(False)
 
-            # ── 代码生成 ───────────────────────────────────────────
+            if signature_spec.codegen_strategy == "manual_required":
+                result.error = "signature spec requires manual implementation"
+                target.trace = workflow.request_manual_review(
+                    sid,
+                    target.trace,
+                    "signature_spec",
+                    summary="Structured analysis marked this target as manual_required",
+                )
+                return await finalize(False)
+
             output_dir = session_dir / "output"
+            target.trace = workflow.checkpoint(sid, target.trace, "codegen", "running")
+            state.current_stage_index = 7
+            self._store.save(state)
             codegen = CodeGenAgent(ai_client, cost, budget, retriever=self._retriever)
-            artifacts = await codegen.generate(
-                target, hypothesis, static_results, dynamic, output_dir
-            )
-
+            artifacts = await codegen.generate(target, hypothesis, static_results, dynamic, output_dir)
             generated = GeneratedCode(
                 session_id=sid,
                 output_mode="standalone" if not artifacts.get("bridge_server") else "bridge",
                 crawler_script_path=artifacts.get("crawler_script"),
                 crawler_deps=_read_requirements(artifacts.get("requirements")),
                 bridge_server_path=artifacts.get("bridge_server"),
+                manifest_path=artifacts.get("manifest"),
+                session_state_path=Path(target.session_state.storage_state_path) if target.session_state.storage_state_path else None,
             )
             result.generated = generated
             result.output_dir = output_dir
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "codegen",
+                "completed",
+                summary=f"generated={list(artifacts.keys())}",
+                artifacts=_artifact_map(artifacts),
+            )
 
-            # ── 验证（含重试）─────────────────────────────────────
+            target.trace = workflow.checkpoint(sid, target.trace, "verify", "running")
+            state.current_stage_index = 8
+            self._store.save(state)
             verifier = VerifierAgent(ai_client, cost, budget)
-            verified = False
-
-            for attempt in range(MAX_VERIFY_RETRIES):
+            max_verify_retries = max(1, target.compliance.max_auto_verify_retries)
+            for attempt in range(max_verify_retries):
                 ver_result, ver_analysis = await verifier.verify_and_analyze(
-                    generated, target, hypothesis
+                    generated,
+                    target,
+                    hypothesis,
+                    live_verify=target.compliance.allow_live_verification,
                 )
                 verified = ver_result.ok
-
+                generated.verification_notes = ver_result.report
                 if verified:
                     break
-
                 if ver_analysis and ver_analysis.retry_strategy == "switch_to_bridge":
-                    # 切换到桥接模式重新生成
-                    log.info("retry_switch_bridge", attempt=attempt)
                     hypothesis.codegen_strategy = "js_bridge"
-                    artifacts = await codegen.generate(
-                        target, hypothesis, static_results, dynamic, output_dir
-                    )
+                    hypothesis.signature_spec = build_signature_spec(target, hypothesis, static_results, dynamic)
+                    artifacts = await codegen.generate(target, hypothesis, static_results, dynamic, output_dir)
                     generated.crawler_script_path = artifacts.get("crawler_script")
                     generated.bridge_server_path = artifacts.get("bridge_server")
+                    generated.manifest_path = artifacts.get("manifest")
                 elif ver_analysis and ver_analysis.retry_strategy == "give_up":
                     break
 
             generated.verified = verified
-            result.verified = verified
+            target.trace = workflow.checkpoint(
+                sid,
+                target.trace,
+                "verify",
+                "completed" if verified else "failed",
+                summary=generated.verification_notes[:300],
+            )
 
+        except Exception as exc:
+            result.error = str(exc)
+            state.workflow_status = "failed"
+            state.error = result.error
+            self._store.save(state)
+            target.trace = workflow.checkpoint(sid, target.trace, "master", "failed", summary=result.error)
+            return await finalize(False)
         finally:
             await runner.stop()
 
-        # ── 写入记忆库 ─────────────────────────────────────────────
         result.cost = cost
         mem_agent = MemoryWriterAgent(ai_client, cost, budget, writer=self._mem_writer)
         await mem_agent.write(
             session_id=sid,
             target=target,
             analysis=analysis,
-            hypothesis=analysis.ai_hypothesis,
+            hypothesis=analysis.ai_hypothesis if analysis else None,
             cost=cost,
-            verified=result.verified,
-        )
-
-        result.completed = True
-        report_path = write_run_report(
-            session_dir / "run_report.json",
-            session_id=sid,
-            target=target,
-            policy=runtime_policy,
-            difficulty_level=result.difficulty.level if result.difficulty else None,
-            verified=result.verified,
-            completed=True,
-            total_cost_usd=cost.total_usd,
-            total_tokens=cost.total_tokens,
-            ai_calls=cost.ai_calls,
-            browser_sessions=cost.browser_sessions,
-            node_calls=cost.node_calls,
-            analysis=analysis,
-            generated=result.generated,
-        )
-        result.report_path = report_path
-        log.info(
-            "master_done",
-            session_id=sid,
             verified=verified,
-            difficulty=difficulty.level,
-            cost=cost.summary(),
-            report=str(report_path),
         )
-        return result
+        target.trace = workflow.checkpoint(sid, target.trace, "memory_write", "completed", summary="Memory updated")
+        state.current_stage_index = 9
+        self._store.save(state)
+        return await finalize(True)
 
     async def _check_bundle_cache(self, bundles):
-        """检查 bundle 静态分析缓存，返回 (未缓存bundles, 已缓存static_results)"""
         uncached = []
         cached_static: dict[str, StaticAnalysis] = {}
-
         for bundle in bundles:
             cached = self._db.get_bundle_cache(bundle.content_hash)
             if cached and cached.analysis_json:
                 try:
-                    sa = StaticAnalysis.model_validate_json(cached.analysis_json)
-                    cached_static[bundle.bundle_id] = sa
+                    static = StaticAnalysis.model_validate_json(cached.analysis_json)
+                    cached_static[bundle.bundle_id] = static
                     log.info("static_cache_hit", bundle_id=bundle.bundle_id)
                     continue
                 except Exception:
                     pass
             uncached.append(bundle)
-
         return uncached, cached_static
+
+
+def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_site_profile) -> str:
+    login_context = "unknown"
+    if target.requires_login is True:
+        login_context = "authenticated session required"
+    elif target.requires_login is False:
+        login_context = "anonymous access expected"
+
+    context_parts = [
+        f"known endpoint: {target.known_endpoint or 'discover automatically'}",
+        f"antibot: {target.antibot_type}",
+        f"login: {login_context}",
+        f"output format: {target.output_format}",
+        f"crawl rate: {target.crawl_rate}",
+        f"runtime wait: {runtime_policy.goto_wait_until}/{runtime_policy.post_navigation_wait_ms}ms",
+    ]
+    enriched = f"{goal}\n\n[user context] " + " | ".join(context_parts)
+    if known_site_profile:
+        enriched += (
+            f"\n[known profile] category={known_site_profile.category}, "
+            f"algorithm={known_site_profile.typical_algorithm}, signals={known_site_profile.key_signals[:3]}"
+        )
+    return enriched
+
+
+def _artifact_map(artifacts: dict[str, Path]) -> dict[str, str]:
+    return {key: str(path) for key, path in artifacts.items()}
 
 
 def _read_requirements(path: Path | None) -> list[str]:
@@ -393,7 +505,7 @@ def _read_requirements(path: Path | None) -> list[str]:
         return []
     items: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#"):
-            items.append(line)
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            items.append(stripped)
     return items

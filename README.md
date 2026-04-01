@@ -1,96 +1,139 @@
 # Axelo JSReverse
 
-Axelo JSReverse 是一个面向网页请求签名、Token 生成逻辑和 JS 混淆逆向的自动化系统。它会先抓取目标站点请求和 JS 资源，再做静态/动态分析，交给 AI 归纳算法假设，最后生成可运行的 Python 爬虫或 JS bridge 方案，并通过验证层回放确认结果。
+Axelo JSReverse is an AI-assisted reverse-engineering pipeline for web request signing, token generation, and obfuscated JavaScript analysis. It captures browser traffic and bundles, performs static and dynamic analysis, builds a structured signature model, generates runnable crawler code, and verifies the result before storing reusable knowledge.
 
-## 当前架构
+## What Is Implemented
 
-- `axelo/cli.py`：命令行入口。
-- `axelo/wizard.py`：交互式向导入口，当前为 9 步。
-- `axelo/orchestrator/master.py`：主编排器，负责抓取、分析、AI、生成、验证、记忆库写回。
-- `axelo/pipeline/stages/`：分阶段流水线实现。
-- `axelo/models/`：运行时数据模型与统一输入契约。
-- `axelo/ai/`：Anthropic 调用与提示词模板。
-- `axelo/browser/`：Playwright 浏览器、指纹和网络拦截。
-- `axelo/analysis/`：JS 静态/动态分析工具。
-- `axelo/memory/`：记忆库、检索和模板复用。
-- `axelo/verification/`：生成代码回放验证。
-- `axelo/output/`：输出保存逻辑。
-- `axelo/policies/`：运行策略解析。
-- `axelo/telemetry/`：结构化运行报告。
+- Unified input contract through `RunConfig`
+- Interactive 9-step wizard and CLI entrypoint
+- Persistent `SessionState` with Playwright storage state and cookie support
+- Browser `ActionRunner` for scripted crawl flows beyond static navigation
+- File-backed `SessionPool` with health tracking and block detection
+- Explicit manual review gate for `extreme` targets
+- Structured `SignatureSpec` generation in addition to natural-language hypotheses
+- Verification extended with header comparison, data-quality checks, and stability checks
+- Workflow checkpoints, recovery metadata, and structured run reporting
 
-## 向导步骤
+## Runtime Architecture
 
-1. 目标 URL
-2. 爬取目标数据类型
-3. 目标接口特征
-4. 反爬虫防护类型
-5. 是否需要登录
-6. 数据输出格式
-7. 爬取频率偏好
-8. 运行模式
-9. AI 预算
+Primary runtime path:
 
-## 运行方式
+1. `axelo/wizard.py` or `axelo/cli.py` builds a `RunConfig`
+2. `axelo/orchestrator/master.py` builds a `TargetSite`, resolves runtime policy, and starts workflow tracking
+3. `axelo/pipeline/stages/s1_crawl.py` opens the target in Playwright, executes actions, captures traffic, and persists session state
+4. `axelo/pipeline/stages/s2_fetch.py` downloads JavaScript bundles
+5. `axelo/pipeline/stages/s3_deobfuscate.py` normalizes bundle content
+6. `axelo/pipeline/stages/s4_static.py` extracts candidates using static analysis
+7. `axelo/pipeline/stages/s5_dynamic.py` validates runtime behavior
+8. `axelo/pipeline/stages/s6_ai_analyze.py` produces AI hypotheses and a structured `SignatureSpec`
+9. `axelo/pipeline/stages/s7_codegen.py` generates Python crawler code or a JS bridge plus a crawler manifest
+10. `axelo/verification/engine.py` replays the generated code and evaluates correctness, data quality, and stability
+11. `axelo/memory` stores reusable patterns
 
-CLI：
+Compatibility path:
 
-```bash
-axelo run https://example.com \
-  --goal "分析并复现请求签名/Token生成逻辑" \
-  --mode interactive \
-  --budget 3 \
-  --known-endpoint /api/search \
-  --antibot cloudflare \
-  --login cookie \
-  --output-format json_file \
-  --crawl-rate conservative
-```
+- `axelo/session.py` remains available, but it now delegates to `MasterOrchestrator`
 
-交互式向导：
+## Key Modules
 
-```bash
-AxeloJsReverse
-```
+- `axelo/models/`
+  - canonical runtime models including `TargetSite`, `PipelineState`, `SessionState`, `SiteProfile`, `CompliancePolicy`, `TraceArtifact`, and `SignatureSpec`
+- `axelo/browser/`
+  - browser driver, action runner, state persistence helpers, session pool, trace capture
+- `axelo/policies/runtime.py`
+  - maps target metadata to crawl timing, login behavior, and browser policy
+- `axelo/orchestrator/`
+  - master orchestration, workflow checkpoints, recovery helpers
+- `axelo/analysis/`
+  - static and dynamic analysis plus structured signature-spec building
+- `axelo/verification/`
+  - replay engine, token comparison, data-quality checks, stability checks
+- `axelo/output/sink.py`
+  - output formatting and file persistence
+- `axelo/telemetry/report.py`
+  - structured `run_report.json` generation
 
-## 新增输入字段
+## Input Contract
 
-这些字段会进入 `RunConfig`，并透传到主编排器、AI prompt、运行策略和运行报告中：
+The runtime carries these fields end-to-end:
 
+- `url`
+- `goal`
 - `known_endpoint`
 - `antibot_type`
 - `requires_login`
 - `output_format`
 - `crawl_rate`
+- `mode`
+- `budget`
 
-## 输出物
+The extra context is injected into:
 
-每次运行会在会话目录下生成：
+- wizard and CLI prompts
+- `TargetSite`
+- runtime policy resolution
+- AI prompts
+- code generation manifest
+- run reports
+
+## Wizard Flow
+
+1. URL
+2. Goal
+3. Target endpoint characteristic
+4. Anti-bot type
+5. Login requirement
+6. Output format
+7. Crawl rate
+8. Runtime mode
+9. AI budget
+
+## Outputs
+
+Each run may produce:
 
 - `crawl/captures.json`
 - `crawl/target.json`
+- `crawl/browser_storage_state.json`
+- `crawl/session_state.json`
+- `crawl/playwright_trace.zip`
 - `output/crawler.py`
 - `output/bridge_server.js`
 - `output/requirements.txt`
+- `output/crawler_manifest.json`
 - `run_report.json`
+- workflow checkpoint files under the workflow store
 
-## 验证
+## Manual Review Gate
 
-建议先做这几个检查：
+Targets classified as `extreme` no longer continue through unrestricted automatic retries. When compliance requires it, the orchestrator writes a workflow checkpoint, records the manual-review reason, and stops the pipeline in a recoverable state.
+
+## Verification Model
+
+Verification now checks:
+
+- request/response compatibility
+- token/header matching
+- data quality of generated output
+- repeated-run stability
+
+## Validation Commands
 
 ```bash
 python -c "from axelo.models.target import TargetSite; print('ok')"
 python -c "from axelo.orchestrator.master import MasterOrchestrator; print('ok')"
-pytest -q tests/unit/test_run_config_policy.py tests/unit/test_verification.py
+pytest
 ```
 
-## 依赖
+## Requirements
 
 - Python 3.14+
 - Node.js
 - Playwright
-- Anthropic API Key
+- Anthropic API key
 
-## 说明
+## Notes
 
-这套系统同时保留了旧的 `axelo/session.py` 路径，但当前推荐以 `MasterOrchestrator` 为主路径。
-
+- New work should target `MasterOrchestrator`
+- `axelo/session.py` should be treated as a compatibility wrapper
+- Workflow checkpoints and session artifacts are intended to support pause, recovery, and human-in-the-loop review

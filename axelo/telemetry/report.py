@@ -38,15 +38,24 @@ def write_run_report(
             "output_format": target.output_format,
             "crawl_rate": target.crawl_rate,
         },
+        "site_profile": target.site_profile.model_dump(mode="json"),
+        "compliance": target.compliance.model_dump(mode="json"),
+        "session_state": target.session_state.model_dump(mode="json"),
+        "trace": target.trace.model_dump(mode="json"),
         "policy": policy.as_dict(),
         "result": {
             "difficulty_level": difficulty_level,
             "verified": verified,
             "completed": completed,
             "analysis_ready_for_codegen": analysis.ready_for_codegen if analysis else None,
+            "manual_review_required": analysis.manual_review_required if analysis else None,
+            "signature_spec": analysis.signature_spec.model_dump(mode="json") if analysis and analysis.signature_spec else None,
             "output_mode": generated.output_mode if generated else None,
             "crawler_script_path": str(generated.crawler_script_path) if generated and generated.crawler_script_path else None,
             "bridge_server_path": str(generated.bridge_server_path) if generated and generated.bridge_server_path else None,
+            "manifest_path": str(generated.manifest_path) if generated and generated.manifest_path else None,
+            "session_state_path": str(generated.session_state_path) if generated and generated.session_state_path else None,
+            "verification_notes": generated.verification_notes if generated else "",
         },
         "cost": {
             "total_usd": round(total_cost_usd, 6),
@@ -58,4 +67,3 @@ def write_run_report(
     }
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_path
-
