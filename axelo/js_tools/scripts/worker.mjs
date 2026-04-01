@@ -13,6 +13,16 @@ import { deobfuscate } from './deobfuscate.mjs';
 import { extractAst, applyTransforms } from './ast_tools.mjs';
 import { executeSandboxed } from './execute_hook.mjs';
 
+for (const level of ['log', 'info', 'warn', 'error']) {
+  console[level] = (...args) => {
+    process.stderr.write(args.map((item) => String(item)).join(' ') + '\n');
+  };
+}
+
+process.on('unhandledRejection', (err) => {
+  process.stderr.write(`[unhandledRejection] ${err?.stack || err?.message || String(err)}\n`);
+});
+
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 const METHODS = {

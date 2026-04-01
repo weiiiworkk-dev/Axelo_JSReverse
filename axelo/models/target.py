@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+import hashlib
+
+from pydantic import BaseModel, Field, field_serializer
 
 from axelo.models.compliance import CompliancePolicy
 from axelo.models.execution import ExecutionPlan
@@ -27,6 +29,27 @@ class RequestCapture(BaseModel):
     call_stack: list[str] = Field(default_factory=list)
     is_target: bool = False
     token_fields: list[str] = Field(default_factory=list)
+
+    @field_serializer("request_body", "response_body", when_used="json")
+    def _serialize_bytes_preview(self, value: bytes | None) -> str | None:
+        if value is None:
+            return None
+        if not value:
+            return ""
+        preview = value[:4096]
+        if b"\x00" in preview:
+            return f"<binary {len(value)} bytes sha256={hashlib.sha256(value).hexdigest()[:16]}>"
+        try:
+            text = preview.decode("utf-8")
+            suffix = "… [truncated]" if len(value) > len(preview) else ""
+            return text + suffix
+        except UnicodeDecodeError:
+            text = preview.decode("utf-8", errors="replace")
+            non_printable = sum(1 for ch in text if ord(ch) < 32 and ch not in "\r\n\t")
+            if non_printable > max(8, len(text) // 20):
+                return f"<binary {len(value)} bytes sha256={hashlib.sha256(value).hexdigest()[:16]}>"
+            suffix = "… [truncated]" if len(value) > len(preview) else ""
+            return text + suffix
 
 
 class BrowserProfile(BaseModel):

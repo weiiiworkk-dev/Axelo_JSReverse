@@ -23,6 +23,7 @@ class ASTAnalyzer:
 
     async def analyze(self, bundle_id: str, source_path: Path) -> StaticAnalysis:
         source = source_path.read_text(encoding="utf-8", errors="replace")
+        source = _prepare_source_sample(source)
 
         log.info("ast_analyze_start", bundle_id=bundle_id, size=len(source))
         raw = await self._runner.extract_ast(source)
@@ -102,3 +103,11 @@ def _extract_snippet(source: str, start_line: int, context_lines: int = 15) -> s
     idx = max(0, start_line - 1)
     end = min(len(lines), idx + context_lines)
     return "\n".join(lines[idx:end])
+
+
+def _prepare_source_sample(source: str, max_chars: int = 250_000) -> str:
+    if len(source) <= max_chars:
+        return source
+    head = source[:150_000]
+    tail = source[-100_000:]
+    return head + "\n/* ... axelo truncated oversized bundle for AST analysis ... */\n" + tail

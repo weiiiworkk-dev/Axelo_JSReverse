@@ -28,6 +28,7 @@ class NodeRunner:
         self._proc: asyncio.subprocess.Process | None = None
         self._pending: dict[str, asyncio.Future[dict]] = {}
         self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -43,13 +44,12 @@ class NodeRunner:
             cwd=str(SCRIPTS_DIR),
         )
 
-        # 等待就绪信号
-        init_line = await asyncio.wait_for(self._proc.stdout.readline(), timeout=10.0)
-        init_msg = json.loads(init_line)
+        init_msg = await self._wait_for_ready()
         if not init_msg.get("result", {}).get("ready"):
             raise NodeRunnerError(f"Node worker 启动失败: {init_msg}")
 
         self._reader_task = asyncio.create_task(self._reader_loop())
+        self._stderr_task = asyncio.create_task(self._stderr_loop())
         log.info("node_runner_started", pid=self._proc.pid)
 
     async def stop(self) -> None:
@@ -57,6 +57,8 @@ class NodeRunner:
             return
         if self._reader_task:
             self._reader_task.cancel()
+        if self._stderr_task:
+            self._stderr_task.cancel()
         try:
             self._proc.stdin.close()
             await asyncio.wait_for(self._proc.wait(), timeout=5.0)
@@ -95,7 +97,13 @@ class NodeRunner:
                 line = await self._proc.stdout.readline()
                 if not line:
                     break
-                msg = json.loads(line)
+                raw = line.decode("utf-8", errors="replace").strip()
+                if not raw:
+                    continue
+                if not (raw.startswith("{") and raw.endswith("}")):
+                    log.debug("node_stdout_ignored", preview=raw[:120])
+                    continue
+                msg = json.loads(raw)
                 msg_id = msg.get("id")
                 if msg_id and msg_id in self._pending:
                     fut = self._pending.pop(msg_id)
@@ -104,7 +112,40 @@ class NodeRunner:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log.warning("node_reader_error", error=str(e))
+                log.debug("node_reader_error", error=str(e))
+
+    async def _stderr_loop(self) -> None:
+        while self._proc and self._proc.stderr:
+            try:
+                line = await self._proc.stderr.readline()
+                if not line:
+                    break
+                raw = line.decode("utf-8", errors="replace").strip()
+                if raw:
+                    log.debug("node_stderr", message=raw[:200])
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                break
+
+    async def _wait_for_ready(self) -> dict:
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            line = await asyncio.wait_for(self._proc.stdout.readline(), timeout=max(0.1, deadline - time.monotonic()))
+            if not line:
+                break
+            raw = line.decode("utf-8", errors="replace").strip()
+            if not raw:
+                continue
+            if not (raw.startswith("{") and raw.endswith("}")):
+                log.debug("node_startup_stdout_ignored", preview=raw[:120])
+                continue
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                log.debug("node_startup_json_ignored", preview=raw[:120])
+                continue
+        raise NodeRunnerError("Node worker 启动超时或未返回 ready 消息")
 
     # ── 高层 API ──────────────────────────────────────────────
 

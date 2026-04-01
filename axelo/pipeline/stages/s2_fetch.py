@@ -41,7 +41,8 @@ class FetchStage(PipelineStage):
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # 仅下载前10个JS文件（优先级：bundle大小，主文件优先）
-        js_urls = target.js_urls[:10]
+        max_bundles = target.execution_plan.max_bundles if target.execution_plan else 10
+        js_urls = target.js_urls[: max(1, max_bundles * 2)]
         if not js_urls:
             return StageResult(
                 stage_name=self.name, success=False,
@@ -89,6 +90,8 @@ class FetchStage(PipelineStage):
             return StageResult(stage_name=self.name, success=False, error="所有JS文件下载失败")
 
         # 决策：优先分析哪些 bundle
+        bundles = _prioritize_bundles(bundles)
+
         options = [
             f"{b.bundle_id} | {b.bundle_type} | {b.size_bytes//1024}KB | {b.source_url[-60:]}"
             for b in bundles
@@ -116,6 +119,11 @@ class FetchStage(PipelineStage):
             except ValueError:
                 selected = bundles
 
+        selected, cap_note = _apply_bundle_caps(selected, target)
+        summary = f"下载 {len(bundles)} 个bundle，选择分析 {len(selected)} 个"
+        if cap_note:
+            summary += f"（{cap_note}）"
+
         # 序列化 bundles 元数据
         meta_path = session_dir / "bundles" / "meta.json"
         meta_path.write_text(
@@ -130,6 +138,46 @@ class FetchStage(PipelineStage):
             success=True,
             artifacts={"bundles_meta": meta_path},
             decisions=[decision],
-            summary=f"下载 {len(bundles)} 个bundle，选择分析 {len(selected)} 个",
+            summary=summary,
             next_input={"bundles": selected, "target": target},
         )
+
+
+def _prioritize_bundles(bundles: list[JSBundle]) -> list[JSBundle]:
+    type_rank = {"webpack": 0, "vite": 1, "rollup": 2, "plain": 3, "unknown": 4}
+    return sorted(
+        bundles,
+        key=lambda bundle: (
+            type_rank.get(bundle.bundle_type, 5),
+            abs(bundle.size_bytes - 180_000),
+        ),
+    )
+
+
+def _apply_bundle_caps(bundles: list[JSBundle], target: TargetSite) -> tuple[list[JSBundle], str]:
+    plan = target.execution_plan
+    if plan is None:
+        return bundles, ""
+
+    capped: list[JSBundle] = []
+    total_kb = 0
+    skipped = 0
+    for bundle in bundles:
+        size_kb = max(1, bundle.size_bytes // 1024)
+        if size_kb > plan.max_bundle_size_kb:
+            skipped += 1
+            continue
+        if len(capped) >= plan.max_bundles:
+            skipped += 1
+            continue
+        if total_kb + size_kb > plan.max_total_bundle_kb:
+            skipped += 1
+            continue
+        capped.append(bundle)
+        total_kb += size_kb
+
+    if capped:
+        note = f"bundle guardrail skipped {skipped} oversized/low-priority bundles" if skipped else ""
+        return capped, note
+
+    return bundles[: min(len(bundles), plan.max_bundles)], "bundle guardrail fallback applied"

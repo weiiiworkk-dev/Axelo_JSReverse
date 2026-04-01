@@ -31,7 +31,7 @@ class DeobfuscationPipeline:
         output_dir: Path,
         force_tool: DeobfuscatorName | None = None,
     ) -> DeobfuscationResult:
-        tools = [force_tool] if force_tool else TOOL_PRIORITY
+        tools = [force_tool] if force_tool else self._select_tools(source)
         best: DeobfuscationResult | None = None
 
         for tool in tools:
@@ -81,3 +81,11 @@ class DeobfuscationPipeline:
             )
 
         return best
+
+    def _select_tools(self, source: str) -> list[DeobfuscatorName]:
+        size = len(source)
+        if size > 800_000:
+            return ["babel-manual"]
+        if size > 400_000:
+            return ["synchrony", "babel-manual"]
+        return TOOL_PRIORITY

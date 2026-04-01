@@ -20,6 +20,9 @@ class CostGovernor:
             tuned.requires_dynamic_analysis = False
             tuned.enable_trace_capture = False
             tuned.max_crawl_retries = 1
+            tuned.max_bundles = 3
+            tuned.max_bundle_size_kb = 256
+            tuned.max_total_bundle_kb = 700
             tuned.verification_mode = VerificationMode.BASIC
             tuned.degradation_notes.append("Budget pressure downgraded browser execution to light mode.")
 
@@ -27,12 +30,18 @@ class CostGovernor:
             tuned.requires_dynamic_analysis = False
             tuned.verification_mode = VerificationMode.BASIC
             tuned.enable_trace_capture = False
+            tuned.max_bundles = min(tuned.max_bundles, 2)
+            tuned.max_bundle_size_kb = min(tuned.max_bundle_size_kb, 192)
+            tuned.max_total_bundle_kb = min(tuned.max_total_bundle_kb, 450)
             tuned.degradation_notes.append("Very low budget disables trace-heavy and dynamic stages.")
 
         if tuned.tier == ExecutionTier.BROWSER_LIGHT:
             tuned.enable_action_flow = False
             tuned.enable_trace_capture = False
             tuned.max_session_rotations = min(tuned.max_session_rotations, 2)
+            tuned.max_bundles = min(tuned.max_bundles, 3)
+            tuned.max_bundle_size_kb = min(tuned.max_bundle_size_kb, 256)
+            tuned.max_total_bundle_kb = min(tuned.max_total_bundle_kb, 700)
             tuned.estimated_cost = "low"
 
         if tuned.tier == ExecutionTier.ADAPTER_REUSE:
@@ -46,6 +55,9 @@ class CostGovernor:
             tuned.enable_target_confirmation = False
             tuned.max_crawl_retries = 1
             tuned.max_session_rotations = 1
+            tuned.max_bundles = 1
+            tuned.max_bundle_size_kb = 64
+            tuned.max_total_bundle_kb = 64
             tuned.estimated_cost = "low"
             tuned.verification_mode = VerificationMode.BASIC
 
@@ -60,6 +72,9 @@ class CostGovernor:
             tuned.enable_target_confirmation = False
             tuned.verification_mode = VerificationMode.NONE
             tuned.should_persist_adapter = False
+            tuned.max_bundles = 1
+            tuned.max_bundle_size_kb = 64
+            tuned.max_total_bundle_kb = 64
             tuned.estimated_cost = "minimal"
 
         return tuned
@@ -88,4 +103,3 @@ class CostGovernor:
         if plan.verification_mode == VerificationMode.STRICT:
             return max(target.compliance.stability_runs, 3)
         return max(1, target.compliance.stability_runs)
-

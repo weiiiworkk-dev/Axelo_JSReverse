@@ -67,6 +67,25 @@ class TestRequestCapture:
         cap = RequestCapture(url="https://x.com", method="GET")
         assert cap.token_fields == []
 
+    def test_binary_body_serializes_without_utf8_failure(self):
+        cap = RequestCapture(
+            url="https://api.example.com/data",
+            method="POST",
+            request_body=b"\x80\x81\x82payload",
+            response_body=b"\x00\x01\x02binary",
+        )
+        target = TargetSite(
+            url="https://example.com",
+            session_id="test01",
+            interaction_goal="demo",
+            captured_requests=[cap],
+            target_requests=[cap],
+        )
+        payload = target.model_dump(mode="json")
+        assert isinstance(payload["captured_requests"][0]["request_body"], str)
+        assert isinstance(payload["captured_requests"][0]["response_body"], str)
+        assert target.model_dump_json()
+
 
 class TestTokenCandidate:
     def test_candidate_creation(self):

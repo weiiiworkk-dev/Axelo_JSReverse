@@ -103,7 +103,7 @@ class NetworkInterceptor:
                 if cap.url == url and cap.response_status == 0:
                     cap.response_status = response.status
                     cap.response_headers = dict(response.headers)
-                    cap.response_body = body_bytes
+                    cap.response_body = body_bytes[:4096] if body_bytes else None
                     break
 
             drained += 1

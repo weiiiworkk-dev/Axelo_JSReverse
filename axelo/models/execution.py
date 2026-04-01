@@ -39,8 +39,10 @@ class ExecutionPlan(BaseModel):
     enable_target_confirmation: bool = True
     max_crawl_retries: int = Field(default=1, ge=1, le=5)
     max_session_rotations: int = Field(default=1, ge=1, le=5)
+    max_bundles: int = Field(default=6, ge=1, le=20)
+    max_bundle_size_kb: int = Field(default=512, ge=64, le=4096)
+    max_total_bundle_kb: int = Field(default=1600, ge=128, le=16384)
     estimated_cost: str = "medium"
     reasons: list[str] = Field(default_factory=list)
     degradation_notes: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
-
