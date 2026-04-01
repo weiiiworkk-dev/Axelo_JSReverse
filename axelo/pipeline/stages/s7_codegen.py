@@ -63,6 +63,7 @@ class CodeGenStage(PipelineStage):
                 hypothesis=hypothesis,
                 source_snippets=source_snippets,
                 hook_data=hook_data,
+                target=target,
             )
         else:
             template = self._jinja.get_template("generate_bridge.j2")
@@ -70,6 +71,7 @@ class CodeGenStage(PipelineStage):
                 hypothesis=hypothesis,
                 bundle_path=first_bundle_path,
                 bridge_port=8721,
+                target=target,
             )
 
         user_msg = f"目标URL: {target.url}\n请生成完整的可运行代码。"

@@ -6,6 +6,7 @@ from .analysis import (
 )
 from .codegen import GeneratedCode
 from .pipeline import Decision, DecisionType, StageResult, StageRecord, StageStatus, PipelineState
+from .run_config import RunConfig, RunMode, AntiBotType, OutputFormat, CrawlRate
 
 __all__ = [
     "RequestCapture", "BrowserProfile", "TargetSite",
@@ -14,4 +15,5 @@ __all__ = [
     "HookIntercept", "DynamicAnalysis", "AIHypothesis", "AnalysisResult",
     "GeneratedCode",
     "Decision", "DecisionType", "StageResult", "StageRecord", "StageStatus", "PipelineState",
+    "RunConfig", "RunMode", "AntiBotType", "OutputFormat", "CrawlRate",
 ]

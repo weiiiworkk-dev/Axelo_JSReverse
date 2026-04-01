@@ -1,2 +1,3 @@
-"""Axelo JSReverse — AI 驱动的网页 JS 逆向系统"""
+"""Axelo JSReverse - AI-driven web JS reverse-engineering system."""
+
 __version__ = "0.1.0"

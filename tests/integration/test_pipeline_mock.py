@@ -369,7 +369,7 @@ class TokenGenerator:
         generated = GeneratedCode(
             session_id="shopee_pipe_test",
             output_mode="standalone",
-            standalone_script_path=script,
+            crawler_script_path=script,
         )
         target = TargetSite(
             url="https://shopee.sg/api/v2/search",
@@ -397,7 +397,7 @@ def some_function():
         generated = GeneratedCode(
             session_id="bad_script_test",
             output_mode="standalone",
-            standalone_script_path=script,
+            crawler_script_path=script,
         )
         target = TargetSite(
             url="https://api.example.com",

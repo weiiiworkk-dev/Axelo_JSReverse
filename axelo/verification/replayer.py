@@ -1,19 +1,21 @@
 from __future__ import annotations
+
 import importlib.util
-import sys
-import asyncio
 from pathlib import Path
+
 import httpx
-from axelo.models.target import RequestCapture, TargetSite
 import structlog
+
+from axelo.config import settings
+from axelo.models.target import RequestCapture, TargetSite
+from axelo.output import save_output
 
 log = structlog.get_logger()
 
 
 class RequestReplayer:
     """
-    使用生成的代码重放目标请求，捕获实际响应。
-    支持独立脚本模式和桥接模式。
+    Load generated crawler code, execute crawl(), and replay one target request.
     """
 
     async def replay_with_script(
@@ -22,17 +24,14 @@ class RequestReplayer:
         target: TargetSite,
         timeout: float = 15.0,
     ) -> tuple[dict[str, str], "ReplayResult"]:
-        """
-        加载生成的 Python 脚本，调用 generate()，
-        再用得到的 headers 实际发送目标请求。
-        返回 (generated_headers, result)。
-        """
-        # 动态加载
         gen_headers: dict[str, str] = {}
-        load_error: str | None = None
+        output_path: Path | None = None
 
         try:
             spec = importlib.util.spec_from_file_location("axelo_gen", script_path)
+            if spec is None or spec.loader is None:
+                return {}, ReplayResult(ok=False, error="无法加载脚本模块", status_code=0)
+
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
 
@@ -47,19 +46,27 @@ class RequestReplayer:
                 return {}, ReplayResult(ok=False, error="未找到 crawl() 方法", status_code=0)
 
             instance = crawler_class()
-            # 调用 crawl() 直接获取数据；_sign() 内部会生成 headers
-            result = instance.crawl()
-            # 尝试从内部获取最近一次签名的 headers（若爬虫暴露 _last_headers）
+            crawl_data = instance.crawl()
             gen_headers = getattr(instance, "_last_headers", {}) or {}
-        except Exception as e:
-            return {}, ReplayResult(ok=False, error=f"脚本加载/执行失败: {e}", status_code=0)
+            output_path = save_output(
+                crawl_data,
+                target.output_format,
+                settings.session_dir(target.session_id) / "output",
+            )
+        except Exception as exc:
+            return {}, ReplayResult(ok=False, error=f"脚本加载/执行失败: {exc}", status_code=0)
 
-        # 使用生成的 headers 发送真实请求
         if not target.target_requests:
-            return gen_headers, ReplayResult(ok=True, status_code=0, headers=gen_headers)
+            return gen_headers, ReplayResult(
+                ok=True,
+                status_code=0,
+                headers=gen_headers,
+                output_path=str(output_path) if output_path else None,
+            )
 
         req = target.target_requests[0]
         result = await self._send_request(req, gen_headers, timeout)
+        result.output_path = str(output_path) if output_path else None
         return gen_headers, result
 
     async def _send_request(
@@ -70,9 +77,8 @@ class RequestReplayer:
     ) -> "ReplayResult":
         merged_headers = dict(req.request_headers)
         merged_headers.update(extra_headers)
-        # 移除会导致问题的头
-        for h in ("content-length", "transfer-encoding", "host"):
-            merged_headers.pop(h, None)
+        for header in ("content-length", "transfer-encoding", "host"):
+            merged_headers.pop(header, None)
 
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -83,29 +89,39 @@ class RequestReplayer:
                     content=req.request_body,
                 )
             ok = 200 <= resp.status_code < 400
-            log.info("replay_done", url=req.url[:60], status=resp.status_code, ok=ok)
+            log.info("replay_done", url=req.url[:120], status=resp.status_code, ok=ok)
             return ReplayResult(
                 ok=ok,
                 status_code=resp.status_code,
                 response_body=resp.text[:2000],
                 headers=extra_headers,
             )
-        except Exception as e:
-            log.warning("replay_failed", error=str(e))
-            return ReplayResult(ok=False, error=str(e), status_code=0)
+        except Exception as exc:
+            log.warning("replay_failed", error=str(exc))
+            return ReplayResult(ok=False, error=str(exc), status_code=0)
 
 
 class ReplayResult:
-    def __init__(self, ok: bool, status_code: int = 0,
-                 response_body: str = "", headers: dict | None = None, error: str | None = None):
+    def __init__(
+        self,
+        ok: bool,
+        status_code: int = 0,
+        response_body: str = "",
+        headers: dict | None = None,
+        error: str | None = None,
+        output_path: str | None = None,
+    ):
         self.ok = ok
         self.status_code = status_code
         self.response_body = response_body
         self.headers = headers or {}
         self.error = error
+        self.output_path = output_path
 
     def summary(self) -> str:
         if self.error:
             return f"✗ 请求失败: {self.error}"
         icon = "✓" if self.ok else "✗"
-        return f"{icon} HTTP {self.status_code} | 响应前200字符: {self.response_body[:200]}"
+        output_note = f" | 输出: {self.output_path}" if self.output_path else ""
+        return f"{icon} HTTP {self.status_code} | 响应前200字符: {self.response_body[:200]}{output_note}"
+

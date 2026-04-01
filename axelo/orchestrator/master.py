@@ -22,6 +22,8 @@ from axelo.classifier.rules import classify, DifficultyScore
 from axelo.patterns.common import match_profile
 from axelo.js_tools.runner import NodeRunner
 from axelo.analysis.static.ast_analyzer import ASTAnalyzer
+from axelo.policies import resolve_runtime_policy
+from axelo.telemetry import write_run_report
 from axelo.ai.client import AIClient
 from axelo.agents.scanner import ScannerAgent
 from axelo.agents.hypothesis import HypothesisAgent
@@ -50,6 +52,7 @@ class MasterResult:
     verified: bool = False
     cost: CostRecord | None = None
     output_dir: Path | None = None
+    report_path: Path | None = None
     error: str | None = None
     completed: bool = False
 
@@ -120,6 +123,8 @@ class MasterOrchestrator:
             output_format=output_format,
             crawl_rate=crawl_rate,
         )
+        runtime_policy = resolve_runtime_policy(target)
+        target.browser_profile = runtime_policy.apply_to_profile(target.browser_profile)
 
         # 1. 查记忆库 + 匹配已知模式
         memory_ctx = self._retriever.query_for_url(url, goal)
@@ -134,17 +139,20 @@ class MasterOrchestrator:
         )
 
         # 给 AI 注入站点先验知识 + 用户提供的上下文
-        user_ctx_parts = []
-        if known_endpoint:
-            user_ctx_parts.append(f"已知接口路径: {known_endpoint}")
-        if antibot_type != "unknown":
-            user_ctx_parts.append(f"反爬虫防护: {antibot_type}")
+        login_context = "不确定"
         if requires_login is True:
-            user_ctx_parts.append("需要登录态（Cookie 模拟）")
+            login_context = "需要登录态（Cookie 模拟）"
         elif requires_login is False:
-            user_ctx_parts.append("匿名接口，无需登录")
-        user_ctx_parts.append(f"输出格式: {output_format}")
-        user_ctx_parts.append(f"爬取频率: {crawl_rate}")
+            login_context = "无需登录（匿名接口）"
+
+        user_ctx_parts = [
+            f"已知接口路径: {known_endpoint or '需要自动发现'}",
+            f"反爬虫防护: {antibot_type}",
+            f"登录需求: {login_context}",
+            f"输出格式: {output_format}",
+            f"爬取频率: {crawl_rate}",
+            f"抓取等待策略: {runtime_policy.goto_wait_until} + {runtime_policy.post_navigation_wait_ms}ms",
+        ]
         user_ctx = "  |  ".join(user_ctx_parts)
 
         enriched_goal = f"{goal}\n\n[用户上下文] {user_ctx}"
@@ -283,7 +291,7 @@ class MasterOrchestrator:
                 session_id=sid,
                 output_mode="standalone" if not artifacts.get("bridge_server") else "bridge",
                 crawler_script_path=artifacts.get("crawler_script"),
-                crawler_deps=list(artifacts.get("requirements", {}) and []) ,
+                crawler_deps=_read_requirements(artifacts.get("requirements")),
                 bridge_server_path=artifacts.get("bridge_server"),
             )
             result.generated = generated
@@ -333,12 +341,30 @@ class MasterOrchestrator:
         )
 
         result.completed = True
+        report_path = write_run_report(
+            session_dir / "run_report.json",
+            session_id=sid,
+            target=target,
+            policy=runtime_policy,
+            difficulty_level=result.difficulty.level if result.difficulty else None,
+            verified=result.verified,
+            completed=True,
+            total_cost_usd=cost.total_usd,
+            total_tokens=cost.total_tokens,
+            ai_calls=cost.ai_calls,
+            browser_sessions=cost.browser_sessions,
+            node_calls=cost.node_calls,
+            analysis=analysis,
+            generated=result.generated,
+        )
+        result.report_path = report_path
         log.info(
             "master_done",
             session_id=sid,
             verified=verified,
             difficulty=difficulty.level,
             cost=cost.summary(),
+            report=str(report_path),
         )
         return result
 
@@ -360,3 +386,14 @@ class MasterOrchestrator:
             uncached.append(bundle)
 
         return uncached, cached_static
+
+
+def _read_requirements(path: Path | None) -> list[str]:
+    if path is None or not path.exists():
+        return []
+    items: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            items.append(line)
+    return items

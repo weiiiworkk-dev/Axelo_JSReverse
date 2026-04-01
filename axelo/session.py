@@ -35,6 +35,11 @@ class EngineSession:
         mode_name: str = "interactive",
         session_id: str | None = None,
         resume: bool = False,
+        known_endpoint: str = "",
+        antibot_type: str = "unknown",
+        requires_login: bool | None = None,
+        output_format: str = "print",
+        crawl_rate: str = "standard",
     ) -> PipelineState:
         sid = session_id or str(uuid.uuid4())[:8]
         mode = create_mode(mode_name)
@@ -57,6 +62,11 @@ class EngineSession:
             session_id=sid,
             interaction_goal=goal,
             browser_profile=BrowserProfile(),
+            known_endpoint=known_endpoint,
+            antibot_type=antibot_type,
+            requires_login=requires_login,
+            output_format=output_format,
+            crawl_rate=crawl_rate,
         )
 
         # 启动 Node.js 运行器

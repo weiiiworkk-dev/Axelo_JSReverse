@@ -4,18 +4,23 @@
 
 分析以下来自真实网站的 JS 代码，找到生成请求签名/Token 的核心逻辑，以便用 Python 实现完整爬虫。
 
-## 用户提供的上下文（优先参考）
+## 用户提供的上下文
 
-- **已知接口路径**: {{ target.known_endpoint if target.known_endpoint else "需要自动发现" }}
-- **反爬虫防护类型**: {{ target.antibot_type }}
-  {%- if target.antibot_type == "cloudflare" %}（需关注 TLS 指纹、CF token 生成逻辑）
-  {%- elif target.antibot_type == "datadome" %}（需关注行为分析 token、鼠标轨迹参数）
-  {%- elif target.antibot_type == "akamai" %}（需关注 _abck cookie 和 sensor_data 生成）
-  {%- elif target.antibot_type == "custom" %}（自定义签名，重点分析 HMAC/Hash 逻辑）
-  {%- endif %}
-- **登录需求**: {% if target.requires_login is true %}需要登录态（Cookie 模拟）{% elif target.requires_login is false %}匿名接口，无需登录{% else %}不确定，请从请求头分析{% endif %}
-- **目标输出格式**: {{ target.output_format }}
-- **爬取频率偏好**: {{ target.crawl_rate }}{% if target.crawl_rate == "conservative" %}（需在代码中加入 3 秒延迟）{% elif target.crawl_rate == "standard" %}（需在代码中加入 1 秒延迟）{% else %}（无需延迟）{% endif %}
+- 已知接口: {{ target.known_endpoint or "需要自动发现" }}
+- 反爬虫类型: {{ target.antibot_type }}
+- 是否需要登录: {% if target.requires_login is true %}需要登录态（Cookie 模拟）{% elif target.requires_login is false %}无需登录（匿名接口）{% else %}不确定{% endif %}
+- 目标输出格式: {{ target.output_format }}
+- 请求频率要求: {{ target.crawl_rate }}
+
+{% if target.antibot_type == "cloudflare" %}
+> 提示：重点关注 TLS 指纹、CF challenge 和 token 生成逻辑。
+{% elif target.antibot_type == "datadome" %}
+> 提示：重点关注行为分析 token、鼠标轨迹和浏览器环境指纹。
+{% elif target.antibot_type == "akamai" %}
+> 提示：重点关注 `_abck` cookie、`sensor_data` 和 PerimeterX 相关校验。
+{% elif target.antibot_type == "custom" %}
+> 提示：重点关注 HMAC、Hash、时间戳和自定义签名拼接逻辑。
+{% endif %}
 
 ## 分析原则
 

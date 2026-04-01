@@ -76,6 +76,7 @@ class CodeGenAgent(BaseAgent):
                 hypothesis=hypothesis,
                 source_snippets=source_snippets,
                 hook_data=hook_data,
+                target=target,
             )
         else:
             first_bundle = next(
@@ -87,6 +88,7 @@ class CodeGenAgent(BaseAgent):
                 hypothesis=hypothesis,
                 bundle_path=first_bundle,
                 bridge_port=8721,
+                target=target,
             )
 
         client = self._build_client()

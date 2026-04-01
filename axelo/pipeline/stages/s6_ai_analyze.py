@@ -45,7 +45,7 @@ class AIAnalysisStage(PipelineStage):
 
         # 渲染系统 prompt
         template = self._jinja.get_template("analyze_bundle.j2")
-        system_prompt = template.render(context=context_text)
+        system_prompt = template.render(context=context_text, target=target)
 
         user_msg = (
             f"目标网站: {target.url}\n"

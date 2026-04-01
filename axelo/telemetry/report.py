@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from axelo.models.analysis import AnalysisResult
+from axelo.models.codegen import GeneratedCode
+from axelo.models.target import TargetSite
+from axelo.policies.runtime import RuntimePolicy
+
+
+def write_run_report(
+    output_path: Path,
+    *,
+    session_id: str,
+    target: TargetSite,
+    policy: RuntimePolicy,
+    difficulty_level: str | None,
+    verified: bool,
+    completed: bool,
+    total_cost_usd: float,
+    total_tokens: int,
+    ai_calls: int,
+    browser_sessions: int,
+    node_calls: int,
+    analysis: AnalysisResult | None = None,
+    generated: GeneratedCode | None = None,
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "session_id": session_id,
+        "target": {
+            "url": target.url,
+            "goal": target.interaction_goal,
+            "known_endpoint": target.known_endpoint,
+            "antibot_type": target.antibot_type,
+            "requires_login": target.requires_login,
+            "output_format": target.output_format,
+            "crawl_rate": target.crawl_rate,
+        },
+        "policy": policy.as_dict(),
+        "result": {
+            "difficulty_level": difficulty_level,
+            "verified": verified,
+            "completed": completed,
+            "analysis_ready_for_codegen": analysis.ready_for_codegen if analysis else None,
+            "output_mode": generated.output_mode if generated else None,
+            "crawler_script_path": str(generated.crawler_script_path) if generated and generated.crawler_script_path else None,
+            "bridge_server_path": str(generated.bridge_server_path) if generated and generated.bridge_server_path else None,
+        },
+        "cost": {
+            "total_usd": round(total_cost_usd, 6),
+            "total_tokens": total_tokens,
+            "ai_calls": ai_calls,
+            "browser_sessions": browser_sessions,
+            "node_calls": node_calls,
+        },
+    }
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_path
+
