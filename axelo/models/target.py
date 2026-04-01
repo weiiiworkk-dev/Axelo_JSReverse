@@ -36,9 +36,25 @@ class TargetSite(BaseModel):
     """逆向目标站点"""
     url: str
     session_id: str
-    interaction_goal: str  # 例："触发 POST /api/search 并获取含签名的请求"
+    interaction_goal: str  # 例："爬取搜索结果数据"
     created_at: datetime = Field(default_factory=datetime.now)
     browser_profile: BrowserProfile = Field(default_factory=BrowserProfile)
     captured_requests: list[RequestCapture] = []
     target_requests: list[RequestCapture] = []  # 人工/AI确认后的逆向目标请求
     js_urls: list[str] = []  # 页面上发现的所有JS资源URL
+
+    # ── 用户在向导中提供的上下文（影响AI分析策略和生成代码） ──
+    known_endpoint: str = ""
+    # 用户已知的 API 接口路径（如 /api/search），空串表示需要自动发现
+
+    antibot_type: str = "unknown"
+    # 反爬虫防护类型：cloudflare / datadome / akamai / custom / unknown
+
+    requires_login: bool | None = None
+    # 是否需要登录态：True=需要Cookie / False=匿名接口 / None=不确定
+
+    output_format: str = "print"
+    # 爬虫输出格式：json_file / csv / print / custom
+
+    crawl_rate: str = "standard"
+    # 爬取频率偏好：conservative(3s间隔) / standard(1s间隔) / aggressive(无延迟)

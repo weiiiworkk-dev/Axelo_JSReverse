@@ -87,21 +87,16 @@ class CodeGenStage(PipelineStage):
         # 写出生成的文件
         artifacts: dict[str, Path] = {}
 
-        if codegen_output.standalone_code:
-            script_path = output_dir / "token_generator.py"
-            script_path.write_text(codegen_output.standalone_code, encoding="utf-8")
-            artifacts["standalone_script"] = script_path
-            log.info("codegen_wrote", file=str(script_path))
+        if codegen_output.crawler_code:
+            crawler_path = output_dir / "crawler.py"
+            crawler_path.write_text(codegen_output.crawler_code, encoding="utf-8")
+            artifacts["crawler_script"] = crawler_path
+            log.info("codegen_wrote", file=str(crawler_path))
 
         if codegen_output.bridge_server_code:
             server_path = output_dir / "bridge_server.js"
             server_path.write_text(codegen_output.bridge_server_code, encoding="utf-8")
             artifacts["bridge_server"] = server_path
-
-        if codegen_output.bridge_client_code:
-            client_path = output_dir / "bridge_client.py"
-            client_path.write_text(codegen_output.bridge_client_code, encoding="utf-8")
-            artifacts["bridge_client"] = client_path
 
         # 写依赖说明
         if codegen_output.dependencies:
@@ -109,33 +104,31 @@ class CodeGenStage(PipelineStage):
             deps_path.write_text("\n".join(codegen_output.dependencies), encoding="utf-8")
             artifacts["requirements"] = deps_path
 
-        # 决策：审查生成代码
-        artifact_preview = next(iter(artifacts.values()), None)
-        options = ["接受生成代码，进行验证", "重新生成", "直接保存，跳过验证"]
+        # 决策：审查生成爬虫
+        artifact_preview = artifacts.get("crawler_script")
+        options = ["接受爬虫代码，进行验证", "重新生成", "直接保存，跳过验证"]
 
         decision = Decision(
             stage=self.name,
             decision_type=DecisionType.EDIT_ARTIFACT,
-            prompt="代码生成完成，请审查：",
+            prompt="爬虫代码生成完成，请审查：",
             options=options,
             artifact_path=artifact_preview,
             context_summary=codegen_output.notes or f"生成文件: {list(artifacts.keys())}",
-            default="接受生成代码，进行验证",
+            default="接受爬虫代码，进行验证",
         )
 
         outcome = await mode.gate(decision, state)
 
         if outcome == options[1]:
-            # 重新生成：递归调用
             return await self.run(state, mode, hypothesis=hypothesis, static_results=static_results,
                                   target=target, dynamic=dynamic)
 
         generated = GeneratedCode(
             session_id=state.session_id,
-            output_mode="standalone" if codegen_output.standalone_code else "bridge",
-            standalone_script_path=artifacts.get("standalone_script"),
-            standalone_deps=codegen_output.dependencies,
-            bridge_client_path=artifacts.get("bridge_client"),
+            output_mode="standalone" if not codegen_output.bridge_server_code else "bridge",
+            crawler_script_path=artifacts.get("crawler_script"),
+            crawler_deps=codegen_output.dependencies,
             bridge_server_path=artifacts.get("bridge_server"),
         )
 

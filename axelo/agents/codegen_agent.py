@@ -13,16 +13,21 @@ log = structlog.get_logger()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "ai" / "prompts"
 
-CODEGEN_SYSTEM = """你是一位代码生成专家（CodeGen Agent）。
+CODEGEN_SYSTEM = """你是一位爬虫工程师兼代码生成专家（CodeGen Agent）。
 
-你的任务是将算法假设精确转化为可运行代码。
+你的任务是将 JS 逆向分析结果转化为**完整可运行的 Python 爬虫文件**。
 
-## 要求
-1. 代码必须能独立运行，包含所有 import
-2. 每个关键步骤添加注释，标注对应的 JS 逻辑
-3. generate() 方法签名：`def generate(self, url, method, body, **kwargs) -> dict[str, str]`
-4. 包含简单的可运行测试（`if __name__ == "__main__"`）
-5. 如果有动态 Hook 数据，用实际的参数值验证逻辑
+## 输出结构要求
+1. `_sign(url, method, body) -> dict[str, str]`：私有方法，实现签名/Token 生成逻辑
+2. `crawl(**kwargs) -> dict`：公开方法，内部调用 `_sign()` → 发送 httpx 请求 → 返回解析后的 JSON 数据
+3. `if __name__ == "__main__"` 块：包含一个实际可运行的调用示例
+4. 脚本可直接 `python crawler.py` 运行并输出结果
+
+## 其他要求
+- 所有 import 在文件顶部声明
+- 每个关键签名步骤注释标注对应的 JS 逻辑
+- 如果有动态 Hook 数据，用实际参数值验证签名实现
+- 必须使用 httpx 发送真实 HTTP 请求
 
 ## 参考模板
 {template_code}
@@ -104,18 +109,14 @@ class CodeGenAgent(BaseAgent):
         artifacts: dict[str, Path] = {}
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        if output.standalone_code:
-            p = output_dir / "token_generator.py"
-            p.write_text(output.standalone_code, encoding="utf-8")
-            artifacts["standalone_script"] = p
+        if output.crawler_code:
+            p = output_dir / "crawler.py"
+            p.write_text(output.crawler_code, encoding="utf-8")
+            artifacts["crawler_script"] = p
         if output.bridge_server_code:
             p = output_dir / "bridge_server.js"
             p.write_text(output.bridge_server_code, encoding="utf-8")
             artifacts["bridge_server"] = p
-        if output.bridge_client_code:
-            p = output_dir / "bridge_client.py"
-            p.write_text(output.bridge_client_code, encoding="utf-8")
-            artifacts["bridge_client"] = p
         if output.dependencies:
             p = output_dir / "requirements.txt"
             p.write_text("\n".join(output.dependencies), encoding="utf-8")

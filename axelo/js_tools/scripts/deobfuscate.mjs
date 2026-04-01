@@ -48,7 +48,7 @@ export async function deobfuscate({ source, tool }) {
 
   if (tool === 'synchrony' || tool === 'deobfuscator') {
     try {
-      const { deobfuscate: syncDeob } = await import('deobfuscator');
+      const { deobfuscate: syncDeob } = await import('synchrony');
       const output = await syncDeob(source);
       return {
         success: true,

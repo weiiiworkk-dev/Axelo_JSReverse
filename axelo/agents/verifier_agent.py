@@ -58,8 +58,8 @@ class VerifierAgent(BaseAgent):
         if not result.ok and result.retry_reason:
             # 用 AI 分析失败原因
             script_preview = ""
-            if generated.standalone_script_path and generated.standalone_script_path.exists():
-                script_preview = generated.standalone_script_path.read_text(encoding="utf-8")[:1500]
+            if generated.crawler_script_path and generated.crawler_script_path.exists():
+                script_preview = generated.crawler_script_path.read_text(encoding="utf-8")[:1500]
 
             context = (
                 f"验证报告:\n{result.report}\n\n"

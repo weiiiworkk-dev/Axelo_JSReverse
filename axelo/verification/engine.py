@@ -49,12 +49,12 @@ class VerificationEngine:
         live_verify=True：实际发送请求（需要网络）
         live_verify=False：只做格式比对（离线安全）
         """
-        script_path = generated.standalone_script_path
+        script_path = generated.crawler_script_path
 
         if script_path is None or not script_path.exists():
             return VerificationResult(
                 ok=False,
-                report="验证失败：未找到生成的脚本文件",
+                report="验证失败：未找到生成的爬虫文件",
             )
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -73,7 +73,7 @@ class VerificationEngine:
                     ok=False,
                     attempts=attempt,
                     replay=replay_result,
-                    report=f"generate() 未返回任何字段: {replay_result.error}",
+                    report=f"crawl() 执行失败: {replay_result.error}",
                 )
 
             # 格式比对

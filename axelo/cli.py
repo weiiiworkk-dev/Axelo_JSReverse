@@ -1,7 +1,12 @@
 from __future__ import annotations
 import asyncio
+import sys
 from typing import Optional
 import typer
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel

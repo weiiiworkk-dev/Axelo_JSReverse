@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-OutputMode = Literal["standalone", "bridge", "both"]
+OutputMode = Literal["standalone", "bridge"]
 
 
 class GeneratedCode(BaseModel):
@@ -14,12 +14,11 @@ class GeneratedCode(BaseModel):
     output_mode: OutputMode
     generated_at: datetime = Field(default_factory=datetime.now)
 
-    # 独立脚本模式
-    standalone_script_path: Path | None = None
-    standalone_deps: list[str] = []       # pip 依赖列表
+    # 爬虫脚本（独立模式：包含签名+请求；桥接模式：包含签名调用+请求）
+    crawler_script_path: Path | None = None
+    crawler_deps: list[str] = []       # pip 依赖列表
 
-    # 桥接代理模式
-    bridge_client_path: Path | None = None
+    # 桥接服务（仅 bridge 模式）
     bridge_server_path: Path | None = None
     bridge_port: int = 8721
 

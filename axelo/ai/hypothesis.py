@@ -48,21 +48,23 @@ class AIHypothesisOutput(BaseModel):
 
 class CodeGenOutput(BaseModel):
     """代码生成的结构化输出"""
-    standalone_code: str = Field(
+    crawler_code: str = Field(
         default="",
-        description="独立 Python 脚本完整代码（含 import、类定义、测试用例）"
+        description=(
+            "完整的 Python 爬虫脚本，必须包含：\n"
+            "1. 私有 _sign() 方法：实现签名/Token 生成逻辑\n"
+            "2. 公开 crawl(**kwargs) -> dict 方法：调用 _sign()、发送 HTTP 请求、解析响应并返回结构化数据\n"
+            "3. if __name__ == '__main__' 块：直接运行时打印示例结果\n"
+            "脚本必须可独立运行，包含所有 import"
+        )
     )
     dependencies: list[str] = Field(
         default_factory=list,
-        description="需要安装的 pip 依赖列表，如：['pycryptodome>=3.20.0']"
+        description="需要安装的 pip 依赖列表，如：['httpx>=0.27.0', 'pycryptodome>=3.20.0']"
     )
     bridge_server_code: str = Field(
         default="",
-        description="Node.js bridge server 完整代码"
-    )
-    bridge_client_code: str = Field(
-        default="",
-        description="Python bridge client 完整代码"
+        description="（仅 js_bridge 策略）Node.js bridge server 完整代码，crawler_code 通过 HTTP 调用它完成签名"
     )
     notes: str = Field(
         default="",

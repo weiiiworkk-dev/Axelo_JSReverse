@@ -1,38 +1,100 @@
-你是一位 Node.js 和 Python 工程师，擅长构建 JS 执行桥接服务。
+你是一位 Node.js 和 Python 工程师，擅长将依赖浏览器环境的 JS 签名逻辑封装为爬虫服务。
 
-## 任务
+## 背景
 
 目标 JS 算法依赖浏览器特定 API，无法直接用 Python 重写。
-需要生成：
-1. 一个 Node.js HTTP 服务（Express），在 isolated-vm 中执行原始 JS，暴露 token 生成接口
-2. 一个 Python 客户端，调用该服务
+需要生成两部分：
+1. **Node.js Bridge Server**（`bridge_server.js`）：在 Node.js 环境中执行原始 JS 签名逻辑，暴露 HTTP 接口
+2. **Python 爬虫文件**（`crawler.py`）：通过调用 Bridge 获取签名头，再发送真实请求并返回数据
 
-## 已知信息
+## 签名信息
 
 **目标函数**: {{ hypothesis.generator_func_ids | join(', ') }}
 
 **算法描述**: {{ hypothesis.algorithm_description }}
 
-**输入**: {{ hypothesis.inputs | join(', ') }}
+**签名输入**: {{ hypothesis.inputs | join(', ') }}
 
-**输出字段**: {{ hypothesis.outputs.keys() | join(', ') }}
+**签名输出字段**: {{ hypothesis.outputs.keys() | join(', ') }}
 
 **原始 JS bundle 路径**: {{ bundle_path }}
 
 ## 生成要求
 
-### Node.js Bridge Server (bridge_server.js)
-- Express + isolated-vm
-- POST `/generate` 接口，接受 `{url, method, body, headers}` JSON
-- 在沙箱中加载目标 JS 模块，调用生成函数
-- 返回 `{headers: {field: value, ...}}`
+### 1. Node.js Bridge Server（`bridge_server_code` 字段）
+
+```javascript
+// bridge_server.js
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// 加载原始 JS bundle，调用签名函数
+// POST /sign 接受 {url, method, body}，返回 {headers: {字段: 值}}
+app.post('/sign', (req, res) => { ... });
+
+app.listen({{ bridge_port }});
+```
+
+要求：
+- 使用 Express（无 isolated-vm，直接 require 原始 bundle）
+- POST `/sign` 接口，接受 `{url, method, body}` JSON
+- 返回 `{headers: {"签名字段": "值", ...}}`
 - 错误时返回 `{error: "..."}`
 - 监听端口 {{ bridge_port }}
 
-### Python Bridge Client (bridge_client.py)
-- 基于 `httpx`
-- `get_headers(url, method, body) -> dict[str, str]`
-- 自动启动/停止 bridge_server.js 子进程
-- 超时和重试处理
+### 2. Python 完整爬虫（`crawler_code` 字段）
 
-请通过工具调用返回两个文件的代码内容。
+```python
+"""
+自动生成的爬虫 - Axelo JSReverse (Bridge 模式)
+"""
+import subprocess, time, json
+import httpx
+
+class <站点名>Crawler:
+
+    BRIDGE_PORT = {{ bridge_port }}
+    BRIDGE_PATH = "bridge_server.js"
+
+    def __init__(self):
+        self._proc = None
+        self._start_bridge()
+
+    def _start_bridge(self):
+        """启动 Node.js bridge server 子进程"""
+        self._proc = subprocess.Popen(["node", self.BRIDGE_PATH])
+        time.sleep(1.5)  # 等待启动
+
+    def _sign(self, url: str, method: str, body: str) -> dict[str, str]:
+        """通过 bridge server 获取签名头"""
+        resp = httpx.post(
+            f"http://localhost:{self.BRIDGE_PORT}/sign",
+            json={"url": url, "method": method, "body": body},
+            timeout=10.0,
+        )
+        return resp.json().get("headers", {})
+
+    def crawl(self, **kwargs) -> dict:
+        """执行爬取，返回结构化数据"""
+        url = "..."
+        headers = self._sign(url, "GET", "")
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    def __del__(self):
+        if self._proc:
+            self._proc.terminate()
+
+if __name__ == "__main__":
+    crawler = <站点名>Crawler()
+    result = crawler.crawl(...)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+```
+
+请通过工具调用返回：
+- `crawler_code`：完整 Python 爬虫文件
+- `bridge_server_code`：完整 Node.js bridge server 文件
+- `dependencies`：pip 依赖列表（至少包含 `httpx`）

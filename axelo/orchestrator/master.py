@@ -84,6 +84,11 @@ class MasterOrchestrator:
         session_id: str | None = None,
         budget_usd: float = 2.0,
         resume: bool = False,
+        known_endpoint: str = "",
+        antibot_type: str = "unknown",
+        requires_login: bool | None = None,
+        output_format: str = "print",
+        crawl_rate: str = "standard",
     ) -> MasterResult:
         sid = session_id or str(uuid.uuid4())[:8]
         mode = create_mode(mode_name)
@@ -109,6 +114,11 @@ class MasterOrchestrator:
             session_id=sid,
             interaction_goal=goal,
             browser_profile=BrowserProfile(),
+            known_endpoint=known_endpoint,
+            antibot_type=antibot_type,
+            requires_login=requires_login,
+            output_format=output_format,
+            crawl_rate=crawl_rate,
         )
 
         # 1. 查记忆库 + 匹配已知模式
@@ -123,13 +133,28 @@ class MasterOrchestrator:
             site_profile=site_profile.category if site_profile else None,
         )
 
-        # 给 AI 注入站点先验知识
+        # 给 AI 注入站点先验知识 + 用户提供的上下文
+        user_ctx_parts = []
+        if known_endpoint:
+            user_ctx_parts.append(f"已知接口路径: {known_endpoint}")
+        if antibot_type != "unknown":
+            user_ctx_parts.append(f"反爬虫防护: {antibot_type}")
+        if requires_login is True:
+            user_ctx_parts.append("需要登录态（Cookie 模拟）")
+        elif requires_login is False:
+            user_ctx_parts.append("匿名接口，无需登录")
+        user_ctx_parts.append(f"输出格式: {output_format}")
+        user_ctx_parts.append(f"爬取频率: {crawl_rate}")
+        user_ctx = "  |  ".join(user_ctx_parts)
+
+        enriched_goal = f"{goal}\n\n[用户上下文] {user_ctx}"
         if site_profile:
-            target.interaction_goal = (
-                f"{goal}\n\n[先验知识] 该站点类型: {site_profile.category}，"
+            enriched_goal += (
+                f"\n[先验知识] 站点类型: {site_profile.category}，"
                 f"典型算法: {site_profile.typical_algorithm}，"
                 f"关键信号: {site_profile.key_signals[:3]}"
             )
+        target.interaction_goal = enriched_goal
 
         # 启动 Node.js 运行器
         runner = NodeRunner(settings.node_bin)
@@ -256,9 +281,9 @@ class MasterOrchestrator:
 
             generated = GeneratedCode(
                 session_id=sid,
-                output_mode="standalone" if "standalone_script" in artifacts else "bridge",
-                standalone_script_path=artifacts.get("standalone_script"),
-                bridge_client_path=artifacts.get("bridge_client"),
+                output_mode="standalone" if not artifacts.get("bridge_server") else "bridge",
+                crawler_script_path=artifacts.get("crawler_script"),
+                crawler_deps=list(artifacts.get("requirements", {}) and []) ,
                 bridge_server_path=artifacts.get("bridge_server"),
             )
             result.generated = generated
@@ -284,7 +309,7 @@ class MasterOrchestrator:
                     artifacts = await codegen.generate(
                         target, hypothesis, static_results, dynamic, output_dir
                     )
-                    generated.bridge_client_path = artifacts.get("bridge_client")
+                    generated.crawler_script_path = artifacts.get("crawler_script")
                     generated.bridge_server_path = artifacts.get("bridge_server")
                 elif ver_analysis and ver_analysis.retry_strategy == "give_up":
                     break

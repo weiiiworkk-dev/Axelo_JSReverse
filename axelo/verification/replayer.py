@@ -36,20 +36,21 @@ class RequestReplayer:
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
 
-            gen_class = None
+            crawler_class = None
             for name in dir(mod):
                 obj = getattr(mod, name)
-                if isinstance(obj, type) and hasattr(obj, "generate"):
-                    gen_class = obj
+                if isinstance(obj, type) and hasattr(obj, "crawl"):
+                    crawler_class = obj
                     break
 
-            if gen_class is None:
-                return {}, ReplayResult(ok=False, error="未找到 generate() 方法", status_code=0)
+            if crawler_class is None:
+                return {}, ReplayResult(ok=False, error="未找到 crawl() 方法", status_code=0)
 
-            instance = gen_class()
-            for req in target.target_requests[:1]:
-                body = req.request_body.decode("utf-8", errors="replace") if req.request_body else ""
-                gen_headers = instance.generate(url=req.url, method=req.method, body=body)
+            instance = crawler_class()
+            # 调用 crawl() 直接获取数据；_sign() 内部会生成 headers
+            result = instance.crawl()
+            # 尝试从内部获取最近一次签名的 headers（若爬虫暴露 _last_headers）
+            gen_headers = getattr(instance, "_last_headers", {}) or {}
         except Exception as e:
             return {}, ReplayResult(ok=False, error=f"脚本加载/执行失败: {e}", status_code=0)
 

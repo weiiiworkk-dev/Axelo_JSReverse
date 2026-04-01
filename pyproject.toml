@@ -31,6 +31,7 @@ dependencies = [
 
 [project.scripts]
 axelo = "axelo.cli:app"
+AxeloJsReverse = "axelo.wizard:main"
 
 [project.optional-dependencies]
 dev = [

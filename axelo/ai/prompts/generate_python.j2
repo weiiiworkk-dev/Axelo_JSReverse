@@ -1,10 +1,10 @@
-你是一位 Python 和 JavaScript 双栖的安全研究员，擅长将 JS 签名算法迁移到 Python。
+你是一位专业的爬虫工程师，擅长将 JS 签名算法迁移到 Python 并封装为完整可运行的爬虫脚本。
 
 ## 任务
 
-将以下 JavaScript 签名算法用 Python 精确实现。
+根据以下逆向分析结果，生成一个**完整的 Python 爬虫文件**。
 
-## 算法描述
+## 签名算法描述
 
 {{ hypothesis.algorithm_description }}
 
@@ -14,36 +14,126 @@
 {{ loop.index }}. {{ step }}
 {% endfor %}
 
-## 输入参数
+## 签名输入参数
 
 {% for inp in hypothesis.inputs %}
 - {{ inp }}
 {% endfor %}
 
-## 输出字段
+## 签名输出字段（需附加到请求头/参数中）
 
 {% for field, desc in hypothesis.outputs.items() %}
 - `{{ field }}`: {{ desc }}
 {% endfor %}
 
-## 关键源码片段
+## 关键源码片段（来自 JS 逆向）
 
 ```javascript
 {{ source_snippets }}
 ```
 
-## 动态 Hook 数据（参考真实调用参数）
+## 动态 Hook 数据（真实调用参数，用于验证实现）
 
 ```json
 {{ hook_data }}
 ```
 
-## Python 实现要求
+## 用户配置要求
 
-1. 使用标准库（`hashlib`、`hmac`、`base64`、`time`）优先，避免引入额外依赖。
-2. 如果需要 `pycryptodome`，明确标注在注释中。
-3. 实现一个 `generate(self, **kwargs) -> dict[str, str]` 方法，返回所有需要附加的请求头/参数。
-4. 为每个关键步骤添加注释，标注对应的 JS 原始逻辑。
-5. 包含一个简单的测试用例。
+- **数据输出格式**: {{ target.output_format }}
+- **爬取频率偏好**: {{ target.crawl_rate }}
+- **已知接口路径**: {{ target.known_endpoint if target.known_endpoint else "根据分析结果确定" }}
+- **登录需求**: {% if target.requires_login is true %}需要（在 __init__ 中接受 cookies 参数）{% elif target.requires_login is false %}无需登录{% else %}按实际情况处理{% endif %}
 
-请通过工具调用返回生成的代码。
+## 爬虫脚本结构要求
+
+生成的文件必须满足以下结构：
+
+```python
+"""
+自动生成的爬虫 - Axelo JSReverse
+目标: <URL>
+"""
+import hashlib, hmac, base64, time, json
+{% if target.output_format == "csv" %}import csv{% endif %}
+import httpx
+
+class <站点名>Crawler:
+
+    def __init__(self{% if target.requires_login %}, cookies: dict = None{% endif %}):
+        {% if target.requires_login %}self._cookies = cookies or {}{% endif %}
+        self._last_headers: dict[str, str] = {}  # 供验证引擎读取
+
+    def _sign(self, url: str, method: str, body: str) -> dict[str, str]:
+        """
+        签名逻辑（由逆向分析自动生成）
+        对应 JS 函数: <generator_func_ids>
+        每个步骤注释标注对应的 JS 原始逻辑
+        """
+        ...
+        self._last_headers = {"签名字段": "值", ...}
+        return self._last_headers
+
+    {% if target.crawl_rate == "conservative" %}
+    def _wait(self):
+        time.sleep(3)  # 保守模式：3 秒间隔，降低被封风险
+    {% elif target.crawl_rate == "standard" %}
+    def _wait(self):
+        time.sleep(1)  # 标准模式：1 秒间隔
+    {% endif %}
+
+    def crawl(self, **kwargs) -> dict:
+        """
+        执行爬取，返回结构化数据字典。
+        参数根据实际接口设计（如 keyword, page, id 等）。
+        """
+        url = "..."
+        headers = self._sign(url, "GET", "")
+        {% if target.requires_login %}headers.update({"Cookie": "; ".join(f"{k}={v}" for k,v in self._cookies.items())}){% endif %}
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=headers)
+            resp.raise_for_status()
+            {% if target.crawl_rate != "aggressive" %}self._wait(){% endif %}
+            return resp.json()
+
+    {% if target.output_format == "json_file" %}
+    def save(self, data: dict, path: str = "crawler_output.json"):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"已保存到 {path}")
+    {% elif target.output_format == "csv" %}
+    def save(self, data: dict, path: str = "crawler_output.csv"):
+        rows = data if isinstance(data, list) else data.get("data", [data])
+        if not rows:
+            return
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"已保存到 {path}")
+    {% endif %}
+
+if __name__ == "__main__":
+    crawler = <站点名>Crawler()
+    result = crawler.crawl(...)
+    {% if target.output_format == "json_file" %}
+    crawler.save(result)
+    {% elif target.output_format == "csv" %}
+    crawler.save(result)
+    {% else %}
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    {% endif %}
+```
+
+### 具体要求
+
+1. `_sign()` 使用标准库（`hashlib`、`hmac`、`base64`、`time`）优先，必要时使用 `pycryptodome`
+2. `_sign()` 执行后将结果赋值给 `self._last_headers`（供自动验证读取）
+3. `crawl()` 必须用 `httpx` 发送真实 HTTP 请求并返回解析后的 JSON 数据
+4. 严格按照输出格式要求实现 `save()` 方法
+5. 严格按照频率要求实现 `_wait()` 方法
+6. 每个关键签名步骤注释标注对应的 JS 逻辑
+7. `if __name__ == "__main__"` 块包含一个实际可运行的调用示例
+8. 所有依赖在文件顶部 import，无多余依赖
+
+请通过工具调用返回 `crawler_code` 字段（完整爬虫 Python 代码）和 `dependencies` 字段（pip 依赖列表，必须包含 `httpx`）。
