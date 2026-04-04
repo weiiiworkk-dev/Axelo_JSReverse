@@ -99,6 +99,15 @@ class DeobfuscationPipeline:
 
                 if improvement >= MIN_SCORE_IMPROVEMENT:
                     break
+            else:
+                log.warning(
+                    "deobfuscate_tool_unsuccessful",
+                    bundle_id=bundle_id,
+                    tool=tool,
+                    bundle_type=bundle_type,
+                    size_bytes=effective_size,
+                    error=result.error or "tool returned unsuccessful result",
+                )
 
         if best is None:
             best = DeobfuscationResult(

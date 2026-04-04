@@ -1,14 +1,16 @@
-/**
- * Babel AST 提取与变换工具
- */
+import {
+  loadBabelParser,
+  loadBabelTraverse,
+  loadBabelTypes,
+} from './babel_compat.mjs';
 
 /**
- * 将 JS 源码解析为 AST JSON，同时提取关键元数据
+ * 将 JS 源码解析为 AST 元数据，并提取静态分析所需的关键信号。
  */
 export async function extractAst({ source }) {
-  const parser = await import('@babel/parser');
-  const traverse = (await import('@babel/traverse')).default;
-  const t = await import('@babel/types');
+  const parser = await loadBabelParser();
+  const traverse = await loadBabelTraverse();
+  const t = await loadBabelTypes();
 
   let ast;
   try {
@@ -21,13 +23,9 @@ export async function extractAst({ source }) {
     return { success: false, error: err.message };
   }
 
-  // 提取函数列表
   const functions = [];
-  // 提取加密API使用
   const cryptoUsages = [];
-  // 提取字符串常量
   const stringLiterals = new Set();
-  // 提取环境访问
   const envAccess = new Set();
 
   const cryptoPatterns = [
@@ -49,9 +47,11 @@ export async function extractAst({ source }) {
         (path.parent.type === 'AssignmentExpression' && memberExprToString(path.parent.left)) ||
         null;
 
-      const params = (node.params || []).map(p => {
-        if (t.isIdentifier(p)) return p.name;
-        if (t.isRestElement(p) && t.isIdentifier(p.argument)) return `...${p.argument.name}`;
+      const params = (node.params || []).map((param) => {
+        if (t.isIdentifier(param)) return param.name;
+        if (t.isRestElement(param) && t.isIdentifier(param.argument)) {
+          return `...${param.argument.name}`;
+        }
         return '?';
       });
 
@@ -65,27 +65,27 @@ export async function extractAst({ source }) {
     },
 
     MemberExpression(path) {
-      const str = memberExprToString(path.node);
-      if (!str) return;
+      const value = memberExprToString(path.node);
+      if (!value) return;
 
-      for (const pat of cryptoPatterns) {
-        if (pat.test(str)) {
-          cryptoUsages.push(str);
+      for (const pattern of cryptoPatterns) {
+        if (pattern.test(value)) {
+          cryptoUsages.push(value);
           break;
         }
       }
-      for (const pat of envPatterns) {
-        if (pat.test(str)) {
-          envAccess.add(str);
+      for (const pattern of envPatterns) {
+        if (pattern.test(value)) {
+          envAccess.add(value);
           break;
         }
       }
     },
 
     StringLiteral(path) {
-      const val = path.node.value;
-      if (val.length > 4 && val.length < 200) {
-        stringLiterals.add(val);
+      const value = path.node.value;
+      if (value.length > 4 && value.length < 200) {
+        stringLiterals.add(value);
       }
     },
   });
@@ -96,17 +96,14 @@ export async function extractAst({ source }) {
     cryptoUsages: [...new Set(cryptoUsages)],
     stringLiterals: [...stringLiterals].slice(0, 200),
     envAccess: [...envAccess],
-    // AST 本身太大，不直接返回，只返回元数据
-    // 如果需要完整 AST 则通过文件路径操作
   };
 }
 
 /**
- * 应用一组命名变换到源码
+ * 预留的变换入口，后续可以扩展为更细粒度的 Babel transform。
  */
 export async function applyTransforms({ source, transforms }) {
-  // 目前 babel-manual 变换在 deobfuscate.mjs 中实现
-  // 这里预留接口，后续可扩展为独立的 transform 插件
+  void transforms;
   return { success: true, code: source, applied: [] };
 }
 
@@ -114,11 +111,9 @@ function memberExprToString(node) {
   if (!node) return null;
   if (node.type === 'Identifier') return node.name;
   if (node.type === 'MemberExpression') {
-    const obj = memberExprToString(node.object);
-    const prop = node.computed
-      ? null
-      : node.property?.name ?? null;
-    if (obj && prop) return `${obj}.${prop}`;
+    const objectName = memberExprToString(node.object);
+    const propertyName = node.computed ? null : node.property?.name ?? null;
+    if (objectName && propertyName) return `${objectName}.${propertyName}`;
   }
   return null;
 }
