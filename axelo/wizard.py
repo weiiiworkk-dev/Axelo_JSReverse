@@ -4,6 +4,7 @@ import asyncio
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import structlog
 from rich import box
@@ -170,6 +171,16 @@ def _crawl_rate_label(crawl_rate: str) -> str:
     return mapping.get(crawl_rate, crawl_rate)
 
 
+def _target_url_note(url: str) -> str | None:
+    parsed = urlsplit(url)
+    normalized_path = parsed.path.rstrip("/")
+    if parsed.fragment and normalized_path in {"", "/"}:
+        return "当前 URL 带有 hash 片段，首页型 SPA 往往会抓到大量无关脚本；更具体的落地页通常更稳。"
+    if normalized_path in {"", "/"} and not parsed.query:
+        return "当前像是站点首页。若目标是商品/价格，建议直接输入商品详情页或搜索结果页，能显著减少无关 bundle。"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Step functions
 # ---------------------------------------------------------------------------
@@ -180,6 +191,9 @@ def _ask_url() -> str:
     while True:
         raw = input("  URL: ").strip()
         if raw.startswith("http://") or raw.startswith("https://"):
+            note = _target_url_note(raw)
+            if note:
+                console.print(f"  [yellow]提示：{note}[/yellow]")
             return raw
         console.print("  [red]URL 必须以 http:// 或 https:// 开头，请重新输入。[/red]")
 
@@ -280,6 +294,9 @@ def _show_summary(
     table.add_row("费用预算", f"[cyan]${budget}[/cyan]")
     console.print()
     console.print(table)
+    note = _target_url_note(url)
+    if note:
+        console.print(f"[yellow]提示：{note}[/yellow]")
 
 
 # ---------------------------------------------------------------------------

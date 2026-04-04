@@ -1,19 +1,20 @@
 from __future__ import annotations
-import asyncio
+
+import re
 import time
 from pathlib import Path
+
 import structlog
 
 from axelo.js_tools.runner import NodeRunner
-from axelo.models.bundle import DeobfuscationResult, DeobfuscatorName
+from axelo.models.bundle import BundleType, DeobfuscationResult, DeobfuscatorName
 
 log = structlog.get_logger()
 
-# 去混淆工具优先级列表（按尝试顺序）
 TOOL_PRIORITY: list[DeobfuscatorName] = ["webcrack", "synchrony", "babel-manual"]
-
-# 可读性提升阈值：低于此值则尝试下一个工具
 MIN_SCORE_IMPROVEMENT = 0.1
+WEBPACK_HINT = re.compile(r"__webpack_require__|webpackChunk|webpack_modules", re.S)
+OBFUSCATOR_HINT = re.compile(r"_0x[a-f0-9]{3,}|String\.fromCharCode|atob\(", re.I)
 
 
 class DeobfuscationPipeline:
@@ -29,17 +30,41 @@ class DeobfuscationPipeline:
         bundle_id: str,
         source: str,
         output_dir: Path,
+        *,
+        bundle_type: BundleType = "unknown",
+        size_bytes: int | None = None,
         force_tool: DeobfuscatorName | None = None,
     ) -> DeobfuscationResult:
-        tools = [force_tool] if force_tool else self._select_tools(source)
+        effective_size = size_bytes or len(source.encode("utf-8", errors="ignore"))
+        tools = [force_tool] if force_tool else self._select_tools(
+            source=source,
+            bundle_type=bundle_type,
+            size_bytes=effective_size,
+        )
         best: DeobfuscationResult | None = None
 
         for tool in tools:
+            timeout_sec = self._timeout_for(tool, bundle_type=bundle_type, size_bytes=effective_size)
             t0 = time.monotonic()
             try:
-                raw = await self._runner.deobfuscate(source, tool)
-            except Exception as e:
-                log.warning("deobfuscate_tool_error", tool=tool, error=str(e))
+                log.info(
+                    "deobfuscate_attempt",
+                    bundle_id=bundle_id,
+                    tool=tool,
+                    bundle_type=bundle_type,
+                    size_bytes=effective_size,
+                    timeout_sec=timeout_sec,
+                )
+                raw = await self._runner.deobfuscate(source, tool, timeout_sec=timeout_sec)
+            except Exception as exc:
+                log.warning(
+                    "deobfuscate_tool_error",
+                    bundle_id=bundle_id,
+                    tool=tool,
+                    bundle_type=bundle_type,
+                    size_bytes=effective_size,
+                    error=str(exc),
+                )
                 continue
 
             duration = time.monotonic() - t0
@@ -61,7 +86,10 @@ class DeobfuscationPipeline:
                 improvement = result.readability_score - result.original_score
                 log.info(
                     "deobfuscate_result",
-                    tool=tool, bundle_id=bundle_id,
+                    bundle_id=bundle_id,
+                    tool=tool,
+                    bundle_type=bundle_type,
+                    size_bytes=effective_size,
                     score=f"{result.readability_score:.2f}",
                     improvement=f"{improvement:+.2f}",
                 )
@@ -70,7 +98,7 @@ class DeobfuscationPipeline:
                     best = result
 
                 if improvement >= MIN_SCORE_IMPROVEMENT:
-                    break  # 质量足够，不再尝试其他工具
+                    break
 
         if best is None:
             best = DeobfuscationResult(
@@ -82,10 +110,44 @@ class DeobfuscationPipeline:
 
         return best
 
-    def _select_tools(self, source: str) -> list[DeobfuscatorName]:
-        size = len(source)
-        if size > 800_000:
+    def _select_tools(
+        self,
+        *,
+        source: str,
+        bundle_type: BundleType,
+        size_bytes: int,
+    ) -> list[DeobfuscatorName]:
+        if size_bytes > 800_000:
             return ["babel-manual"]
-        if size > 400_000:
+
+        if bundle_type == "webpack" or WEBPACK_HINT.search(source):
+            if size_bytes > 250_000:
+                return ["babel-manual"]
+            return ["webcrack", "babel-manual"]
+
+        if OBFUSCATOR_HINT.search(source):
+            if size_bytes > 220_000:
+                return ["babel-manual"]
             return ["synchrony", "babel-manual"]
+
+        if bundle_type in {"plain", "rollup", "vite", "esbuild", "unknown"}:
+            if size_bytes > 180_000:
+                return ["babel-manual"]
+            return ["babel-manual", "synchrony"]
+
         return TOOL_PRIORITY
+
+    def _timeout_for(
+        self,
+        tool: DeobfuscatorName,
+        *,
+        bundle_type: BundleType,
+        size_bytes: int,
+    ) -> float:
+        if tool == "webcrack":
+            return 35.0 if bundle_type == "webpack" and size_bytes <= 250_000 else 20.0
+        if tool == "synchrony":
+            return 20.0 if size_bytes <= 160_000 else 12.0
+        if tool == "babel-manual":
+            return 25.0 if size_bytes <= 250_000 else 18.0
+        return 20.0
