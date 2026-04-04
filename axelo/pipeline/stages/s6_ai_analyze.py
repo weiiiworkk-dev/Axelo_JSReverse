@@ -104,7 +104,7 @@ class AIAnalysisStage(PipelineStage):
                 and hypothesis.signature_spec.codegen_strategy != "manual_required"
             ),
             manual_review_required=hypothesis.signature_spec.codegen_strategy == "manual_required",
-            signature_family=hypothesis.signature_spec.algorithm_id if hypothesis.signature_spec else "unknown",
+            signature_family=hypothesis.signature_spec.family_id if hypothesis.signature_spec else "unknown",
         )
 
         hypothesis_path = ai_dir / "hypothesis.json"

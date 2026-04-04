@@ -26,6 +26,10 @@ class AIHypothesisOutput(BaseModel):
         default_factory=dict,
         description="输出字段名 → 描述，如：{'X-Sign': 'HMAC-SHA256 签名的 hex 编码'}"
     )
+    family_id: str = Field(
+        default="unknown",
+        description="若能判断出已知协议家族，给出 family id；否则填 unknown"
+    )
     codegen_strategy: str = Field(
         default="js_bridge",
         description="代码生成策略：'python_reconstruct'（可用 Python 重写）或 'js_bridge'（需保留 JS 执行环境）"

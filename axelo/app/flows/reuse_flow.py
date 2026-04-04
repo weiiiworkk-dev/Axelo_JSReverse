@@ -4,6 +4,7 @@ from pathlib import Path
 
 from axelo.models.analysis import AnalysisResult
 from axelo.models.codegen import GeneratedCode
+from axelo.models.contracts import AdapterPackage, CapabilityProfile, DatasetContract, RequestContract
 from axelo.models.execution import ExecutionPlan, ExecutionTier, VerificationMode
 from axelo.models.target import TargetSite
 from axelo.verification.engine import VerificationEngine
@@ -103,6 +104,15 @@ class ReuseFlow:
         materialized = self._adapter_registry.materialize(adapter, output_dir)
         if materialized.session_state_path:
             target.session_state.storage_state_path = str(materialized.session_state_path)
+        if materialized.adapter_package_path and materialized.adapter_package_path.exists():
+            try:
+                package = AdapterPackage.model_validate_json(materialized.adapter_package_path.read_text(encoding="utf-8"))
+                target.selected_contract = RequestContract.model_validate(package.request_contract)
+                target.request_contracts = [target.selected_contract]
+                target.dataset_contract = DatasetContract.model_validate(package.dataset_contract)
+                target.capability_profile = CapabilityProfile.model_validate(package.capability_profile)
+            except Exception:
+                pass
 
         generated = GeneratedCode(
             session_id=sid,
@@ -110,6 +120,7 @@ class ReuseFlow:
             crawler_script_path=materialized.crawler_script_path,
             bridge_server_path=materialized.bridge_server_path,
             manifest_path=materialized.manifest_path,
+            adapter_package_path=materialized.adapter_package_path,
             session_state_path=materialized.session_state_path,
             verified=False,
             verification_notes="adapter registry reuse candidate",

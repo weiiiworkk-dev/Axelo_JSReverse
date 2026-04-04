@@ -12,6 +12,7 @@ from axelo.browser.state_store import BrowserStateStore
 from axelo.config import settings
 from axelo.models.analysis import AnalysisResult
 from axelo.models.codegen import GeneratedCode
+from axelo.models.contracts import AdapterPackage
 from axelo.models.session_state import SessionState
 from axelo.models.target import TargetSite
 from axelo.orchestrator.master import MasterOrchestrator
@@ -43,6 +44,7 @@ def build_adapter_version(
     report_ref: str,
     verified: bool,
 ) -> AdapterVersion:
+    package = _load_adapter_package(generated.adapter_package_path)
     material = "|".join(
         [
             site_key,
@@ -59,12 +61,22 @@ def build_adapter_version(
         site_key=site_key,
         version=version,
         output_mode=generated.output_mode,
+        adapter_package_version=package.package_version if package else "v1",
+        dataset_contract_version=package.dataset_contract.schema_version if package else "v1",
+        intent_fingerprint=package.intent_fingerprint if package else "",
+        request_contract_hash=package.request_contract_hash if package else "",
+        family_id=package.family_id if package else (analysis.signature_family if analysis else "unknown"),
         crawler_script_ref=str(generated.crawler_script_path) if generated.crawler_script_path else "",
         bridge_server_ref=str(generated.bridge_server_path) if generated.bridge_server_path else "",
         manifest_ref=str(generated.manifest_path) if generated.manifest_path else "",
+        adapter_package_ref=str(generated.adapter_package_path) if generated.adapter_package_path else "",
+        request_contract=package.request_contract.model_dump(mode="json") if package else None,
+        dataset_contract=package.dataset_contract.model_dump(mode="json") if package else None,
+        capability_profile=package.capability_profile.model_dump(mode="json") if package else None,
+        verification_profile=package.verification_profile.model_dump(mode="json") if package else None,
         signature_spec=analysis.signature_spec.model_dump(mode="json") if analysis and analysis.signature_spec else None,
         verification_report_ref=report_ref,
-        compatibility_tags=compatibility_tags,
+        compatibility_tags=list(dict.fromkeys((package.compatibility_tags if package else []) + compatibility_tags)),
         source_reverse_job_id=reverse_job_id,
         verified_at=utc_now() if verified else None,
     )
@@ -148,6 +160,7 @@ class ReverseWorker(WorkerBase):
             requires_login=spec.requires_login,
             output_format=spec.output_format,
             crawl_rate=spec.crawl_rate,
+            intent=spec.intent,
             browser_profile=browser_profile,
         )
         if not result.completed or result.generated is None:
@@ -180,6 +193,13 @@ class ReverseWorker(WorkerBase):
                 self._runtime.object_store.put_file(
                     f"adapters/{spec.site_key}/{job.job_id}/crawler_manifest.json",
                     result.generated.manifest_path,
+                )
+            )
+        if result.generated.adapter_package_path and result.generated.adapter_package_path.exists():
+            result.generated.adapter_package_path = Path(
+                self._runtime.object_store.put_file(
+                    f"adapters/{spec.site_key}/{job.job_id}/adapter_package.json",
+                    result.generated.adapter_package_path,
                 )
             )
         adapter = build_adapter_version(
@@ -236,17 +256,18 @@ class CrawlWorker(WorkerBase):
             return True
 
         account_lease = self._runtime.resources.lease_account(site_key=spec.site_key, job_type=job_type, job_id=job.job_id, region=spec.region, account_id=spec.account_id)
+        adapter_needs_bridge = adapter.output_mode == "bridge" or bool((adapter.capability_profile or {}).get("needs_bridge"))
         proxy_lease = self._runtime.resources.lease_proxy(
             site_key=spec.site_key,
             job_type=job_type,
             job_id=job.job_id,
             region=spec.region,
             proxy_id=spec.proxy_id,
-            requires_browser=adapter.output_mode == "bridge",
-            sticky_required=adapter.output_mode == "bridge",
+            requires_browser=adapter_needs_bridge,
+            sticky_required=adapter_needs_bridge,
         )
         try:
-            if job_type == JobType.CRAWL and adapter.output_mode == "bridge":
+            if job_type == JobType.CRAWL and adapter_needs_bridge:
                 bridge_job = self._runtime.control.submit_bridge_job(
                     BridgeJobSpec(
                         site_key=spec.site_key,
@@ -259,6 +280,8 @@ class CrawlWorker(WorkerBase):
                         output_format=spec.output_format,
                         dataset_name=spec.dataset_name,
                         schema_version=spec.schema_version,
+                        intent=spec.intent,
+                        intent_fingerprint=spec.intent_fingerprint,
                         account_id=spec.account_id,
                         proxy_id=spec.proxy_id,
                         extractor_version=spec.extractor_version,
@@ -318,8 +341,10 @@ class CrawlWorker(WorkerBase):
             source_url=spec.source_url,
             response_status=200,
             schema_version=spec.schema_version,
+            dataset_contract_version=adapter.dataset_contract_version,
+            adapter_package_version=adapter.adapter_package_version,
             normalized_payload=execution.crawl_data,
-            dataset_name=spec.dataset_name,
+            dataset_name=spec.dataset_name or ((adapter.dataset_contract or {}).get("dataset_name") if adapter.dataset_contract else "default"),
             extractor_version=spec.extractor_version,
         )
         return self._runtime.ingest.ingest(envelope, raw_payload={"headers": execution.headers, "data": execution.crawl_data})
@@ -406,6 +431,15 @@ class SessionRefreshWorker(WorkerBase):
             self._runtime.resources.upsert_account(account)
             self._runtime.store.fail_job(JobType.SESSION_REFRESH, job.job_id, str(exc))
             return True
+
+
+def _load_adapter_package(path: Path | None) -> AdapterPackage | None:
+    if path is None or not path.exists():
+        return None
+    try:
+        return AdapterPackage.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def worker_from_type(runtime: PlatformRuntime, worker_type: str, *, queue_name: str = "default", region: str = "global") -> WorkerBase:

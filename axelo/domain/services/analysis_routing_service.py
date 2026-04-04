@@ -22,12 +22,14 @@ class AnalysisRoutingService:
         if self.should_use_static_only(ctx):
             return AnalysisRouteDecision(route="static_only", requires_ai=False)
         if self.should_use_template_codegen(ctx):
-            return AnalysisRouteDecision(route="template_codegen", requires_ai=False, use_template_codegen=True)
+            return AnalysisRouteDecision(route="family_template", requires_ai=False, use_template_codegen=True)
         if self.should_use_family_codegen(ctx):
-            return AnalysisRouteDecision(route="family_codegen", requires_ai=False)
+            return AnalysisRouteDecision(route="bridge_template", requires_ai=False)
+        if self.should_use_observed_replay(ctx):
+            return AnalysisRouteDecision(route="contract_replay", requires_ai=False)
         if ctx.target.execution_plan and ctx.target.execution_plan.ai_mode == "scanner_only":
             return AnalysisRouteDecision(route="scanner_only", requires_ai=True)
-        return AnalysisRouteDecision(route="full_ai", requires_ai=True)
+        return AnalysisRouteDecision(route="full_ai_unknown_family", requires_ai=True)
 
     def should_use_static_only(self, ctx) -> bool:
         plan = ctx.target.execution_plan
@@ -58,6 +60,38 @@ class AnalysisRoutingService:
             and getattr(ctx.family_match, "codegen_strategy", "") == "js_bridge"
             and getattr(ctx.family_match, "confidence", 0.0) >= 0.8
         )
+
+    def should_use_observed_replay(self, ctx) -> bool:
+        plan = ctx.target.execution_plan
+        if plan is None or plan.skip_codegen:
+            return False
+        if self.should_use_template_codegen(ctx) or self.should_use_family_codegen(ctx):
+            return False
+        requests = getattr(ctx.target, "target_requests", None) or getattr(ctx.target, "captured_requests", None) or []
+        if not requests:
+            return False
+        request = requests[0]
+        url = (request.url or "").lower()
+        headers = {str(key).lower() for key in (request.request_headers or {}).keys()}
+        if any(keyword in url for keyword in ("doubleclick", "/activity;", "/tracking", "/analytics")):
+            return False
+        if any(
+            hint in header
+            for header in headers
+            for hint in (
+                "sz-token",
+                "af-ac-enc-",
+                "x-sap-",
+                "d-nonptcha-sync",
+                "x-csrf",
+                "authorization",
+                "sign",
+                "token",
+                "nonce",
+            )
+        ):
+            return True
+        return request.method.upper() == "GET" and "/api/" in url
 
     def requires_low_confidence_confirmation(self, ctx) -> bool:
         return bool(

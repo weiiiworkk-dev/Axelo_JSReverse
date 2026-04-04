@@ -5,6 +5,7 @@ from urllib.parse import unquote
 
 import structlog
 
+from axelo.analysis.request_contracts import build_dataset_contract, build_request_contract, derive_capability_profile
 from axelo.browser import ActionRunner, BrowserDriver, BrowserStateStore, NetworkInterceptor, SessionPool
 from axelo.config import settings
 from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult
@@ -162,6 +163,11 @@ class CrawlStage(PipelineStage):
                 target.target_requests = [api_calls[index]] if index < len(api_calls) else api_calls[:5]
             except ValueError:
                 target.target_requests = api_calls[:5]
+
+        target.request_contracts = [build_request_contract(capture, target) for capture in target.target_requests]
+        target.selected_contract = target.request_contracts[0] if target.request_contracts else None
+        target.dataset_contract = build_dataset_contract(target, target.selected_contract)
+        target.capability_profile = derive_capability_profile(target, contract=target.selected_contract)
 
         target_path = crawl_dir / "target.json"
         target_path.write_text(target.model_dump_json(indent=2), encoding="utf-8")

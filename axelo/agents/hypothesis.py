@@ -82,6 +82,7 @@ class HypothesisAgent(BaseAgent):
             steps=output.steps,
             inputs=output.inputs,
             outputs=output.outputs,
+            family_id=output.family_id,
             codegen_strategy=output.codegen_strategy,
             python_feasibility=output.python_feasibility,
             confidence=output.confidence,

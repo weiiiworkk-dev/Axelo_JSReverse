@@ -9,6 +9,8 @@ import uuid
 
 from pydantic import BaseModel, Field, model_validator
 
+from axelo.models.contracts import CaptureIntent
+
 
 def site_key_from_url(url: str) -> str:
     parsed = urlsplit(url.strip())
@@ -107,6 +109,10 @@ class BaseJobSpec(BaseModel):
     queue: str = "default"
     region: str = "global"
     priority: int = 100
+    intent: dict[str, Any] = Field(default_factory=dict)
+    intent_fingerprint: str = ""
+    dataset_name: str = "default"
+    schema_version: str = "v1"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -129,6 +135,26 @@ class ReverseJobSpec(BaseJobSpec):
     def _fill_site_key(self) -> "ReverseJobSpec":
         if not self.site_key:
             self.site_key = site_key_from_url(self.url)
+        if not self.intent:
+            intent = CaptureIntent.from_legacy(
+                goal=self.goal,
+                target_hint=self.target_hint,
+                known_endpoint=self.known_endpoint,
+                item_limit=100,
+                page_limit=None,
+                output_format=self.output_format,
+                dataset_name=self.dataset_name,
+            )
+            self.intent = intent.model_dump(mode="json")
+            self.intent_fingerprint = intent.fingerprint
+            self.dataset_name = intent.dataset_name
+        else:
+            intent = CaptureIntent.model_validate(self.intent)
+            self.intent = intent.model_dump(mode="json")
+            if not self.intent_fingerprint:
+                self.intent_fingerprint = intent.fingerprint
+            if self.dataset_name == "default":
+                self.dataset_name = intent.dataset_name
         return self
 
 
@@ -140,8 +166,6 @@ class CrawlJobSpec(BaseJobSpec):
     action: str = "page"
     crawl_kwargs: dict[str, Any] = Field(default_factory=dict)
     output_format: str = "json_file"
-    dataset_name: str = "default"
-    schema_version: str = "v1"
     account_id: str = ""
     proxy_id: str = ""
     extractor_version: str = "v1"
@@ -152,6 +176,12 @@ class CrawlJobSpec(BaseJobSpec):
             self.site_key = site_key_from_url(self.site_url or self.source_url)
         if not self.source_url:
             self.source_url = self.site_url
+        if self.intent:
+            intent = CaptureIntent.model_validate(self.intent)
+            if not self.intent_fingerprint:
+                self.intent_fingerprint = intent.fingerprint
+            if self.dataset_name == "default":
+                self.dataset_name = intent.dataset_name
         return self
 
 
@@ -180,7 +210,20 @@ class FrontierSeedRequest(BaseModel):
     depth: int = 0
     discovered_from: str = ""
     region: str = "global"
+    intent: dict[str, Any] = Field(default_factory=dict)
+    intent_fingerprint: str = ""
+    dataset_name: str = "default"
     request_kwargs: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _fill_intent_fields(self) -> "FrontierSeedRequest":
+        if self.intent:
+            intent = CaptureIntent.model_validate(self.intent)
+            if not self.intent_fingerprint:
+                self.intent_fingerprint = intent.fingerprint
+            if self.dataset_name == "default":
+                self.dataset_name = intent.dataset_name
+        return self
 
 
 class FrontierItem(BaseModel):
@@ -193,6 +236,8 @@ class FrontierItem(BaseModel):
     discovered_from: str = ""
     status: FrontierStatus = FrontierStatus.DISCOVERED
     adapter_version: str = ""
+    intent_fingerprint: str = ""
+    dataset_name: str = "default"
     next_eligible_at: datetime = Field(default_factory=utc_now)
     last_result: str = ""
     region: str = "global"
@@ -203,9 +248,19 @@ class AdapterVersion(BaseModel):
     site_key: str
     version: str
     output_mode: str
+    adapter_package_version: str = "v1"
+    dataset_contract_version: str = "v1"
+    intent_fingerprint: str = ""
+    request_contract_hash: str = ""
+    family_id: str = "unknown"
     crawler_script_ref: str
     bridge_server_ref: str = ""
     manifest_ref: str = ""
+    adapter_package_ref: str = ""
+    request_contract: dict[str, Any] | None = None
+    dataset_contract: dict[str, Any] | None = None
+    capability_profile: dict[str, Any] | None = None
+    verification_profile: dict[str, Any] | None = None
     signature_spec: dict[str, Any] | None = None
     verification_report_ref: str = ""
     compatibility_tags: list[str] = Field(default_factory=list)
@@ -267,6 +322,8 @@ class ResultEnvelope(BaseModel):
     source_url: str = ""
     response_status: int = 0
     schema_version: str = "v1"
+    dataset_contract_version: str = "v1"
+    adapter_package_version: str = "v1"
     raw_payload_ref: str = ""
     normalized_payload: Any = None
     observed_at: datetime = Field(default_factory=utc_now)

@@ -14,6 +14,16 @@ from .analysis import (
 from .bundle import DeobfuscationResult, JSBundle
 from .codegen import GeneratedCode
 from .compliance import CompliancePolicy
+from .contracts import (
+    AdapterPackage,
+    CapabilityProfile,
+    CaptureIntent,
+    DatasetContract,
+    EvidenceBundle,
+    FailureCase,
+    RequestContract,
+    VerificationProfile,
+)
 from .execution import ExecutionPlan, ExecutionTier, VerificationMode
 from .pipeline import Decision, DecisionType, PipelineState, StageRecord, StageResult, StageStatus
 from .run_config import AntiBotType, CrawlRate, OutputFormat, RunConfig, RunMode
@@ -43,15 +53,20 @@ __all__ = [
     "BrowserActionType",
     "BrowserProfile",
     "BridgeTargetCandidate",
+    "CapabilityProfile",
     "CompliancePolicy",
+    "CaptureIntent",
     "ExecutionPlan",
     "ExecutionTier",
     "CrawlRate",
+    "DatasetContract",
     "Decision",
     "DecisionType",
     "DeobfuscationResult",
     "DynamicAnalysis",
+    "EvidenceBundle",
     "EnvironmentSimulation",
+    "FailureCase",
     "FunctionSignature",
     "GeneratedCode",
     "HookIntercept",
@@ -62,6 +77,7 @@ __all__ = [
     "OutputFormat",
     "PipelineState",
     "PointerPathSimulation",
+    "RequestContract",
     "RequestCapture",
     "RunConfig",
     "RunMode",
@@ -78,7 +94,9 @@ __all__ = [
     "TaintTopology",
     "TokenCandidate",
     "TraceArtifact",
+    "VerificationProfile",
     "VerificationMode",
     "WebGLSimulation",
     "WorkflowCheckpoint",
+    "AdapterPackage",
 ]

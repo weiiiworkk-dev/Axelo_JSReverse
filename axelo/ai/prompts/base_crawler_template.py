@@ -302,6 +302,23 @@ class __AXELO_CRAWLER_CLASS__:
         if self._cookies:
             self._last_headers["Cookie"] = self._cookie_header()
 
+    def _should_use_observed_verbatim_headers(self, headers: dict[str, str] | None) -> bool:
+        if self._bridge_signers or self.PREFERRED_BRIDGE_TARGET:
+            return False
+        lowered = {str(key).lower() for key in (headers or {}).keys()}
+        return any(
+            key in lowered
+            for key in {
+                "af-ac-enc-dat",
+                "af-ac-enc-sz-token",
+                "sz-token",
+                "x-sap-ri",
+                "x-sap-sec",
+                "d-nonptcha-sync",
+                "x-sz-sdk-version",
+            }
+        )
+
     @staticmethod
     def _normalize_scalar(value: Any) -> str:
         if isinstance(value, bool):
@@ -360,11 +377,16 @@ class __AXELO_CRAWLER_CLASS__:
         method: str,
         body_text: str,
         extra_headers: dict[str, str] | None = None,
+        use_bridge: bool = True,
+        preserve_observed_headers: bool = False,
     ) -> tuple[str, dict[str, str]]:
-        bridge_fields = self._bridge_sign(final_url, method, body_text if method != "GET" else "")
-        final_url, bridge_headers = self._apply_bridge_fields(final_url, bridge_fields)
-        headers = self._merge_headers(self.DEFAULT_HEADERS, extra_headers or {})
-        headers = self._merge_headers(headers, bridge_headers)
+        bridge_headers: dict[str, str] = {}
+        if use_bridge:
+            bridge_fields = self._bridge_sign(final_url, method, body_text if method != "GET" else "")
+            final_url, bridge_headers = self._apply_bridge_fields(final_url, bridge_fields)
+        headers = dict(extra_headers or {}) if preserve_observed_headers else self._merge_headers(self.DEFAULT_HEADERS, extra_headers or {})
+        if bridge_headers:
+            headers = self._merge_headers(headers, bridge_headers)
         if self._cookies and self._should_attach_cookie_header(final_url, method, headers):
             headers["Cookie"] = self._cookie_header()
 
@@ -454,6 +476,8 @@ class __AXELO_CRAWLER_CLASS__:
         raw_body: str | bytes | None = None,
         headers: dict[str, str] | None = None,
         timeout: float = 20.0,
+        use_bridge: bool = True,
+        preserve_observed_headers: bool = False,
     ) -> Any:
         method = method.upper()
         final_url = self._build_url(url, params)
@@ -472,6 +496,8 @@ class __AXELO_CRAWLER_CLASS__:
             method=method,
             body_text=body_text,
             extra_headers=request_headers,
+            use_bridge=use_bridge,
+            preserve_observed_headers=preserve_observed_headers,
         )
 
         request_kwargs: dict[str, Any] = {
@@ -497,11 +523,15 @@ class __AXELO_CRAWLER_CLASS__:
             raise IndexError(f"Observed target index out of range: {index}")
 
         target = self.OBSERVED_TARGETS[index]
+        observed_headers = target.get("headers") or {}
+        preserve_observed_headers = self._should_use_observed_verbatim_headers(observed_headers)
         return self.request(
             url=target["url"],
             method=target.get("method", "GET"),
             raw_body=target.get("body") or "",
-            headers=target.get("headers") or {},
+            headers=observed_headers,
+            use_bridge=not preserve_observed_headers,
+            preserve_observed_headers=preserve_observed_headers,
         )
 
     def crawl_known_endpoint(self, method: str = "GET") -> Any:

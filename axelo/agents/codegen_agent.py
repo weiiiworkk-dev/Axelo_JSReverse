@@ -47,7 +47,9 @@ class CodeGenAgent(BaseAgent):
         templates = self._retriever.get_all_templates()
         selected_template, template_code = self._templates.select_template(hypothesis, templates)
 
-        if hypothesis.template_name and selected_template is not None and self._templates.is_ready(hypothesis, selected_template):
+        if self._templates.supports_builtin(hypothesis):
+            output = self._templates.render_builtin(target, hypothesis, dynamic=dynamic)
+        elif hypothesis.template_name and selected_template is not None and self._templates.is_ready(hypothesis, selected_template):
             output = self._templates.render(selected_template, target, hypothesis, dynamic=dynamic)
         else:
             output = await self._ai_codegen.generate(

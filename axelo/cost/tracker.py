@@ -32,7 +32,7 @@ class CostRecord:
     total_usd: float = 0.0
 
     # 运行路径与阶段级观测
-    route_label: str = "full_ai"
+    route_label: str = "full_ai_unknown_family"
     stage_metrics: dict[str, dict] = field(default_factory=dict)
     reuse_hits: list[str] = field(default_factory=list)
 

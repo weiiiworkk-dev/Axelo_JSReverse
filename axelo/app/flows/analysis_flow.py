@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from axelo.ai.client import AIClient
+from axelo.analysis.request_contracts import derive_capability_profile
 from axelo.analysis import build_signature_spec
 from axelo.analysis.family_detector import build_hypothesis_from_family, detect_signature_family
+from axelo.analysis.observed_replay import build_hypothesis_from_observed_request
 from axelo.app.artifacts import AnalysisArtifacts
 from axelo.classifier.rules import classify
 from axelo.config import settings
@@ -154,9 +156,14 @@ class AnalysisFlow:
             return None
 
         if self._routing_service.should_use_template_codegen(ctx):
-            ctx.cost.set_route("template_codegen")
+            ctx.cost.set_route("family_template")
             ctx.hypothesis = build_hypothesis_from_family(ctx.family_match, ctx.target)
             ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
+            ctx.target.capability_profile = derive_capability_profile(
+                ctx.target,
+                contract=ctx.target.selected_contract,
+                codegen_strategy=ctx.hypothesis.codegen_strategy,
+            )
             ctx.analysis = AnalysisResult(
                 session_id=ctx.sid,
                 static=ctx.static_results,
@@ -167,9 +174,9 @@ class AnalysisFlow:
                 ready_for_codegen=True,
                 manual_review_required=False,
                 signature_family=ctx.family_match.family_id,
-                analysis_notes="Template-backed family detection satisfied codegen prerequisites.",
+                analysis_notes="Family template selection satisfied codegen prerequisites.",
             )
-            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="template_codegen")
+            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="family_template")
             ctx.target.trace = ctx.workflow.checkpoint(
                 ctx.sid,
                 ctx.target.trace,
@@ -194,9 +201,14 @@ class AnalysisFlow:
             )
 
         if self._routing_service.should_use_family_codegen(ctx):
-            ctx.cost.set_route("family_codegen")
+            ctx.cost.set_route("bridge_template")
             ctx.hypothesis = build_hypothesis_from_family(ctx.family_match, ctx.target)
             ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
+            ctx.target.capability_profile = derive_capability_profile(
+                ctx.target,
+                contract=ctx.target.selected_contract,
+                codegen_strategy=ctx.hypothesis.codegen_strategy,
+            )
             ctx.analysis = AnalysisResult(
                 session_id=ctx.sid,
                 static=ctx.static_results,
@@ -207,9 +219,9 @@ class AnalysisFlow:
                 ready_for_codegen=True,
                 manual_review_required=False,
                 signature_family=ctx.family_match.family_id,
-                analysis_notes="High-confidence family detection satisfied bridge codegen prerequisites.",
+                analysis_notes="Bridge template selection satisfied codegen prerequisites.",
             )
-            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="family_codegen")
+            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="bridge_template")
             ctx.target.trace = ctx.workflow.checkpoint(
                 ctx.sid,
                 ctx.target.trace,
@@ -223,6 +235,51 @@ class AnalysisFlow:
                 static_results=ctx.static_results,
                 signature_family=ctx.family_match.family_id,
                 template_name=ctx.family_match.template_name,
+                signature_spec=ctx.hypothesis.signature_spec,
+            )
+            return AnalysisArtifacts(
+                difficulty=ctx.difficulty,
+                dynamic=ctx.dynamic,
+                family_match=ctx.family_match,
+                analysis=ctx.analysis,
+                hypothesis=ctx.hypothesis,
+            )
+
+        if self._routing_service.should_use_observed_replay(ctx):
+            ctx.cost.set_route("contract_replay")
+            ctx.hypothesis = build_hypothesis_from_observed_request(ctx.target)
+            ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
+            ctx.target.capability_profile = derive_capability_profile(
+                ctx.target,
+                contract=ctx.target.selected_contract,
+                codegen_strategy=ctx.hypothesis.codegen_strategy,
+            )
+            ctx.analysis = AnalysisResult(
+                session_id=ctx.sid,
+                static=ctx.static_results,
+                dynamic=ctx.dynamic,
+                ai_hypothesis=ctx.hypothesis,
+                signature_spec=ctx.hypothesis.signature_spec,
+                overall_confidence=ctx.hypothesis.confidence,
+                ready_for_codegen=True,
+                manual_review_required=False,
+                signature_family=ctx.family_match.family_id,
+                analysis_notes="Contract replay template satisfied codegen prerequisites.",
+            )
+            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="contract_replay")
+            ctx.target.trace = ctx.workflow.checkpoint(
+                ctx.sid,
+                ctx.target.trace,
+                "s6_ai_analyze",
+                "skipped",
+                summary="Contract replay template selected",
+            )
+            self._analysis_cache.save(
+                ctx.target,
+                bundle_hashes=ctx.bundle_hashes,
+                static_results=ctx.static_results,
+                signature_family=ctx.family_match.family_id,
+                template_name=ctx.hypothesis.template_name,
                 signature_spec=ctx.hypothesis.signature_spec,
             )
             return AnalysisArtifacts(
@@ -310,7 +367,12 @@ class AnalysisFlow:
             ctx.result.error = "AI analysis did not produce a usable hypothesis"
             return None
 
-        ctx.cost.set_route("full_ai")
+        ctx.target.capability_profile = derive_capability_profile(
+            ctx.target,
+            contract=ctx.target.selected_contract,
+            codegen_strategy=ctx.hypothesis.codegen_strategy,
+        )
+        ctx.cost.set_route("full_ai_unknown_family")
         if self._routing_service.requires_low_confidence_confirmation(ctx) and ctx.mode_name != "auto":
             decision = Decision(
                 stage="master",

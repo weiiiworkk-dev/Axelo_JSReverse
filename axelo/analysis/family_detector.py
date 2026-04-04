@@ -170,6 +170,7 @@ def build_hypothesis_from_family(match: SignatureFamilyMatch, target: TargetSite
         steps=match.steps or _default_steps(match.algorithm_type),
         inputs=match.inputs or _default_inputs(match.algorithm_type),
         outputs=match.outputs,
+        family_id=match.family_id,
         codegen_strategy="python_reconstruct" if match.codegen_strategy != "js_bridge" else "js_bridge",
         python_feasibility=0.9 if match.codegen_strategy != "js_bridge" else 0.2,
         confidence=match.confidence,

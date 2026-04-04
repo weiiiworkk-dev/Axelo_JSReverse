@@ -92,6 +92,8 @@ class FrontierUrlRow(SQLModel, table=True):
     discovered_from: str = ""
     status: str = Field(default=FrontierStatus.DISCOVERED.value, index=True)
     adapter_version: str = ""
+    intent_fingerprint: str = Field(default="", index=True)
+    dataset_name: str = Field(default="default", index=True)
     next_eligible_at: datetime = Field(default_factory=utc_now, index=True)
     last_result: str = ""
     region: str = Field(default="global", index=True)
@@ -107,9 +109,19 @@ class AdapterVersionRow(SQLModel, table=True):
     site_key: str = Field(index=True)
     version: str = Field(index=True)
     output_mode: str
+    adapter_package_version: str = "v1"
+    dataset_contract_version: str = "v1"
+    intent_fingerprint: str = Field(default="", index=True)
+    request_contract_hash: str = Field(default="", index=True)
+    family_id: str = Field(default="unknown", index=True)
     crawler_script_ref: str
     bridge_server_ref: str = ""
     manifest_ref: str = ""
+    adapter_package_ref: str = ""
+    request_contract_json: str = Field(default="null")
+    dataset_contract_json: str = Field(default="null")
+    capability_profile_json: str = Field(default="null")
+    verification_profile_json: str = Field(default="null")
     signature_spec_json: str = Field(default="null")
     verification_report_ref: str = ""
     compatibility_tags_json: str = Field(default="[]")
@@ -206,6 +218,8 @@ class ResultEnvelopeRow(SQLModel, table=True):
     source_url: str = ""
     response_status: int = 0
     schema_version: str = "v1"
+    dataset_contract_version: str = "v1"
+    adapter_package_version: str = "v1"
     raw_payload_ref: str = ""
     normalized_payload_json: str = Field(default="null")
     dataset_name: str = Field(default="default", index=True)
@@ -245,6 +259,42 @@ class PlatformStore:
         connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
         self._engine = create_engine(database_url, connect_args=connect_args)
         SQLModel.metadata.create_all(self._engine)
+        if database_url.startswith("sqlite"):
+            self._apply_sqlite_compat_migrations()
+
+    def _apply_sqlite_compat_migrations(self) -> None:
+        required_columns = {
+            "frontier_urls": {
+                "intent_fingerprint": "TEXT DEFAULT ''",
+                "dataset_name": "TEXT DEFAULT 'default'",
+            },
+            "adapter_versions": {
+                "adapter_package_version": "TEXT DEFAULT 'v1'",
+                "dataset_contract_version": "TEXT DEFAULT 'v1'",
+                "intent_fingerprint": "TEXT DEFAULT ''",
+                "request_contract_hash": "TEXT DEFAULT ''",
+                "family_id": "TEXT DEFAULT 'unknown'",
+                "adapter_package_ref": "TEXT DEFAULT ''",
+                "request_contract_json": "TEXT DEFAULT 'null'",
+                "dataset_contract_json": "TEXT DEFAULT 'null'",
+                "capability_profile_json": "TEXT DEFAULT 'null'",
+                "verification_profile_json": "TEXT DEFAULT 'null'",
+            },
+            "result_envelopes": {
+                "dataset_contract_version": "TEXT DEFAULT 'v1'",
+                "adapter_package_version": "TEXT DEFAULT 'v1'",
+            },
+        }
+        with self._engine.begin() as conn:
+            for table_name, columns in required_columns.items():
+                existing = {
+                    row[1]
+                    for row in conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                for column_name, column_sql in columns.items():
+                    if column_name in existing:
+                        continue
+                    conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
     def submit_job(
         self,
@@ -331,9 +381,19 @@ class PlatformStore:
             site_key=adapter.site_key,
             version=adapter.version,
             output_mode=adapter.output_mode,
+            adapter_package_version=adapter.adapter_package_version,
+            dataset_contract_version=adapter.dataset_contract_version,
+            intent_fingerprint=adapter.intent_fingerprint,
+            request_contract_hash=adapter.request_contract_hash,
+            family_id=adapter.family_id,
             crawler_script_ref=adapter.crawler_script_ref,
             bridge_server_ref=adapter.bridge_server_ref,
             manifest_ref=adapter.manifest_ref,
+            adapter_package_ref=adapter.adapter_package_ref,
+            request_contract_json=_json_dumps(adapter.request_contract),
+            dataset_contract_json=_json_dumps(adapter.dataset_contract),
+            capability_profile_json=_json_dumps(adapter.capability_profile),
+            verification_profile_json=_json_dumps(adapter.verification_profile),
             signature_spec_json=_json_dumps(adapter.signature_spec),
             verification_report_ref=adapter.verification_report_ref,
             compatibility_tags_json=_json_dumps(adapter.compatibility_tags),
@@ -346,9 +406,19 @@ class PlatformStore:
             if existing is not None:
                 for field in (
                     "output_mode",
+                    "adapter_package_version",
+                    "dataset_contract_version",
+                    "intent_fingerprint",
+                    "request_contract_hash",
+                    "family_id",
                     "crawler_script_ref",
                     "bridge_server_ref",
                     "manifest_ref",
+                    "adapter_package_ref",
+                    "request_contract_json",
+                    "dataset_contract_json",
+                    "capability_profile_json",
+                    "verification_profile_json",
                     "signature_spec_json",
                     "verification_report_ref",
                     "compatibility_tags_json",
@@ -397,6 +467,10 @@ class PlatformStore:
                 if existing is not None:
                     if item.priority < existing.priority:
                         existing.priority = item.priority
+                    if item.intent_fingerprint and not existing.intent_fingerprint:
+                        existing.intent_fingerprint = item.intent_fingerprint
+                    if item.dataset_name and existing.dataset_name == "default":
+                        existing.dataset_name = item.dataset_name
                     existing.updated_at = utc_now()
                     session.add(existing)
                     saved.append(self._to_frontier(existing))
@@ -411,6 +485,8 @@ class PlatformStore:
                     discovered_from=item.discovered_from,
                     status=item.status.value,
                     adapter_version=item.adapter_version,
+                    intent_fingerprint=item.intent_fingerprint,
+                    dataset_name=item.dataset_name,
                     next_eligible_at=item.next_eligible_at,
                     last_result=item.last_result,
                     region=item.region,
@@ -725,6 +801,8 @@ class PlatformStore:
             source_url=envelope.source_url,
             response_status=envelope.response_status,
             schema_version=envelope.schema_version,
+            dataset_contract_version=envelope.dataset_contract_version,
+            adapter_package_version=envelope.adapter_package_version,
             raw_payload_ref=envelope.raw_payload_ref,
             normalized_payload_json=_json_dumps(envelope.normalized_payload),
             dataset_name=envelope.dataset_name,
@@ -752,6 +830,8 @@ class PlatformStore:
                 source_url=row.source_url,
                 response_status=row.response_status,
                 schema_version=row.schema_version,
+                dataset_contract_version=row.dataset_contract_version,
+                adapter_package_version=row.adapter_package_version,
                 raw_payload_ref=row.raw_payload_ref,
                 normalized_payload=_json_loads(row.normalized_payload_json, None),
                 dataset_name=row.dataset_name,
@@ -843,9 +923,19 @@ class PlatformStore:
             site_key=row.site_key,
             version=row.version,
             output_mode=row.output_mode,
+            adapter_package_version=row.adapter_package_version,
+            dataset_contract_version=row.dataset_contract_version,
+            intent_fingerprint=row.intent_fingerprint,
+            request_contract_hash=row.request_contract_hash,
+            family_id=row.family_id,
             crawler_script_ref=row.crawler_script_ref,
             bridge_server_ref=row.bridge_server_ref,
             manifest_ref=row.manifest_ref,
+            adapter_package_ref=row.adapter_package_ref,
+            request_contract=_json_loads(row.request_contract_json, None),
+            dataset_contract=_json_loads(row.dataset_contract_json, None),
+            capability_profile=_json_loads(row.capability_profile_json, None),
+            verification_profile=_json_loads(row.verification_profile_json, None),
             signature_spec=_json_loads(row.signature_spec_json, None),
             verification_report_ref=row.verification_report_ref,
             compatibility_tags=_json_loads(row.compatibility_tags_json, []),
@@ -865,6 +955,8 @@ class PlatformStore:
             discovered_from=row.discovered_from,
             status=FrontierStatus(row.status),
             adapter_version=row.adapter_version,
+            intent_fingerprint=row.intent_fingerprint,
+            dataset_name=row.dataset_name,
             next_eligible_at=row.next_eligible_at,
             last_result=row.last_result,
             region=row.region,

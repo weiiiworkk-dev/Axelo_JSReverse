@@ -21,6 +21,7 @@ class GeneratedCode(BaseModel):
     bridge_server_path: Path | None = None
     bridge_port: int = 8721
     manifest_path: Path | None = None
+    adapter_package_path: Path | None = None
     verified: bool = False
     verification_notes: str = ""
     session_state_path: Path | None = None

@@ -86,7 +86,7 @@ class DeliveryFlow:
             return None
 
         if ctx.hypothesis and ctx.hypothesis.template_name:
-            ctx.cost.set_route("template_codegen")
+            ctx.cost.set_route("bridge_template" if ctx.hypothesis.codegen_strategy == "js_bridge" else "family_template")
         ctx.result.output_dir = ctx.output_dir
         ctx.target.trace = ctx.workflow.checkpoint(
             ctx.sid,
@@ -196,6 +196,7 @@ class DeliveryFlow:
                 )
                 continue
             if verification_analysis and verification_analysis.retry_strategy == "patch_code":
+                ctx.cost.set_route("ai_patch")
                 ctx.target.trace = ctx.workflow.checkpoint(
                     ctx.sid,
                     ctx.target.trace,

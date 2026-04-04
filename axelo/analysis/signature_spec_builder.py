@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from axelo.analysis.request_contracts import derive_capability_profile
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
 from axelo.models.signature import SignatureSpec
 from axelo.models.target import TargetSite
@@ -56,6 +57,7 @@ def build_signature_spec(
 
     inferred_algorithm_id = _infer_algorithm_id(target, hypothesis)
     algorithm_id = inferred_algorithm_id if inferred_algorithm_id != "unknown" else (token_types[0] if token_types else "unknown")
+    family_id = hypothesis.family_id or algorithm_id
     replay_requirements = []
     if target.known_endpoint:
         replay_requirements.append(f"Known endpoint: {target.known_endpoint}")
@@ -67,20 +69,44 @@ def build_signature_spec(
     codegen_strategy = hypothesis.codegen_strategy
     if (browser_dependencies or preferred_bridge_target) and codegen_strategy == "python_reconstruct":
         codegen_strategy = "js_bridge"
+    capability_profile = derive_capability_profile(target, contract=target.selected_contract, codegen_strategy=codegen_strategy)
+    selected_contract = target.selected_contract
 
     return SignatureSpec(
         algorithm_id=algorithm_id,
+        family_id=family_id,
         canonical_steps=canonical_steps,
         input_fields=sorted(set(hypothesis.inputs)),
+        signing_inputs=sorted(set(hypothesis.inputs)),
         output_fields=output_fields,
+        signing_outputs=output_fields,
         browser_dependencies=sorted(browser_dependencies),
         replay_requirements=replay_requirements,
         normalization_rules=[
             "Preserve header casing emitted by the generated crawler",
             "Treat timestamp and nonce fields as temporal values unless static evidence proves otherwise",
         ],
+        transport_profile={
+            "method": selected_contract.method if selected_contract else "GET",
+            "url_pattern": selected_contract.url_pattern if selected_contract else (target.known_endpoint or target.url),
+        },
+        header_policy={
+            "required": list(selected_contract.required_headers if selected_contract else []),
+            "optional": list(selected_contract.optional_headers if selected_contract else []),
+        },
+        cookie_policy={
+            "auth_mode": selected_contract.auth_mode if selected_contract else "unknown",
+            "required": list(selected_contract.cookie_requirements if selected_contract else []),
+        },
         bridge_targets=list(dict.fromkeys(bridge_targets)),
         preferred_bridge_target=preferred_bridge_target,
+        bridge_mode="bridge_server" if capability_profile.needs_bridge or preferred_bridge_target else "none",
+        extractor_binding={
+            "dataset_name": target.dataset_contract.dataset_name,
+            "record_path": target.dataset_contract.record_path,
+            "schema_version": target.dataset_contract.schema_version,
+        },
+        stability_level="strict" if target.requires_login else "standard",
         topology_summary=topology_summary,
         codegen_strategy=codegen_strategy,
         confidence=hypothesis.confidence,

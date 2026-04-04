@@ -5,7 +5,7 @@ from axelo.agents.codegen_agent import (
     _repair_generated_code_for_target,
     _render_base_crawler_template,
 )
-from axelo.agents.codegen_services import _safe_default_headers
+from axelo.agents.codegen_services import _observed_targets_payload, _safe_default_headers
 from axelo.models.analysis import AIHypothesis
 from axelo.models.target import RequestCapture, TargetSite
 
@@ -121,3 +121,64 @@ def test_rendered_bridge_crawler_avoids_forcing_origin_for_catalog_request():
     assert "'x-csrf-token': 'abc123'" in rendered
     assert "'Origin':" not in rendered
     assert "self._cookies and self._should_attach_cookie_header(final_url, method, headers)" in rendered
+
+
+def test_observed_targets_payload_preserves_high_entropy_observed_headers():
+    target = TargetSite(
+        url="https://example.com/search?q=phone",
+        session_id="sess-4",
+        interaction_goal="search replay",
+        target_requests=[
+            RequestCapture(
+                url="https://example.com/api/search?q=phone",
+                method="GET",
+                request_headers={
+                    "x-csrftoken": "abc123",
+                    "sz-token": "signed-token",
+                    "af-ac-enc-dat": "deadbeefcafebabe",
+                    "x-sap-ri": "trace-signal",
+                    "cookie": "should-not-be-copied",
+                },
+            )
+        ],
+    )
+
+    payload = _observed_targets_payload(target)
+
+    assert payload[0]["headers"]["x-csrftoken"] == "abc123"
+    assert payload[0]["headers"]["sz-token"] == "signed-token"
+    assert payload[0]["headers"]["af-ac-enc-dat"] == "deadbeefcafebabe"
+    assert payload[0]["headers"]["x-sap-ri"] == "trace-signal"
+    assert "cookie" not in payload[0]["headers"]
+
+
+def test_rendered_bridge_crawler_supports_observed_verbatim_replay_fallback():
+    target = TargetSite(
+        url="https://example.com/search?q=phone",
+        session_id="sess-5",
+        interaction_goal="search replay",
+        target_requests=[
+            RequestCapture(
+                url="https://example.com/api/search?q=phone",
+                method="GET",
+                request_headers={
+                    "sz-token": "signed-token",
+                    "af-ac-enc-dat": "deadbeefcafebabe",
+                },
+            )
+        ],
+    )
+
+    rendered = _render_base_crawler_template(
+        target,
+        hypothesis=AIHypothesis(
+            algorithm_description="Use observed replay template",
+            codegen_strategy="js_bridge",
+        ),
+        dynamic=None,
+        bridge_port=8721,
+    )
+
+    assert "def _should_use_observed_verbatim_headers" in rendered
+    assert "use_bridge=not preserve_observed_headers" in rendered
+    assert "preserve_observed_headers=preserve_observed_headers" in rendered

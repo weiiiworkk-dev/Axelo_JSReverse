@@ -55,3 +55,56 @@ def test_confirmation_required_when_analysis_is_not_ready_for_codegen():
 
     assert service.requires_low_confidence_confirmation(interactive_ctx) is True
     assert service.requires_low_confidence_confirmation(auto_ctx) is False
+
+
+def test_observed_replay_route_for_high_entropy_observed_request():
+    service = AnalysisRoutingService()
+    plan = ExecutionPlan(skip_codegen=False)
+    ctx = _ctx(
+        plan=plan,
+        family_match=SimpleNamespace(template_ready=False, confidence=0.2, codegen_strategy="js_bridge"),
+        target=SimpleNamespace(
+            execution_plan=plan,
+            target_requests=[
+                SimpleNamespace(
+                    url="https://shopee.com.my/api/v4/search/search_items?keyword=iphone",
+                    method="GET",
+                    request_headers={
+                        "x-csrftoken": "abc",
+                        "af-ac-enc-dat": "deadbeefcafebabe",
+                        "sz-token": "token-value",
+                    },
+                )
+            ],
+        ),
+    )
+
+    assert service.should_use_observed_replay(ctx) is True
+    assert service.choose_route(ctx).route == "contract_replay"
+
+
+def test_observed_replay_not_blocked_by_non_actionable_family_match():
+    service = AnalysisRoutingService()
+    plan = ExecutionPlan(skip_codegen=False)
+    ctx = _ctx(
+        plan=plan,
+        family_match=SimpleNamespace(
+            template_ready=False,
+            confidence=0.95,
+            codegen_strategy="python_reconstruct",
+        ),
+        target=SimpleNamespace(
+            execution_plan=plan,
+            target_requests=[
+                SimpleNamespace(
+                    url="https://example.com/api/search?q=phone",
+                    method="GET",
+                    request_headers={"authorization": "Bearer token"},
+                )
+            ],
+        ),
+    )
+
+    assert service.should_use_family_codegen(ctx) is False
+    assert service.should_use_template_codegen(ctx) is False
+    assert service.should_use_observed_replay(ctx) is True

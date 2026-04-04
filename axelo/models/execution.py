@@ -27,7 +27,7 @@ class ExecutionPlan(BaseModel):
     tier: ExecutionTier = ExecutionTier.BROWSER_FULL
     verification_mode: VerificationMode = VerificationMode.STANDARD
     ai_mode: str = "full"
-    route_label: str = "full_ai"
+    route_label: str = "full_ai_unknown_family"
     cost_strategy: str = "balanced"
     requires_browser: bool = True
     requires_dynamic_analysis: bool = True

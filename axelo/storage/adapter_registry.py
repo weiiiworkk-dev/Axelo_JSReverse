@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from axelo.models.analysis import AnalysisResult
 from axelo.models.codegen import GeneratedCode
+from axelo.models.contracts import AdapterPackage, CapabilityProfile, DatasetContract, RequestContract, VerificationProfile
 from axelo.models.target import TargetSite
 
 
@@ -35,6 +36,9 @@ class AdapterRecord(BaseModel):
     domain: str
     goal_digest: str
     target_hint_digest: str = ""
+    intent_fingerprint: str = ""
+    family_id: str = "unknown"
+    request_contract_hash: str = ""
     known_endpoint: str = ""
     preferred_api_base: str = ""
     output_format: str = "print"
@@ -44,9 +48,14 @@ class AdapterRecord(BaseModel):
     crawler_script_path: str = ""
     bridge_server_path: str = ""
     manifest_path: str = ""
+    adapter_package_path: str = ""
     session_state_path: str = ""
     source_session_id: str = ""
     signature_spec: dict | None = None
+    request_contract: dict | None = None
+    dataset_contract: dict | None = None
+    capability_profile: dict | None = None
+    verification_profile: dict | None = None
     notes: list[str] = Field(default_factory=list)
     use_count: int = 0
     created_at: datetime = Field(default_factory=datetime.now)
@@ -58,6 +67,7 @@ class AdapterMaterialization(BaseModel):
     crawler_script_path: Path | None = None
     bridge_server_path: Path | None = None
     manifest_path: Path | None = None
+    adapter_package_path: Path | None = None
     session_state_path: Path | None = None
 
     model_config = {"arbitrary_types_allowed": True}
@@ -98,6 +108,8 @@ class AdapterRegistry:
         target_hint_digest = _target_hint_digest(target.target_hint)
         preferred_api_base = _preferred_api_base(target)
         profile_name = target.browser_profile.environment_simulation.profile_name
+        intent_fingerprint = target.intent.fingerprint if target.intent else ""
+        request_contract_hash = target.selected_contract.contract_hash if target.selected_contract else ""
         best_score = -1
         best: AdapterRecord | None = None
 
@@ -105,6 +117,10 @@ class AdapterRegistry:
             if not record.verified:
                 continue
             score = 0
+            if intent_fingerprint and record.intent_fingerprint == intent_fingerprint:
+                score += 6
+            if request_contract_hash and record.request_contract_hash == request_contract_hash:
+                score += 6
             if record.goal_digest == exact_goal:
                 score += 4
             if record.target_hint_digest and record.target_hint_digest == target_hint_digest:
@@ -126,6 +142,28 @@ class AdapterRegistry:
 
         return best if best_score >= 4 else None
 
+    def resolve(
+        self,
+        *,
+        site_key: str,
+        intent_fingerprint: str = "",
+        request_contract_hash: str = "",
+    ) -> AdapterRecord | None:
+        candidates = self._load(site_key)
+        for record in candidates:
+            if not record.verified:
+                continue
+            if intent_fingerprint and record.intent_fingerprint != intent_fingerprint:
+                continue
+            if request_contract_hash and record.request_contract_hash != request_contract_hash:
+                continue
+            if self._artifacts_exist(record):
+                return record
+        return None
+
+    def list_versions(self, site_key: str) -> list[AdapterRecord]:
+        return self._load(site_key)
+
     def touch(self, record: AdapterRecord) -> None:
         records = self._load(record.domain)
         updated: list[AdapterRecord] = []
@@ -140,36 +178,72 @@ class AdapterRegistry:
                 updated.append(item)
         self._save(record.domain, updated)
 
-    def register(self, target: TargetSite, generated: GeneratedCode, analysis: AnalysisResult | None, verified: bool) -> AdapterRecord | None:
+    def register_package(self, package: AdapterPackage, *, verified: bool = True) -> AdapterRecord | None:
+        domain = package.site_key
+        crawler_path = Path(package.crawler_artifact) if package.crawler_artifact else None
+        if not domain or crawler_path is None or not crawler_path.exists():
+            return None
+
+        registry_key = f"{_slugify(domain)}-{package.intent_fingerprint or package.request_contract_hash or 'default'}"
+        record = AdapterRecord(
+            registry_key=registry_key,
+            domain=domain,
+            goal_digest="",
+            intent_fingerprint=package.intent_fingerprint,
+            family_id=package.family_id,
+            request_contract_hash=package.request_contract_hash,
+            known_endpoint=package.request_contract.url_pattern,
+            preferred_api_base=package.request_contract.url_pattern,
+            output_format=package.manifest.get("intent", {}).get("output_format", "print"),
+            profile_name="desktop",
+            verified=verified,
+            output_mode="bridge" if package.bridge_artifact else "standalone",
+            crawler_script_path=package.crawler_artifact,
+            bridge_server_path=package.bridge_artifact,
+            manifest_path=package.manifest_ref,
+            adapter_package_path=package.adapter_package_ref,
+            session_state_path="",
+            source_session_id=package.source_session_id,
+            signature_spec=package.signature_spec,
+            request_contract=package.request_contract.model_dump(mode="json"),
+            dataset_contract=package.dataset_contract.model_dump(mode="json"),
+            capability_profile=package.capability_profile.model_dump(mode="json"),
+            verification_profile=package.verification_profile.model_dump(mode="json"),
+            notes=[f"family={package.family_id}", f"dataset={package.dataset_contract.dataset_name}"],
+            use_count=1,
+        )
+        records = [item for item in self._load(domain) if item.registry_key != registry_key]
+        records.append(record)
+        self._save(domain, records[-40:])
+        return record
+
+    def register(
+        self,
+        target: TargetSite,
+        generated: GeneratedCode,
+        analysis: AnalysisResult | None,
+        verified: bool,
+    ) -> AdapterRecord | None:
         domain = urlparse(target.url).netloc
         if not domain or generated.crawler_script_path is None or not generated.crawler_script_path.exists():
             return None
 
-        registry_key = f"{_slugify(domain)}-{target.known_endpoint or 'default'}-{_goal_digest(target.interaction_goal)}"
-        record = AdapterRecord(
-            registry_key=registry_key,
-            domain=domain,
-            goal_digest=_goal_digest(target.interaction_goal),
-            target_hint_digest=_target_hint_digest(target.target_hint),
-            known_endpoint=target.known_endpoint,
-            preferred_api_base=_preferred_api_base(target),
-            output_format=target.output_format,
-            profile_name=target.browser_profile.environment_simulation.profile_name,
-            verified=verified,
-            output_mode=generated.output_mode,
-            crawler_script_path=str(generated.crawler_script_path),
-            bridge_server_path=str(generated.bridge_server_path) if generated.bridge_server_path else "",
-            manifest_path=str(generated.manifest_path) if generated.manifest_path else "",
-            session_state_path=str(generated.session_state_path) if generated.session_state_path else "",
-            source_session_id=target.session_id,
-            signature_spec=analysis.signature_spec.model_dump(mode="json") if analysis and analysis.signature_spec else None,
-            notes=[f"url={target.url}"],
-            use_count=1,
-        )
+        package = _package_from_target(target, generated, analysis)
+        package.site_key = domain
+        record = self.register_package(package, verified=verified)
+        if record is None:
+            return None
 
-        records = [item for item in self._load(domain) if item.registry_key != registry_key]
+        record.goal_digest = _goal_digest(target.interaction_goal)
+        record.target_hint_digest = _target_hint_digest(target.target_hint)
+        record.known_endpoint = target.known_endpoint
+        record.preferred_api_base = _preferred_api_base(target)
+        record.output_format = target.output_format
+        record.profile_name = target.browser_profile.environment_simulation.profile_name
+        record.session_state_path = str(generated.session_state_path) if generated.session_state_path else ""
+        records = [item for item in self._load(domain) if item.registry_key != record.registry_key]
         records.append(record)
-        self._save(domain, records[-20:])
+        self._save(domain, records[-40:])
         return record
 
     def materialize(self, record: AdapterRecord, output_dir: Path) -> AdapterMaterialization:
@@ -178,6 +252,9 @@ class AdapterRegistry:
         materialized.crawler_script_path = self._copy_if_exists(Path(record.crawler_script_path), output_dir)
         materialized.bridge_server_path = self._copy_if_exists(Path(record.bridge_server_path), output_dir) if record.bridge_server_path else None
         materialized.manifest_path = self._copy_if_exists(Path(record.manifest_path), output_dir) if record.manifest_path else None
+        materialized.adapter_package_path = (
+            self._copy_if_exists(Path(record.adapter_package_path), output_dir) if record.adapter_package_path else None
+        )
         materialized.session_state_path = (
             self._copy_if_exists(Path(record.session_state_path), output_dir) if record.session_state_path else None
         )
@@ -195,7 +272,62 @@ class AdapterRegistry:
         return destination
 
 
+def _package_from_target(
+    target: TargetSite,
+    generated: GeneratedCode,
+    analysis: AnalysisResult | None,
+) -> AdapterPackage:
+    request_contract = target.selected_contract or RequestContract()
+    dataset_contract = target.dataset_contract or DatasetContract()
+    capability_profile = target.capability_profile or CapabilityProfile()
+    verification_profile = VerificationProfile(
+        live_verify=target.compliance.allow_live_verification,
+        stability_runs=target.compliance.stability_runs,
+        failure_modes=[
+            "request_shape_mismatch",
+            "missing_cookie_or_session",
+            "header_contract_mismatch",
+            "signature_mismatch",
+            "challenge_detected",
+            "extractor_mismatch",
+            "stability_failure",
+        ],
+    )
+    signature_spec = analysis.signature_spec.model_dump(mode="json") if analysis and analysis.signature_spec else {}
+    manifest: dict[str, object] = {}
+    if generated.manifest_path and generated.manifest_path.exists():
+        try:
+            manifest = json.loads(generated.manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+    return AdapterPackage(
+        site_key=urlparse(target.url).netloc.lower(),
+        intent_fingerprint=target.intent.fingerprint if target.intent else "",
+        family_id=analysis.signature_family if analysis else "unknown",
+        request_contract_hash=request_contract.contract_hash,
+        manifest=manifest,
+        request_contract=request_contract,
+        signature_spec=signature_spec,
+        capability_profile=capability_profile,
+        dataset_contract=dataset_contract,
+        crawler_artifact=str(generated.crawler_script_path) if generated.crawler_script_path else "",
+        bridge_artifact=str(generated.bridge_server_path) if generated.bridge_server_path else "",
+        verification_profile=verification_profile,
+        compatibility_tags=[
+            analysis.signature_family if analysis else "unknown",
+            generated.output_mode,
+            dataset_contract.dataset_name,
+        ],
+        source_session_id=target.session_id,
+        manifest_ref=str(generated.manifest_path) if generated.manifest_path else "",
+        adapter_package_ref=str(generated.adapter_package_path) if generated.adapter_package_path else "",
+        created_at=target.created_at,
+    )
+
+
 def _preferred_api_base(target: TargetSite) -> str:
+    if target.selected_contract and target.selected_contract.url_pattern:
+        return target.selected_contract.url_pattern
     for request in target.target_requests:
         parsed = urlparse(request.url)
         path = parsed.path or "/"
@@ -206,3 +338,4 @@ def _preferred_api_base(target: TargetSite) -> str:
     if not parsed.scheme or not parsed.netloc:
         return ""
     return f"{parsed.scheme}://{parsed.netloc}"
+

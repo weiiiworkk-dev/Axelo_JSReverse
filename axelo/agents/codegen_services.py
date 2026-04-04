@@ -8,9 +8,11 @@ from urllib.parse import parse_qs, urlsplit
 
 import structlog
 
+from axelo.analysis.request_contracts import build_dataset_contract, derive_capability_profile
 from axelo.ai.hypothesis import CodeGenOutput
 from axelo.browser.simulation import SIMULATION_INIT_SCRIPT_TEMPLATE, build_simulation_payload
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
+from axelo.models.contracts import AdapterPackage, RequestContract, VerificationProfile
 from axelo.models.target import TargetSite
 
 log = structlog.get_logger()
@@ -72,6 +74,8 @@ class GroundingService:
 
 
 class TemplateCodegenService:
+    _BUILTIN_TEMPLATE_NAMES = {"contract_replay", "observed-replay-template"}
+
     def select_template(self, hypothesis: AIHypothesis, templates) -> tuple[object | None, str]:
         algo_type = _infer_algo_type(hypothesis)
         template_code = ""
@@ -88,8 +92,19 @@ class TemplateCodegenService:
                 template_code = f"# reference template '{template_item.name}'\n{template_item.python_code}"
         return selected_template, template_code
 
+    def supports_builtin(self, hypothesis: AIHypothesis) -> bool:
+        return hypothesis.template_name in self._BUILTIN_TEMPLATE_NAMES
+
     def is_ready(self, hypothesis: AIHypothesis, template_item) -> bool:
         return _template_is_ready(hypothesis, template_item)
+
+    def render_builtin(
+        self,
+        target: TargetSite,
+        hypothesis: AIHypothesis,
+        dynamic: DynamicAnalysis | None = None,
+    ) -> CodeGenOutput:
+        return _render_contract_replay_codegen(target, hypothesis, dynamic=dynamic)
 
     def render(
         self,
@@ -184,6 +199,13 @@ class ArtifactWriter:
     ) -> dict[str, Path]:
         artifacts: dict[str, Path] = {}
         output_dir.mkdir(parents=True, exist_ok=True)
+        request_contract = target.selected_contract or RequestContract()
+        dataset_contract = build_dataset_contract(target, request_contract)
+        capability_profile = derive_capability_profile(
+            target,
+            contract=request_contract,
+            codegen_strategy=hypothesis.codegen_strategy,
+        )
 
         if output.crawler_code:
             output.crawler_code = self._grounding.repair_generated_code_for_target(output.crawler_code, target)
@@ -212,15 +234,35 @@ class ArtifactWriter:
             artifacts["requirements"] = path
 
         manifest = {
+            "site_key": urlsplit(target.url).netloc,
+            "intent": target.intent.model_dump(mode="json"),
+            "family_id": hypothesis.family_id or (hypothesis.signature_spec.family_id if hypothesis.signature_spec else "unknown"),
             "strategy": hypothesis.codegen_strategy,
             "algorithm_description": hypothesis.algorithm_description,
+            "request_contract": request_contract.model_dump(mode="json"),
             "signature_spec": hypothesis.signature_spec.model_dump(mode="json") if hypothesis.signature_spec else None,
+            "capability_profile": capability_profile.model_dump(mode="json"),
+            "dataset_contract": dataset_contract.model_dump(mode="json"),
             "notes": output.notes,
             "dependencies": output.dependencies,
         }
         manifest_path = output_dir / "crawler_manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         artifacts["manifest"] = manifest_path
+        package = _build_adapter_package(
+            target=target,
+            hypothesis=hypothesis,
+            request_contract=request_contract,
+            dataset_contract=dataset_contract,
+            capability_profile=capability_profile,
+            crawler_artifact=str(artifacts.get("crawler_script") or ""),
+            bridge_artifact=str(artifacts.get("bridge_server") or ""),
+            manifest=manifest,
+            manifest_ref=str(manifest_path),
+        )
+        adapter_package_path = output_dir / "adapter_package.json"
+        adapter_package_path.write_text(json.dumps(package.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+        artifacts["adapter_package"] = adapter_package_path
         log.info("codegen_done", files=list(artifacts.keys()))
         return artifacts
 
@@ -550,8 +592,11 @@ def _filter_observed_target_headers(headers: dict[str, str]) -> dict[str, str]:
         lowered = key.lower()
         if not value:
             continue
-        if lowered in {"content-type", "accept", "x-requested-with"} or lowered.startswith("x-csrf"):
-            filtered[key] = value
+        if lowered in {"cookie", "content-length", "host", "connection", "accept-encoding", "transfer-encoding"}:
+            continue
+        if lowered.startswith("sec-"):
+            continue
+        filtered[key] = value
     return filtered
 
 
@@ -620,6 +665,83 @@ def _render_js_bridge_notes(target: TargetSite, hypothesis: AIHypothesis, bridge
         f"- Strategy: `{hypothesis.codegen_strategy}`\n"
         f"- Environment profile: `{target.browser_profile.environment_simulation.profile_name}`\n"
         f"- Interaction mode: `{target.browser_profile.interaction_simulation.mode}`"
+    )
+
+
+def _render_contract_replay_codegen(
+    target: TargetSite,
+    hypothesis: AIHypothesis,
+    dynamic: DynamicAnalysis | None = None,
+) -> CodeGenOutput:
+    notes = [
+        "Contract-backed replay template selected.",
+        f"Family: {hypothesis.family_id or 'plain_observed_replay'}",
+        f"Strategy: {hypothesis.codegen_strategy}",
+    ]
+    if hypothesis.codegen_strategy == "js_bridge":
+        notes.append(_render_js_bridge_notes(target, hypothesis, bridge_port=8721))
+    return CodeGenOutput(
+        crawler_code=_render_base_crawler_template(
+            target,
+            hypothesis=hypothesis,
+            dynamic=dynamic,
+            bridge_port=8721,
+        ),
+        dependencies=["httpx>=0.27.0"],
+        bridge_server_code="",
+        notes="\n".join(notes),
+    )
+
+
+def _build_adapter_package(
+    *,
+    target: TargetSite,
+    hypothesis: AIHypothesis,
+    request_contract: RequestContract,
+    dataset_contract,
+    capability_profile,
+    crawler_artifact: str,
+    bridge_artifact: str,
+    manifest: dict[str, object],
+    manifest_ref: str,
+) -> AdapterPackage:
+    family_id = hypothesis.family_id or (hypothesis.signature_spec.family_id if hypothesis.signature_spec else "unknown")
+    verification_profile = VerificationProfile(
+        live_verify=target.compliance.allow_live_verification,
+        stability_runs=target.compliance.stability_runs,
+        failure_modes=[
+            "request_shape_mismatch",
+            "missing_cookie_or_session",
+            "header_contract_mismatch",
+            "signature_mismatch",
+            "challenge_detected",
+            "extractor_mismatch",
+            "stability_failure",
+        ],
+    )
+    compatibility_tags = [
+        family_id,
+        hypothesis.codegen_strategy,
+        dataset_contract.dataset_name,
+        "verified_candidate",
+    ]
+    return AdapterPackage(
+        site_key=urlsplit(target.url).netloc.lower(),
+        intent_fingerprint=target.intent.fingerprint,
+        family_id=family_id,
+        request_contract_hash=request_contract.contract_hash,
+        manifest=manifest,
+        request_contract=request_contract,
+        signature_spec=hypothesis.signature_spec.model_dump(mode="json") if hypothesis.signature_spec else {},
+        capability_profile=capability_profile,
+        dataset_contract=dataset_contract,
+        crawler_artifact=crawler_artifact,
+        bridge_artifact=bridge_artifact,
+        verification_profile=verification_profile,
+        compatibility_tags=[item for item in compatibility_tags if item],
+        source_session_id=target.session_id,
+        manifest_ref=manifest_ref,
+        created_at=target.created_at,
     )
 
 

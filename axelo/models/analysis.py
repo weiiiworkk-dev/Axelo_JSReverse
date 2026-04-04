@@ -146,6 +146,7 @@ class AIHypothesis(BaseModel):
     steps: list[str] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list)
     outputs: dict[str, str] = Field(default_factory=dict)
+    family_id: str = "unknown"
     codegen_strategy: Literal["python_reconstruct", "js_bridge"] = "js_bridge"
     python_feasibility: float = 0.0
     confidence: float = 0.0

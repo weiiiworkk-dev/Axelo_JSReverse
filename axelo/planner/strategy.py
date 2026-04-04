@@ -75,7 +75,7 @@ class Planner:
         else:
             plan.tier = ExecutionTier.BROWSER_FULL
             # Default to the full route unless later conditions narrow it.
-            plan.route_label = "full_ai"
+            plan.route_label = "full_ai_unknown_family"
             reasons.append("No reusable adapter was found; full analysis path selected.")
 
             if (
@@ -86,7 +86,7 @@ class Planner:
             ):
                 plan.tier = ExecutionTier.BROWSER_LIGHT
                 plan.requires_dynamic_analysis = False
-                plan.route_label = "scanner_only" if plan.skip_codegen else "full_ai"
+                plan.route_label = "scanner_only" if plan.skip_codegen else "full_ai_unknown_family"
                 if plan.verification_mode != VerificationMode.NONE:
                     plan.verification_mode = VerificationMode.BASIC
                 reasons.append("Known endpoint plus target hint allows a lighter browser discovery pass.")
@@ -112,7 +112,7 @@ class Planner:
                 reasons.append("Historical pattern match reduces the need for deeper analysis.")
 
             if not plan.skip_codegen and plan.tier == ExecutionTier.BROWSER_FULL:
-                plan.route_label = "full_ai"
+                plan.route_label = "full_ai_unknown_family"
                 plan.estimated_cost_range = "$0.40-$0.90"
             elif plan.skip_codegen:
                 plan.route_label = "scanner_only"

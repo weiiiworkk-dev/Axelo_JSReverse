@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from axelo.models.contracts import CaptureIntent
 
 
 class AntiBotType(str, Enum):
@@ -70,6 +72,7 @@ class RunConfig(BaseModel):
     crawl_rate: CrawlRate = CrawlRate.STANDARD
     crawl_item_limit: int = 100
     crawl_page_limit: int | None = None
+    intent: CaptureIntent | None = None
 
     @field_validator("url")
     @classmethod
@@ -125,6 +128,27 @@ class RunConfig(BaseModel):
             raise ValueError("crawl_page_limit must be > 0 when provided")
         return int(value) if value is not None else None
 
+    @model_validator(mode="after")
+    def _normalize_intent(self) -> "RunConfig":
+        if self.intent is None:
+            self.intent = CaptureIntent.from_legacy(
+                goal=self.goal,
+                target_hint=self.target_hint,
+                known_endpoint=self.known_endpoint,
+                item_limit=self.crawl_item_limit,
+                page_limit=self.crawl_page_limit,
+                output_format=self.output_format.value,
+            )
+        else:
+            self.intent = CaptureIntent.model_validate(self.intent)
+        if not self.intent.known_endpoint and self.known_endpoint:
+            self.intent.known_endpoint = self.known_endpoint
+        if not self.intent.selector_hint and self.target_hint:
+            self.intent.selector_hint = self.target_hint
+        if self.intent.output_format == "print" and self.output_format.value:
+            self.intent.output_format = self.output_format.value
+        return self
+
     def orchestrator_kwargs(self) -> dict:
         return {
             "url": self.url,
@@ -142,4 +166,5 @@ class RunConfig(BaseModel):
             "crawl_rate": self.crawl_rate.value,
             "crawl_item_limit": self.crawl_item_limit,
             "crawl_page_limit": self.crawl_page_limit,
+            "intent": self.intent.model_dump(mode="json") if self.intent else None,
         }

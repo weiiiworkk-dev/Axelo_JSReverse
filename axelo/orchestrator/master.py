@@ -22,6 +22,7 @@ from axelo.memory.db import MemoryDB
 from axelo.memory.retriever import MemoryRetriever
 from axelo.memory.vector_store import VectorStore
 from axelo.memory.writer import MemoryWriter
+from axelo.models.contracts import CaptureIntent, DatasetContract
 from axelo.models.execution import ExecutionPlan
 from axelo.models.pipeline import PipelineState
 from axelo.models.target import BrowserProfile, TargetSite
@@ -101,6 +102,7 @@ class MasterOrchestrator:
         crawl_rate: str = "standard",
         crawl_item_limit: int = 100,
         crawl_page_limit: int | None = None,
+        intent: CaptureIntent | dict | None = None,
         browser_profile: BrowserProfile | None = None,
     ) -> MasterResult:
         ctx = await self._initialize_run_context(
@@ -121,6 +123,7 @@ class MasterOrchestrator:
             crawl_rate=crawl_rate,
             crawl_item_limit=crawl_item_limit,
             crawl_page_limit=crawl_page_limit,
+            intent=intent,
             browser_profile=browser_profile,
         )
 
@@ -187,6 +190,7 @@ class MasterOrchestrator:
         crawl_rate: str,
         crawl_item_limit: int,
         crawl_page_limit: int | None,
+        intent: CaptureIntent | dict | None,
         browser_profile: BrowserProfile | None,
     ) -> MasterRunContext:
         sid = session_id or str(uuid.uuid4())[:8]
@@ -212,10 +216,24 @@ class MasterOrchestrator:
         workflow = WorkflowRuntime(self._workflow_store)
         trace = workflow.load_or_create(sid)
 
+        resolved_intent = (
+            CaptureIntent.model_validate(intent)
+            if intent is not None
+            else CaptureIntent.from_legacy(
+                goal=goal,
+                target_hint=target_hint,
+                known_endpoint=known_endpoint,
+                item_limit=crawl_item_limit,
+                page_limit=crawl_page_limit,
+                output_format=output_format,
+            )
+        )
+
         target = TargetSite(
             url=url,
             session_id=sid,
             interaction_goal=goal,
+            intent=resolved_intent,
             target_hint=target_hint,
             use_case=use_case,
             authorization_status=authorization_status,
@@ -228,6 +246,7 @@ class MasterOrchestrator:
             crawl_rate=crawl_rate,
             crawl_item_limit=crawl_item_limit,
             crawl_page_limit=crawl_page_limit,
+            dataset_contract=DatasetContract(dataset_name=resolved_intent.dataset_name),
             trace=trace,
         )
         runtime_policy = resolve_runtime_policy(target)
@@ -350,6 +369,8 @@ def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_si
         normalized_goal = f"{normalized_goal}\n\n[target object] {target.target_hint}"
 
     context_parts = [
+        f"resource kind: {target.intent.resource_kind}",
+        f"dataset: {target.intent.dataset_name}",
         f"use case: {target.use_case}",
         f"authorization: {target.authorization_status}",
         f"replay mode: {target.replay_mode}",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from axelo.models.contracts import CaptureIntent
 from axelo.platform.models import (
     AccountRecord,
     BridgeJobSpec,
@@ -49,6 +50,10 @@ class ControlPlaneService:
             adapter = self._store.latest_adapter(spec.site_key)
             if adapter is not None:
                 spec.adapter_version = adapter.version
+                if spec.dataset_name == "default" and adapter.dataset_contract:
+                    spec.dataset_name = str(adapter.dataset_contract.get("dataset_name") or spec.dataset_name)
+                if not spec.intent_fingerprint and adapter.intent_fingerprint:
+                    spec.intent_fingerprint = adapter.intent_fingerprint
         job = self._store.submit_job(JobType.CRAWL, spec)
         self._bus.publish(TOPIC_JOBS_CRAWL, {"job_id": job.job_id, "site_key": job.site_key}, key=job.site_key)
         return job
@@ -77,6 +82,12 @@ class FrontierService:
         for url in request.urls:
             canonical_url = canonicalize_url(url)
             site_key = request.site_key or site_key_from_url(canonical_url)
+            intent_fingerprint = request.intent_fingerprint
+            dataset_name = request.dataset_name
+            if request.intent:
+                intent = CaptureIntent.model_validate(request.intent)
+                intent_fingerprint = intent_fingerprint or intent.fingerprint
+                dataset_name = dataset_name or intent.dataset_name
             items.append(
                 FrontierItem(
                     site_key=site_key,
@@ -86,6 +97,8 @@ class FrontierService:
                     depth=request.depth,
                     discovered_from=request.discovered_from,
                     adapter_version=request.adapter_version,
+                    intent_fingerprint=intent_fingerprint,
+                    dataset_name=dataset_name,
                     region=request.region,
                     request_kwargs=dict(request.request_kwargs),
                 )
@@ -187,6 +200,8 @@ class SchedulerService:
                             url=item.canonical_url,
                             site_key=item.site_key,
                             goal="分析并复现请求签名/Token 生成逻辑",
+                            intent_fingerprint=item.intent_fingerprint,
+                            dataset_name=item.dataset_name or "default",
                             metadata={"frontier_item_id": item.item_id},
                         )
                     )
@@ -208,6 +223,9 @@ class SchedulerService:
                     frontier_item_id=item.item_id,
                     action=str(item.request_kwargs.get("action", "page")),
                     crawl_kwargs=dict(item.request_kwargs),
+                    intent_fingerprint=item.intent_fingerprint,
+                    dataset_name=item.dataset_name or "default",
+                    schema_version=adapter.dataset_contract_version or "v1",
                     region=item.region,
                     priority=item.priority,
                 )

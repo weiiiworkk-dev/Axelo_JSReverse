@@ -69,6 +69,7 @@ class CodeGenStage(PipelineStage):
             crawler_deps=_read_requirements(artifacts.get("requirements")),
             bridge_server_path=artifacts.get("bridge_server"),
             manifest_path=artifacts.get("manifest"),
+            adapter_package_path=artifacts.get("adapter_package"),
             session_state_path=Path(target.session_state.storage_state_path) if target.session_state.storage_state_path else None,
         )
         return StageResult(

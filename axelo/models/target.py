@@ -8,6 +8,7 @@ import hashlib
 from pydantic import BaseModel, Field, field_serializer
 
 from axelo.models.compliance import CompliancePolicy
+from axelo.models.contracts import CapabilityProfile, CaptureIntent, DatasetContract, RequestContract
 from axelo.models.execution import ExecutionPlan
 from axelo.models.session_state import SessionState
 from axelo.models.site_profile import SiteProfile
@@ -149,9 +150,14 @@ class TargetSite(BaseModel):
     session_id: str
     interaction_goal: str
     created_at: datetime = Field(default_factory=datetime.now)
+    intent: CaptureIntent = Field(default_factory=CaptureIntent)
     browser_profile: BrowserProfile = Field(default_factory=BrowserProfile)
     captured_requests: list[RequestCapture] = Field(default_factory=list)
     target_requests: list[RequestCapture] = Field(default_factory=list)
+    request_contracts: list[RequestContract] = Field(default_factory=list)
+    selected_contract: RequestContract | None = None
+    dataset_contract: DatasetContract = Field(default_factory=DatasetContract)
+    capability_profile: CapabilityProfile = Field(default_factory=CapabilityProfile)
     js_urls: list[str] = Field(default_factory=list)
     site_profile: SiteProfile = Field(default_factory=SiteProfile)
     compliance: CompliancePolicy = Field(default_factory=CompliancePolicy)
