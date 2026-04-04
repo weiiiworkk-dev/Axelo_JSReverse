@@ -219,6 +219,9 @@ def _prioritize_api_calls(api_calls, target: TargetSite):
 def _capture_priority_score(capture, target: TargetSite) -> int:
     score = 0
     haystack = _capture_haystack(capture)
+    url_lower = (capture.url or "").lower()
+    response_headers = {str(key).lower(): str(value).lower() for key, value in (capture.response_headers or {}).items()}
+    request_headers = {str(key).lower(): str(value).lower() for key, value in (capture.request_headers or {}).items()}
 
     if target.known_endpoint and target.known_endpoint.lower() in haystack:
         score += 100
@@ -226,6 +229,20 @@ def _capture_priority_score(capture, target: TargetSite) -> int:
         for token in _hint_tokens(target.target_hint):
             if token and token in haystack:
                 score += 30
+    if "/api/" in url_lower:
+        score += 25
+    if "application/json" in response_headers.get("content-type", ""):
+        score += 20
+    if request_headers.get("x-requested-with", "").lower() == "xmlhttprequest":
+        score += 10
+    if capture.method.upper() == "GET":
+        score += 3
+    if any(keyword in url_lower for keyword in ("search_items", "item/get", "product", "detail")):
+        score += 50
+    elif any(keyword in url_lower for keyword in ("search_user", "curated_search", "facet", "search_page_common")):
+        score += 25
+    if any(keyword in url_lower for keyword in ("canonical_search/get_url", "/activity;", "doubleclick", "tracking", "analytics")):
+        score -= 60
     if any(keyword in haystack for keyword in ("item", "product", "detail", "search", "catalog", "sku")):
         score += 5
     return score
