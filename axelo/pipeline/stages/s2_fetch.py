@@ -41,6 +41,7 @@ class FetchStage(PipelineStage):
         state: PipelineState,
         mode: ModeController,
         target: TargetSite,
+        expand: bool = False,
         **_,
     ) -> StageResult:
         session_dir = settings.session_dir(state.session_id)
@@ -50,7 +51,10 @@ class FetchStage(PipelineStage):
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         max_bundles = target.execution_plan.max_bundles if target.execution_plan else 10
-        js_urls = target.js_urls[: max(1, max_bundles * 2)]
+        if expand:
+            js_urls = target.js_urls[: max(1, max_bundles * 2)]
+        else:
+            js_urls = target.js_urls[:4]
         if not js_urls:
             return StageResult(
                 stage_name=self.name,
@@ -60,8 +64,8 @@ class FetchStage(PipelineStage):
 
         bundles: list[JSBundle] = []
         downloaded_total_bytes = 0
-        single_limit = _single_bundle_cap_bytes(target)
-        total_limit = _total_bundle_cap_bytes(target)
+        single_limit = _single_bundle_cap_bytes(target, expand=expand)
+        total_limit = _total_bundle_cap_bytes(target, expand=expand)
 
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             for url in js_urls:
@@ -141,7 +145,8 @@ class FetchStage(PipelineStage):
                 selected = bundles
 
         selected, cap_note = _apply_bundle_caps(selected, target)
-        summary = f"Downloaded {len(bundles)} bundles, selected {len(selected)} for analysis"
+        phase_label = "expanded" if expand else "initial"
+        summary = f"Downloaded {len(bundles)} bundles, selected {len(selected)} for analysis ({phase_label} pass)"
         if cap_note:
             summary += f" ({cap_note})"
 
@@ -157,7 +162,11 @@ class FetchStage(PipelineStage):
             artifacts={"bundles_meta": meta_path},
             decisions=[decision],
             summary=summary,
-            next_input={"bundles": selected, "target": target},
+            next_input={
+                "bundles": selected,
+                "target": target,
+                "can_expand": (not expand) and len(target.js_urls) > len(js_urls),
+            },
         )
 
 
@@ -201,7 +210,9 @@ def _apply_bundle_caps(bundles: list[JSBundle], target: TargetSite) -> tuple[lis
     return bundles[: min(len(bundles), plan.max_bundles)], "bundle guardrail fallback applied"
 
 
-def _single_bundle_cap_bytes(target: TargetSite) -> int:
+def _single_bundle_cap_bytes(target: TargetSite, *, expand: bool) -> int:
+    if not expand:
+        return 256 * 1024
     plan_limit = (target.execution_plan.max_bundle_size_kb * 1024) if target.execution_plan else None
     config_limit = settings.bundle_download_byte_cap_kb * 1024
     if plan_limit is None:
@@ -209,7 +220,9 @@ def _single_bundle_cap_bytes(target: TargetSite) -> int:
     return min(plan_limit, config_limit)
 
 
-def _total_bundle_cap_bytes(target: TargetSite) -> int | None:
+def _total_bundle_cap_bytes(target: TargetSite, *, expand: bool) -> int | None:
+    if not expand:
+        return 800 * 1024
     if target.execution_plan is None:
         return None
     return target.execution_plan.max_total_bundle_kb * 1024

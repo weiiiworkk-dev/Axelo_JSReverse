@@ -23,12 +23,22 @@ def _goal_digest(goal: str) -> str:
     return hashlib.sha1(goal.strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
+def _target_hint_digest(target_hint: str) -> str:
+    normalized = target_hint.strip().lower()
+    if not normalized:
+        return ""
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:16]
+
+
 class AdapterRecord(BaseModel):
     registry_key: str
     domain: str
     goal_digest: str
+    target_hint_digest: str = ""
     known_endpoint: str = ""
+    preferred_api_base: str = ""
     output_format: str = "print"
+    profile_name: str = "desktop"
     verified: bool = False
     output_mode: str = "standalone"
     crawler_script_path: str = ""
@@ -85,6 +95,9 @@ class AdapterRegistry:
             return None
 
         exact_goal = _goal_digest(target.interaction_goal)
+        target_hint_digest = _target_hint_digest(target.target_hint)
+        preferred_api_base = _preferred_api_base(target)
+        profile_name = target.browser_profile.environment_simulation.profile_name
         best_score = -1
         best: AdapterRecord | None = None
 
@@ -94,9 +107,15 @@ class AdapterRegistry:
             score = 0
             if record.goal_digest == exact_goal:
                 score += 4
+            if record.target_hint_digest and record.target_hint_digest == target_hint_digest:
+                score += 2
             if target.known_endpoint and record.known_endpoint and record.known_endpoint == target.known_endpoint:
                 score += 3
+            if record.preferred_api_base and record.preferred_api_base == preferred_api_base:
+                score += 2
             if record.output_format == target.output_format:
+                score += 1
+            if record.profile_name == profile_name:
                 score += 1
             score += min(record.use_count, 5)
             if self._artifacts_exist(record):
@@ -131,8 +150,11 @@ class AdapterRegistry:
             registry_key=registry_key,
             domain=domain,
             goal_digest=_goal_digest(target.interaction_goal),
+            target_hint_digest=_target_hint_digest(target.target_hint),
             known_endpoint=target.known_endpoint,
+            preferred_api_base=_preferred_api_base(target),
             output_format=target.output_format,
+            profile_name=target.browser_profile.environment_simulation.profile_name,
             verified=verified,
             output_mode=generated.output_mode,
             crawler_script_path=str(generated.crawler_script_path),
@@ -172,3 +194,15 @@ class AdapterRegistry:
         shutil.copy2(source, destination)
         return destination
 
+
+def _preferred_api_base(target: TargetSite) -> str:
+    for request in target.target_requests:
+        parsed = urlparse(request.url)
+        path = parsed.path or "/"
+        if "/h5/" in path:
+            prefix = path.split("/h5/", 1)[0] + "/h5"
+            return f"{parsed.scheme}://{parsed.netloc}{prefix}"
+    parsed = urlparse(target.url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"

@@ -24,6 +24,7 @@ class CostGovernor:
             tuned.max_bundle_size_kb = 256
             tuned.max_total_bundle_kb = 700
             tuned.verification_mode = VerificationMode.BASIC
+            tuned.estimated_cost_range = "$0.08-$0.25"
             tuned.degradation_notes.append("Budget pressure downgraded browser execution to light mode.")
 
         if self.max_usd <= 0.2:
@@ -33,6 +34,7 @@ class CostGovernor:
             tuned.max_bundles = min(tuned.max_bundles, 2)
             tuned.max_bundle_size_kb = min(tuned.max_bundle_size_kb, 192)
             tuned.max_total_bundle_kb = min(tuned.max_total_bundle_kb, 450)
+            tuned.estimated_cost_range = "$0.03-$0.12"
             tuned.degradation_notes.append("Very low budget disables trace-heavy and dynamic stages.")
 
         if tuned.tier == ExecutionTier.BROWSER_LIGHT:
@@ -43,11 +45,13 @@ class CostGovernor:
             tuned.max_bundle_size_kb = min(tuned.max_bundle_size_kb, 256)
             tuned.max_total_bundle_kb = min(tuned.max_total_bundle_kb, 700)
             tuned.estimated_cost = "low"
+            tuned.estimated_cost_range = "$0.05-$0.20"
 
         if tuned.tier == ExecutionTier.ADAPTER_REUSE:
             tuned.requires_browser = False
             tuned.requires_dynamic_analysis = False
             tuned.requires_ai = False
+            tuned.ai_mode = "none"
             tuned.skip_fetch_and_static = True
             tuned.skip_codegen = True
             tuned.enable_trace_capture = False
@@ -59,12 +63,14 @@ class CostGovernor:
             tuned.max_bundle_size_kb = 64
             tuned.max_total_bundle_kb = 64
             tuned.estimated_cost = "low"
+            tuned.estimated_cost_range = "$0.00-$0.05"
             tuned.verification_mode = VerificationMode.BASIC
 
         if tuned.tier == ExecutionTier.MANUAL_REVIEW:
             tuned.requires_browser = False
             tuned.requires_dynamic_analysis = False
             tuned.requires_ai = False
+            tuned.ai_mode = "none"
             tuned.skip_fetch_and_static = True
             tuned.skip_codegen = True
             tuned.enable_trace_capture = False
@@ -76,6 +82,7 @@ class CostGovernor:
             tuned.max_bundle_size_kb = 64
             tuned.max_total_bundle_kb = 64
             tuned.estimated_cost = "minimal"
+            tuned.estimated_cost_range = "$0.00-$0.02"
 
         return tuned
 

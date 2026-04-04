@@ -26,6 +26,9 @@ class ExecutionPlan(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     tier: ExecutionTier = ExecutionTier.BROWSER_FULL
     verification_mode: VerificationMode = VerificationMode.STANDARD
+    ai_mode: str = "full"
+    route_label: str = "full_ai"
+    cost_strategy: str = "balanced"
     requires_browser: bool = True
     requires_dynamic_analysis: bool = True
     requires_ai: bool = True
@@ -43,6 +46,7 @@ class ExecutionPlan(BaseModel):
     max_bundle_size_kb: int = Field(default=512, ge=64, le=4096)
     max_total_bundle_kb: int = Field(default=1600, ge=128, le=16384)
     estimated_cost: str = "medium"
+    estimated_cost_range: str = "$0.40-$0.90"
     reasons: list[str] = Field(default_factory=list)
     degradation_notes: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)

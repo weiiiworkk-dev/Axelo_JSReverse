@@ -53,6 +53,36 @@ class AIAnalysisStage(PipelineStage):
         scan_report_path = ai_dir / "scan_report.json"
         scan_report_path.write_text(scan_report.model_dump_json(indent=2), encoding="utf-8")
 
+        if target.execution_plan and target.execution_plan.ai_mode == "scanner_only":
+            analysis = AnalysisResult(
+                session_id=state.session_id,
+                static=static_results,
+                dynamic=dynamic,
+                overall_confidence=0.35,
+                ready_for_codegen=False,
+                manual_review_required=False,
+                analysis_notes=scan_report.quick_verdict,
+            )
+            analysis_path = ai_dir / "analysis_result.json"
+            analysis_path.write_text(analysis.model_dump_json(indent=2), encoding="utf-8")
+            return StageResult(
+                stage_name=self.name,
+                success=True,
+                artifacts={
+                    "scan_report": scan_report_path,
+                    "analysis_result": analysis_path,
+                },
+                summary=f"Scanner-only analysis complete, difficulty={scan_report.estimated_difficulty}",
+                next_input={
+                    "analysis": analysis,
+                    "hypothesis": None,
+                    "scan_report": scan_report,
+                    "static_results": static_results,
+                    "target": target,
+                    "dynamic": dynamic,
+                },
+            )
+
         hypothesis_agent = HypothesisAgent(
             self._ai,
             self._cost,
@@ -74,6 +104,7 @@ class AIAnalysisStage(PipelineStage):
                 and hypothesis.signature_spec.codegen_strategy != "manual_required"
             ),
             manual_review_required=hypothesis.signature_spec.codegen_strategy == "manual_required",
+            signature_family=hypothesis.signature_spec.algorithm_id if hypothesis.signature_spec else "unknown",
         )
 
         hypothesis_path = ai_dir / "hypothesis.json"

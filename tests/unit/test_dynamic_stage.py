@@ -6,6 +6,7 @@ import pytest
 
 from axelo.config import settings
 from axelo.models.analysis import DynamicAnalysis, StaticAnalysis
+from axelo.models.execution import ExecutionPlan, VerificationMode
 from axelo.models.pipeline import Decision, PipelineState
 from axelo.models.target import TargetSite
 from axelo.pipeline.stages.s5_dynamic import DynamicAnalysisStage
@@ -31,11 +32,13 @@ async def test_dynamic_stage_retries_with_hard_limit(tmp_path, monkeypatch):
 
     stage = DynamicAnalysisStage()
     monkeypatch.setattr(stage, "_collect_attempt", fake_collect_attempt)
+    target = TargetSite(url="https://example.com", session_id="dyn01", interaction_goal="demo")
+    target.execution_plan = ExecutionPlan(verification_mode=VerificationMode.STRICT)
 
     result = await stage.execute(
         PipelineState(session_id="dyn01"),
         _RetryMode(),
-        target=TargetSite(url="https://example.com", session_id="dyn01", interaction_goal="demo"),
+        target=target,
         static_results={"bundle": StaticAnalysis(bundle_id="bundle")},
     )
 

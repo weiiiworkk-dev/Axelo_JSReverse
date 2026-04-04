@@ -67,6 +67,9 @@ def resolve_runtime_policy(target: TargetSite) -> RuntimePolicy:
 
     if target.known_endpoint:
         post_wait_ms = max(1000, post_wait_ms - 500)
+    if target.known_endpoint and target.target_hint and target.requires_login is False:
+        post_wait_ms = min(post_wait_ms, 700)
+        max_runtime_retries = 1
 
     plan = target.execution_plan
     if plan:

@@ -47,7 +47,8 @@ class VerifierAgent(BaseAgent):
                 script_preview = generated.crawler_script_path.read_text(encoding="utf-8")[:1500]
 
             context = (
-                f"验证报告:\n{result.report}\n\n"
+                f"验证摘要:\nstatus={result.status_code} retry_reason={result.retry_reason or 'n/a'} "
+                f"risk={result.risk_control_reason or 'n/a'}\n\n"
                 f"重试原因: {result.retry_reason}\n\n"
                 f"算法假设:\n{hypothesis.algorithm_description}\n\n"
                 f"代码片段:\n```python\n{script_preview}\n```"
@@ -60,7 +61,7 @@ class VerifierAgent(BaseAgent):
                     user_message=f"分析以下验证失败：\n\n{context}",
                     output_schema=VerificationAnalysis,
                     tool_name="verification_analysis",
-                    max_tokens=2048,
+                    max_tokens=1024,
                 )
                 analysis = response.data
                 self._cost.add_ai_call(

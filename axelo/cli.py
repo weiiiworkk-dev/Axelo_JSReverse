@@ -166,7 +166,8 @@ def run(
             f"[white]目标对象:[/white] {run_cfg.target_hint or '未指定'}\n"
             f"[white]用途/授权:[/white] {run_cfg.use_case.value} / {run_cfg.authorization_status.value}\n"
             f"[white]回放模式:[/white] {run_cfg.replay_mode.value}\n"
-            f"[white]Profile / Seed:[/white] {profile} / {effective_seed}",
+            f"[white]Profile / Seed:[/white] {profile} / {effective_seed}\n"
+            f"[white]成本策略:[/white] balanced",
             title="[bold cyan]Axelo JSReverse[/bold cyan]",
             border_style="cyan",
         )
@@ -186,6 +187,17 @@ def run(
                 f"难度: [yellow]{result.difficulty.level}[/yellow]  "
                 f"验证: {'[green]通过[/green]' if result.verified else '[red]未通过[/red]'}"
             )
+        if result.execution_plan:
+            console.print(
+                f"路径: [cyan]{result.route_label or result.execution_plan.route_label}[/cyan]  "
+                f"预估成本: [yellow]{result.execution_plan.estimated_cost_range}[/yellow]"
+            )
+            if result.execution_plan.degradation_notes:
+                console.print(f"[dim]降级原因: {' | '.join(result.execution_plan.degradation_notes)}[/dim]")
+            elif result.execution_plan.reasons:
+                console.print(f"[dim]路径原因: {' | '.join(result.execution_plan.reasons[:2])}[/dim]")
+        if result.reuse_hits:
+            console.print(f"[dim]复用命中: {', '.join(result.reuse_hits)}[/dim]")
         if result.output_dir:
             console.print(f"输出: [cyan]{result.output_dir}[/cyan]")
         if result.cost:

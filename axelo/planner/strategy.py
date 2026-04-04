@@ -40,7 +40,12 @@ class Planner:
             plan.verification_mode = VerificationMode.NONE
             plan.should_persist_adapter = False
             plan.enable_action_flow = False
-            plan.enable_trace_capture = True
+            plan.enable_trace_capture = False
+            plan.requires_dynamic_analysis = False
+            plan.ai_mode = "scanner_only"
+            plan.route_label = "scanner_only"
+            plan.estimated_cost = "low"
+            plan.estimated_cost_range = "$0.02-$0.10"
             reasons.append(f"Replay mode '{target.replay_mode}' disables codegen and live verification.")
 
         if target.authorization_status != "authorized":
@@ -48,22 +53,44 @@ class Planner:
             plan.verification_mode = VerificationMode.NONE
             plan.should_persist_adapter = False
             plan.enable_action_flow = False
+            plan.enable_trace_capture = False
+            plan.requires_dynamic_analysis = False
+            plan.ai_mode = "scanner_only"
+            plan.route_label = "scanner_only"
+            plan.estimated_cost = "low"
+            plan.estimated_cost_range = "$0.02-$0.10"
             reasons.append(f"Authorization status '{target.authorization_status}' disables executable replay.")
 
         if target.site_profile.difficulty_hint == "extreme" and target.compliance.require_manual_for_extreme:
             plan.tier = ExecutionTier.MANUAL_REVIEW
             plan.verification_mode = VerificationMode.NONE
+            plan.route_label = "manual_review"
             reasons.append("Site profile already marks the target as extreme.")
         elif adapter:
             plan.tier = ExecutionTier.ADAPTER_REUSE
             plan.adapter_hit = True
             plan.adapter_key = adapter.registry_key
+            plan.route_label = "adapter_reuse"
             reasons.append("Verified adapter registry entry matched this target.")
         else:
             plan.tier = ExecutionTier.BROWSER_FULL
+            # Default to the full route unless later conditions narrow it.
+            plan.route_label = "full_ai"
             reasons.append("No reusable adapter was found; full analysis path selected.")
 
-            if target.known_endpoint and not target.site_profile.action_flow and not target.requires_login:
+            if (
+                target.known_endpoint
+                and target.target_hint
+                and target.requires_login is False
+                and not target.site_profile.action_flow
+            ):
+                plan.tier = ExecutionTier.BROWSER_LIGHT
+                plan.requires_dynamic_analysis = False
+                plan.route_label = "scanner_only" if plan.skip_codegen else "full_ai"
+                if plan.verification_mode != VerificationMode.NONE:
+                    plan.verification_mode = VerificationMode.BASIC
+                reasons.append("Known endpoint plus target hint allows a lighter browser discovery pass.")
+            elif target.known_endpoint and not target.site_profile.action_flow and not target.requires_login:
                 plan.tier = ExecutionTier.BROWSER_LIGHT
                 plan.requires_dynamic_analysis = False
                 if plan.verification_mode != VerificationMode.NONE:
@@ -83,6 +110,13 @@ class Planner:
             if memory_ctx.get("known_pattern") and plan.tier != ExecutionTier.BROWSER_FULL:
                 plan.requires_dynamic_analysis = False
                 reasons.append("Historical pattern match reduces the need for deeper analysis.")
+
+            if not plan.skip_codegen and plan.tier == ExecutionTier.BROWSER_FULL:
+                plan.route_label = "full_ai"
+                plan.estimated_cost_range = "$0.40-$0.90"
+            elif plan.skip_codegen:
+                plan.route_label = "scanner_only"
+                plan.estimated_cost_range = "$0.02-$0.10"
 
         plan.reasons = reasons
         plan = governor.tune_plan(plan, target)

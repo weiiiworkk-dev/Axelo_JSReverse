@@ -97,6 +97,27 @@ def test_planner_disables_executable_replay_when_not_authorized(tmp_path):
     assert decision.plan.verification_mode == VerificationMode.NONE
     assert decision.plan.enable_action_flow is False
     assert decision.plan.should_persist_adapter is False
+    assert decision.plan.ai_mode == "scanner_only"
+    assert decision.plan.route_label == "scanner_only"
+    assert decision.plan.enable_trace_capture is False
+
+
+def test_planner_prefers_light_tier_when_endpoint_and_hint_are_grounded(tmp_path):
+    planner = Planner(AdapterRegistry(tmp_path))
+    target = TargetSite(
+        url="https://example.com/search?q=phone",
+        session_id="run05",
+        interaction_goal="collect products",
+        target_hint="iphone 15",
+        known_endpoint="/api/search",
+        requires_login=False,
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
+    )
+
+    decision = planner.build(target, budget_usd=1.0)
+
+    assert decision.plan.tier == ExecutionTier.BROWSER_LIGHT
 
 
 def test_adapter_registry_materializes_files(tmp_path):

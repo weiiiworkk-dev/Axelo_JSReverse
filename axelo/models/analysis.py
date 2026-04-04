@@ -95,6 +95,8 @@ class AIHypothesis(BaseModel):
     python_feasibility: float = 0.0
     confidence: float = 0.0
     notes: str = ""
+    template_name: str = ""
+    secret_candidate: str = ""
     signature_spec: SignatureSpec | None = None
 
 
@@ -109,3 +111,5 @@ class AnalysisResult(BaseModel):
     overall_confidence: float = 0.0
     ready_for_codegen: bool = False
     manual_review_required: bool = False
+    signature_family: str = "unknown"
+    analysis_notes: str = ""

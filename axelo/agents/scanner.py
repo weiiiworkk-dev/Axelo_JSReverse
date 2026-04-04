@@ -63,7 +63,7 @@ class ScannerAgent(BaseAgent):
             user_message=f"请扫描以下 JS bundle 特征：\n\n{context}",
             output_schema=ScanReport,
             tool_name="scan_report",
-            max_tokens=2048,
+            max_tokens=1024,
         )
         result = response.data
 

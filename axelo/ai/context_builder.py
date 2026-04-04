@@ -3,16 +3,16 @@ from axelo.models.analysis import StaticAnalysis, DynamicAnalysis, TokenCandidat
 from axelo.models.target import RequestCapture
 
 # 上下文窗口预算（字符）
-MAX_CONTEXT_CHARS = 120_000
+MAX_CONTEXT_CHARS = 60_000
 
 # 各部分优先级预算
 BUDGET = {
     "target_request":    8_000,   # 最高优先级：目标请求的完整信息
-    "candidates":        40_000,  # 候选函数源码片段
-    "dynamic_trace":     15_000,  # 动态 Hook 轨迹
-    "crypto_patterns":    8_000,  # 静态加密模式
-    "string_constants":   5_000,  # 关键字符串常量
-    "env_access":         3_000,  # 环境变量访问
+    "candidates":        18_000,  # 候选函数源码片段
+    "dynamic_trace":     10_000,  # 动态 Hook 轨迹
+    "crypto_patterns":    4_000,  # 静态加密模式
+    "string_constants":   2_500,  # 关键字符串常量
+    "env_access":         1_500,  # 环境变量访问
     "overview":          10_000,  # bundle 概述
 }
 

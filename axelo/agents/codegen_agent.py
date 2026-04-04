@@ -32,7 +32,7 @@ When helpful for debugging, also keep the last replay URL on `self._last_request
 
 class CodeGenAgent(BaseAgent):
     role = "codegen"
-    default_model = "claude-opus-4-6"
+    default_model = "claude-sonnet-4-6"
 
     def __init__(self, *args, retriever: MemoryRetriever, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -50,14 +50,26 @@ class CodeGenAgent(BaseAgent):
         algo_type = _infer_algo_type(hypothesis)
         templates = self._retriever.get_all_templates()
         template_code = ""
+        selected_template = None
         for template_item in templates:
-            if template_item.algorithm_type == algo_type and template_item.python_code:
-                template_code = f"# reference template '{template_item.name}'\n{template_item.python_code}"
+            if hypothesis.template_name and template_item.name == hypothesis.template_name:
+                selected_template = template_item
+                if template_item.python_code:
+                    template_code = f"# reference template '{template_item.name}'\n{template_item.python_code}"
                 break
+            if template_item.algorithm_type == algo_type and template_item.python_code:
+                if selected_template is None:
+                    selected_template = template_item
+                template_code = f"# reference template '{template_item.name}'\n{template_item.python_code}"
 
         observed_context = _observed_request_context(target)
         grounding_rules = _render_grounding_rules(observed_context)
-        if hypothesis.codegen_strategy == "python_reconstruct":
+        if hypothesis.template_name and selected_template is not None and _template_is_ready(hypothesis, selected_template):
+            output = _render_template_codegen(selected_template, target, hypothesis)
+        elif hypothesis.codegen_strategy == "python_reconstruct":
+            self.default_model = "claude-sonnet-4-6"
+            if algo_type == "custom" and not template_code:
+                self.default_model = "claude-opus-4-6"
             system_prompt = (
                 CODEGEN_SYSTEM
                 + f"\n\nReference template:\n{template_code or '(none)'}"
@@ -83,7 +95,7 @@ class CodeGenAgent(BaseAgent):
                 user_message=user_msg,
                 output_schema=CodeGenOutput,
                 tool_name="codegen",
-                max_tokens=8192,
+                max_tokens=4096,
             )
             output = response.data
 
@@ -138,6 +150,17 @@ class CodeGenAgent(BaseAgent):
 
 
 def _infer_algo_type(hypothesis: AIHypothesis) -> str:
+    if hypothesis.template_name:
+        if "hmac" in hypothesis.template_name:
+            return "hmac"
+        if "md5" in hypothesis.template_name:
+            return "md5"
+        if "fingerprint" in hypothesis.template_name:
+            return "fingerprint"
+    if hypothesis.signature_spec and hypothesis.signature_spec.algorithm_id:
+        algo = hypothesis.signature_spec.algorithm_id.lower()
+        if algo in {"hmac", "md5", "fingerprint", "rsa", "aes"}:
+            return algo
     desc = hypothesis.algorithm_description.lower()
     for keyword, algorithm_type in [
         ("hmac", "hmac"),
@@ -503,3 +526,137 @@ def _render_js_bridge_notes(target: TargetSite, hypothesis: AIHypothesis, bridge
         f"- Environment profile: `{target.browser_profile.environment_simulation.profile_name}`\n"
         f"- Interaction mode: `{target.browser_profile.interaction_simulation.mode}`"
     )
+
+
+def _template_is_ready(hypothesis: AIHypothesis, template_item) -> bool:
+    if getattr(template_item, "algorithm_type", "") == "fingerprint":
+        return True
+    return bool(hypothesis.secret_candidate)
+
+
+def _render_template_codegen(template_item, target: TargetSite, hypothesis: AIHypothesis) -> CodeGenOutput:
+    if getattr(template_item, "algorithm_type", "") == "fingerprint":
+        return CodeGenOutput(
+            crawler_code=_render_base_crawler_template(target, bridge_port=8721),
+            dependencies=["httpx>=0.27.0"],
+            bridge_server_code="",
+            notes=(
+                "Template-backed bridge generation selected.\n"
+                f"Template: {template_item.name}\n"
+                + _render_js_bridge_notes(target, hypothesis, bridge_port=8721)
+            ),
+        )
+
+    observed = (target.target_requests or target.captured_requests)
+    request = observed[0] if observed else None
+    request_url = request.url if request else (target.url or "")
+    request_method = request.method if request else "GET"
+    request_body = _request_body_to_text(request.request_body) if request else ""
+    default_headers = _safe_default_headers(target)
+    output_fields = ", ".join(hypothesis.outputs.keys() or ["sign"])
+
+    generator_code = (template_item.python_code or "").strip()
+    secret_value = hypothesis.secret_candidate or "CHANGE_ME_SECRET"
+    class_name = _crawler_class_name(target.url)
+    body_literal = json.dumps(request_body, ensure_ascii=False)
+    url_literal = json.dumps(request_url, ensure_ascii=False)
+    method_literal = json.dumps(request_method, ensure_ascii=False)
+    headers_literal = json.dumps(default_headers, ensure_ascii=False, indent=4)
+    token_init = _template_init_expr(template_item, hypothesis)
+    sign_kwargs = _template_sign_kwargs(template_item)
+
+    crawler_code = f'''"""
+Auto-generated template-backed crawler - Axelo JSReverse
+Target: {target.url}
+Template: {template_item.name}
+"""
+import json
+from urllib.parse import parse_qsl, urlsplit
+
+import httpx
+
+{generator_code}
+
+
+class {class_name}:
+    def __init__(self):
+        self._last_headers = {{}}
+        self._last_request_url = ""
+        self._generator = TokenGenerator({token_init})
+
+    def _request_params(self, url: str, body: str) -> dict:
+        params = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
+        if body:
+            try:
+                payload = json.loads(body)
+                if isinstance(payload, dict):
+                    params.update({{str(k): str(v) for k, v in payload.items()}})
+            except Exception:
+                pass
+        return params
+
+    def _sign(self, url: str, method: str, body: str) -> dict[str, str]:
+        payload = self._generator.generate({sign_kwargs})
+        self._last_headers = {{str(k): str(v) for k, v in payload.items()}}
+        return self._last_headers
+
+    def crawl(self) -> dict:
+        url = {url_literal}
+        method = {method_literal}
+        body = {body_literal}
+        headers = {headers_literal}
+        headers.update(self._sign(url, method, body))
+        self._last_request_url = url
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            response = client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                content=body.encode("utf-8") if body else None,
+            )
+            response.raise_for_status()
+            try:
+                return response.json()
+            except Exception:
+                return {{
+                    "status_code": response.status_code,
+                    "body": response.text,
+                    "template": {json.dumps(template_item.name, ensure_ascii=False)},
+                    "expected_fields": {json.dumps(output_fields, ensure_ascii=False)},
+                }}
+
+
+if __name__ == "__main__":
+    crawler = {class_name}()
+    result = crawler.crawl()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+'''
+    return CodeGenOutput(
+        crawler_code=crawler_code,
+        dependencies=["httpx>=0.27.0"],
+        bridge_server_code="",
+        notes=(
+            "Template-backed standalone generation selected.\n"
+            f"Template: {template_item.name}\n"
+            f"Secret candidate: {secret_value[:24]}"
+        ),
+    )
+
+
+def _template_init_expr(template_item, hypothesis: AIHypothesis) -> str:
+    algorithm_type = getattr(template_item, "algorithm_type", "")
+    secret_value = json.dumps(hypothesis.secret_candidate or "CHANGE_ME_SECRET", ensure_ascii=False)
+    if algorithm_type == "hmac":
+        return f"secret_key={secret_value}"
+    if algorithm_type == "md5":
+        return f"salt={secret_value}"
+    return ""
+
+
+def _template_sign_kwargs(template_item) -> str:
+    algorithm_type = getattr(template_item, "algorithm_type", "")
+    if algorithm_type == "hmac":
+        return "url=url, method=method, body=body"
+    if algorithm_type == "md5":
+        return "params=self._request_params(url, body)"
+    return "url=url, method=method, body=body"

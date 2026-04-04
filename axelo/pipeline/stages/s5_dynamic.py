@@ -12,6 +12,7 @@ from axelo.browser.driver import BrowserDriver
 from axelo.browser.hooks import JSHookInjector
 from axelo.browser.interceptor import NetworkInterceptor
 from axelo.config import settings
+from axelo.models.execution import VerificationMode
 from axelo.models.analysis import DynamicAnalysis, StaticAnalysis
 from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult
 from axelo.models.target import TargetSite
@@ -37,7 +38,8 @@ class DynamicAnalysisStage(PipelineStage):
         traces_dir = session_dir / "traces"
         traces_dir.mkdir(parents=True, exist_ok=True)
 
-        max_attempts = max(1, settings.max_dynamic_retries + 1)
+        verification_mode = target.execution_plan.verification_mode if target.execution_plan else VerificationMode.STANDARD
+        max_attempts = 1 if verification_mode != VerificationMode.STRICT else max(1, settings.max_dynamic_retries + 1)
         decisions: list[Decision] = []
         latest_trace_path: Path | None = None
 

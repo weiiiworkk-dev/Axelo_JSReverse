@@ -456,6 +456,7 @@ def _show_summary(
     config_table.add_row("爬取频率", _crawl_rate_label(crawl_rate))
     config_table.add_row("运行模式", f"[green]{_mode_label(mode)}[/green]")
     config_table.add_row("费用预算", f"[cyan]${budget:.1f}[/cyan]")
+    config_table.add_row("成本策略", "balanced")
 
     recommendations = _launch_recommendations(
         url=url,
@@ -540,6 +541,9 @@ def _render_runtime_dashboard(
     last_checkpoint = (trace_data.get("checkpoints") or [{}])[-1]
     current_stage = last_checkpoint.get("stage_name") or "waiting"
     current_status = last_checkpoint.get("status") or state_data.get("workflow_status", "running")
+    execution_plan = state_data.get("execution_plan") or {}
+    route_label = execution_plan.get("route_label", "")
+    estimated_cost_range = execution_plan.get("estimated_cost_range", "")
 
     header = Table(box=box.ROUNDED, show_header=False, border_style="cyan", padding=(0, 1))
     header.add_column("键", style="dim", width=12)
@@ -549,6 +553,8 @@ def _render_runtime_dashboard(
     header.add_row("状态", _status_style(current_status))
     header.add_row("已运行", f"{elapsed_seconds}s")
     header.add_row("目标对象", target_hint or "[red]未指定[/red]")
+    header.add_row("成本路径", route_label or "[dim]planning[/dim]")
+    header.add_row("预估成本", estimated_cost_range or "[dim]pending[/dim]")
     header.add_row("日志文件", str(log_path))
 
     stage_table = Table(box=box.ROUNDED, border_style="cyan", expand=True)
@@ -847,6 +853,7 @@ def main() -> None:
             f"[white]会话:[/white] [cyan]{session_id}[/cyan]\n"
             f"[white]目标对象:[/white] {target_hint or '未指定'}\n"
             f"[white]授权/回放:[/white] {authorization_status} / {replay_mode}\n"
+            f"[white]成本策略:[/white] balanced\n"
             f"[white]日志:[/white] {log_path}",
             title="[bold cyan]已启动[/bold cyan]",
             border_style="cyan",
@@ -876,6 +883,17 @@ def main() -> None:
             f"  难度: [yellow]{result.difficulty.level}[/yellow]  "
             f"验证: {'[green]通过[/green]' if result.verified else '[red]未通过[/red]'}"
         )
+    if result.execution_plan:
+        console.print(
+            f"  路径: [cyan]{result.route_label or result.execution_plan.route_label}[/cyan]  "
+            f"预估成本: [yellow]{result.execution_plan.estimated_cost_range}[/yellow]"
+        )
+        if result.execution_plan.degradation_notes:
+            console.print(f"  [dim]降级原因: {' | '.join(result.execution_plan.degradation_notes)}[/dim]")
+        elif result.execution_plan.reasons:
+            console.print(f"  [dim]路径原因: {' | '.join(result.execution_plan.reasons[:2])}[/dim]")
+    if result.reuse_hits:
+        console.print(f"  [dim]复用命中: {', '.join(result.reuse_hits)}[/dim]")
     if result.output_dir:
         console.print(f"  输出目录: [cyan]{result.output_dir}[/cyan]")
     if result.cost:
