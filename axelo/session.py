@@ -17,6 +17,7 @@ class EngineSession:
         self,
         url: str,
         goal: str,
+        target_hint: str = "",
         mode_name: str = "interactive",
         session_id: str | None = None,
         resume: bool = False,
@@ -29,6 +30,7 @@ class EngineSession:
         result = await self._master.run(
             url=url,
             goal=goal,
+            target_hint=target_hint,
             mode_name=mode_name,
             session_id=session_id,
             resume=resume,

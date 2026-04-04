@@ -7,6 +7,7 @@
 ## 用户提供的上下文
 
 - 已知接口: {{ target.known_endpoint or "需要自动发现" }}
+- 目标对象提示: {{ target.target_hint or "未提供" }}
 - 反爬虫类型: {{ target.antibot_type }}
 - 是否需要登录: {% if target.requires_login is true %}需要登录态（Cookie 模拟）{% elif target.requires_login is false %}无需登录（匿名接口）{% else %}不确定{% endif %}
 - 目标输出格式: {{ target.output_format }}

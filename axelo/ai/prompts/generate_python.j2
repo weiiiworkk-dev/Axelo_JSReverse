@@ -43,6 +43,7 @@
 - **数据输出格式**: {{ target.output_format }}
 - **爬取频率偏好**: {{ target.crawl_rate }}
 - **已知接口路径**: {{ target.known_endpoint if target.known_endpoint else "根据分析结果确定" }}
+- **目标对象提示**: {{ target.target_hint if target.target_hint else "未提供，优先从已观测请求中推断" }}
 - **登录需求**: {% if target.requires_login is true %}需要（在 __init__ 中接受 cookies 参数）{% elif target.requires_login is false %}无需登录{% else %}按实际情况处理{% endif %}
 - **额外要求**: 如果输出格式为 `custom`，请在 `crawl()` 或 `save()` 中保留清晰注释，说明用户需要自行替换的输出逻辑。
 

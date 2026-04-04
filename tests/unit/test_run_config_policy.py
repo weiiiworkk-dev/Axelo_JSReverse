@@ -12,6 +12,7 @@ def test_run_config_valid():
     cfg = RunConfig(
         url="https://example.com",
         goal="reverse signature",
+        target_hint="iphone 15",
         mode_name="interactive",
         budget_usd=3.0,
         known_endpoint="/api/search",
@@ -21,6 +22,7 @@ def test_run_config_valid():
         crawl_rate="conservative",
     )
     kwargs = cfg.orchestrator_kwargs()
+    assert kwargs["target_hint"] == "iphone 15"
     assert kwargs["known_endpoint"] == "/api/search"
     assert kwargs["antibot_type"] == "cloudflare"
     assert kwargs["requires_login"] is True
@@ -51,4 +53,3 @@ def test_runtime_policy_cloudflare_conservative():
     assert policy.goto_wait_until == "load"
     assert policy.request_interval_seconds == 3.0
     assert policy.post_navigation_wait_ms >= 3000
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import unquote
 
 import structlog
 
@@ -123,6 +124,7 @@ class CrawlStage(PipelineStage):
             if matches:
                 api_calls = matches + [capture for capture in api_calls if capture not in matches]
                 log.info("endpoint_matches_prioritized", endpoint=target.known_endpoint, matched=len(matches))
+        api_calls = _prioritize_api_calls(api_calls, target)
 
         captures_path = crawl_dir / "captures.json"
         captures_path.write_text(
@@ -200,3 +202,51 @@ def _session_attempt_succeeded(api_calls, session_status: int | None) -> bool:
     if session_status is None:
         return True
     return 200 <= session_status < 400
+
+
+def _prioritize_api_calls(api_calls, target: TargetSite):
+    if not api_calls:
+        return api_calls
+
+    scored = sorted(
+        api_calls,
+        key=lambda capture: _capture_priority_score(capture, target),
+        reverse=True,
+    )
+    return scored
+
+
+def _capture_priority_score(capture, target: TargetSite) -> int:
+    score = 0
+    haystack = _capture_haystack(capture)
+
+    if target.known_endpoint and target.known_endpoint.lower() in haystack:
+        score += 100
+    if target.target_hint:
+        for token in _hint_tokens(target.target_hint):
+            if token and token in haystack:
+                score += 30
+    if any(keyword in haystack for keyword in ("item", "product", "detail", "search", "catalog", "sku")):
+        score += 5
+    return score
+
+
+def _capture_haystack(capture) -> str:
+    parts = [capture.url.lower()]
+    for payload in (capture.request_body, capture.response_body):
+        if not payload:
+            continue
+        preview = payload[:1024]
+        try:
+            parts.append(preview.decode("utf-8", errors="ignore").lower())
+        except Exception:
+            continue
+    return unquote(" ".join(parts))
+
+
+def _hint_tokens(target_hint: str) -> list[str]:
+    normalized = unquote(target_hint.strip().lower())
+    tokens = [token for token in normalized.replace("/", " ").replace("-", " ").split() if len(token) >= 3]
+    if normalized and normalized not in tokens:
+        tokens.insert(0, normalized)
+    return tokens[:6]

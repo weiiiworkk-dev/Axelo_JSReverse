@@ -37,6 +37,7 @@ class RunConfig(BaseModel):
 
     url: str
     goal: str
+    target_hint: str = ""
     mode_name: RunMode = RunMode.INTERACTIVE
     budget_usd: float = 2.0
 
@@ -62,6 +63,11 @@ class RunConfig(BaseModel):
             raise ValueError("goal cannot be empty")
         return value
 
+    @field_validator("target_hint")
+    @classmethod
+    def _normalize_target_hint(cls, value: str) -> str:
+        return value.strip()
+
     @field_validator("known_endpoint")
     @classmethod
     def _normalize_endpoint(cls, value: str) -> str:
@@ -78,6 +84,7 @@ class RunConfig(BaseModel):
         return {
             "url": self.url,
             "goal": self.goal,
+            "target_hint": self.target_hint,
             "mode_name": self.mode_name.value,
             "budget_usd": self.budget_usd,
             "known_endpoint": self.known_endpoint,
@@ -86,4 +93,3 @@ class RunConfig(BaseModel):
             "output_format": self.output_format.value,
             "crawl_rate": self.crawl_rate.value,
         }
-

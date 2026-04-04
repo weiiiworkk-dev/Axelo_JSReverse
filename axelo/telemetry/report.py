@@ -32,6 +32,7 @@ def write_run_report(
         "target": {
             "url": target.url,
             "goal": target.interaction_goal,
+            "target_hint": target.target_hint,
             "known_endpoint": target.known_endpoint,
             "antibot_type": target.antibot_type,
             "requires_login": target.requires_login,

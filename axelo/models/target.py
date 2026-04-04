@@ -80,6 +80,7 @@ class TargetSite(BaseModel):
     session_state: SessionState = Field(default_factory=SessionState)
     trace: TraceArtifact = Field(default_factory=TraceArtifact)
     execution_plan: ExecutionPlan | None = None
+    target_hint: str = ""
     known_endpoint: str = ""
     antibot_type: str = "unknown"
     requires_login: bool | None = None

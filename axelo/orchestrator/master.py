@@ -109,6 +109,7 @@ class MasterOrchestrator:
         self,
         url: str,
         goal: str,
+        target_hint: str = "",
         mode_name: str = "interactive",
         session_id: str | None = None,
         budget_usd: float = 2.0,
@@ -122,6 +123,7 @@ class MasterOrchestrator:
         ctx = await self._initialize_run_context(
             url=url,
             goal=goal,
+            target_hint=target_hint,
             mode_name=mode_name,
             session_id=session_id,
             budget_usd=budget_usd,
@@ -172,6 +174,7 @@ class MasterOrchestrator:
         *,
         url: str,
         goal: str,
+        target_hint: str,
         mode_name: str,
         session_id: str | None,
         budget_usd: float,
@@ -209,6 +212,7 @@ class MasterOrchestrator:
             url=url,
             session_id=sid,
             interaction_goal=goal,
+            target_hint=target_hint,
             browser_profile=BrowserProfile(),
             known_endpoint=known_endpoint,
             antibot_type=antibot_type,
@@ -846,15 +850,20 @@ def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_si
     elif target.requires_login is False:
         login_context = "anonymous access expected"
 
+    normalized_goal = goal.strip()
+    if target.target_hint:
+        normalized_goal = f"{normalized_goal}\n\n[target object] {target.target_hint}"
+
     context_parts = [
         f"known endpoint: {target.known_endpoint or 'discover automatically'}",
+        f"target hint: {target.target_hint or 'not provided'}",
         f"antibot: {target.antibot_type}",
         f"login: {login_context}",
         f"output format: {target.output_format}",
         f"crawl rate: {target.crawl_rate}",
         f"runtime wait: {runtime_policy.goto_wait_until}/{runtime_policy.post_navigation_wait_ms}ms",
     ]
-    enriched = f"{goal}\n\n[user context] " + " | ".join(context_parts)
+    enriched = f"{normalized_goal}\n\n[user context] " + " | ".join(context_parts)
     if known_site_profile:
         enriched += (
             f"\n[known profile] category={known_site_profile.category}, "

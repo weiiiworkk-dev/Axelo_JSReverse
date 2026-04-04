@@ -53,10 +53,15 @@ def _parse_login_state(login_state: str) -> bool | None:
 def run(
     url: str = typer.Argument(..., help="目标网站 URL"),
     goal: str = typer.Option(
-        "分析并复现请求签名/Token生成逻辑",
+        "分析并复现请求签名/Token 生成逻辑",
         "--goal",
         "-g",
-        help="逆向目标描述（越具体越好）",
+        help="逆向目标描述，越具体越好",
+    ),
+    target_hint: str = typer.Option(
+        "",
+        "--target-hint",
+        help="目标对象提示，如商品 URL、SKU、搜索词、店铺名或类目名",
     ),
     mode: str = typer.Option(
         "interactive",
@@ -64,10 +69,10 @@ def run(
         "-m",
         help=f"运行模式: {available_modes()}",
     ),
-    session_id: Optional[str] = typer.Option(None, "--session", "-s", help="会话ID（用于续跑）"),
+    session_id: Optional[str] = typer.Option(None, "--session", "-s", help="会话 ID，用于续跑"),
     resume: bool = typer.Option(False, "--resume", "-r", help="从上次进度继续"),
     budget: float = typer.Option(2.0, "--budget", "-b", help="最大 AI 费用预算（USD）"),
-    known_endpoint: str = typer.Option("", "--known-endpoint", help="已知 API 接口路径（如 /api/search）"),
+    known_endpoint: str = typer.Option("", "--known-endpoint", help="已知 API 路径，如 /api/search"),
     antibot_type: str = typer.Option(
         "unknown",
         "--antibot",
@@ -90,13 +95,14 @@ def run(
     ),
     log_level: str = typer.Option("info", "--log-level", "-l", help="日志级别"),
 ) -> None:
-    """启动 JS 逆向流水线（使用智能主编排器）"""
+    """启动 JS 逆向流水线。"""
     _setup_logging(log_level)
 
     try:
         run_cfg = RunConfig(
             url=url,
             goal=goal,
+            target_hint=target_hint,
             mode_name=mode,
             budget_usd=budget,
             known_endpoint=known_endpoint,
@@ -111,10 +117,11 @@ def run(
 
     console.print(
         Panel(
-            f"[white]目标:[/white] [yellow]{run_cfg.url}[/yellow]\n"
+            f"[white]目标 URL:[/white] [yellow]{run_cfg.url}[/yellow]\n"
             f"[white]模式:[/white] [green]{run_cfg.mode_name.value}[/green]  "
             f"[white]预算:[/white] [cyan]${run_cfg.budget_usd}[/cyan]\n"
-            f"[white]目标:[/white] {run_cfg.goal}",
+            f"[white]逆向任务:[/white] {run_cfg.goal}\n"
+            f"[white]目标对象:[/white] {run_cfg.target_hint or '未指定'}",
             title="[bold cyan]Axelo JSReverse[/bold cyan]",
             border_style="cyan",
         )
@@ -146,7 +153,7 @@ def run(
 
 @app.command()
 def sessions() -> None:
-    """列出所有历史会话"""
+    """列出所有历史会话。"""
     store = SessionStore(settings.sessions_dir)
     session_ids = store.list_sessions()
 
@@ -163,7 +170,7 @@ def sessions() -> None:
 
 @app.command()
 def patterns() -> None:
-    """显示内置站点模式库"""
+    """显示内置站点模式库。"""
     from axelo.patterns.common import KNOWN_PROFILES
 
     table = Table(title="内置站点模式库", box=box.ROUNDED)
@@ -171,14 +178,14 @@ def patterns() -> None:
     table.add_column("典型算法", style="white")
     table.add_column("难度", style="yellow")
     table.add_column("策略", style="green")
-    for p in KNOWN_PROFILES:
-        table.add_row(p.category, p.typical_algorithm, p.difficulty, p.strategy)
+    for profile in KNOWN_PROFILES:
+        table.add_row(profile.category, profile.typical_algorithm, profile.difficulty, profile.strategy)
     console.print(table)
 
 
 @app.command()
 def info() -> None:
-    """显示系统配置和记忆库统计"""
+    """显示系统配置和记忆库统计。"""
     table = Table(title="Axelo 配置", box=box.ROUNDED)
     table.add_column("配置项", style="cyan")
     table.add_column("值", style="white")
@@ -191,8 +198,8 @@ def info() -> None:
         ("Node.js", settings.node_bin),
         ("API Key", "[green]已配置[/green]" if settings.anthropic_api_key else "[red]未配置[/red]"),
     ]
-    for k, v in rows:
-        table.add_row(k, v)
+    for key, value in rows:
+        table.add_row(key, value)
     console.print(table)
 
     try:
@@ -203,7 +210,7 @@ def info() -> None:
 
             db = MemoryDB(db_path)
             sessions_list = db.get_similar_sessions("")
-            console.print(f"\n[dim]记忆库: {db_path} | 历史会话: {len(sessions_list)}条[/dim]")
+            console.print(f"\n[dim]记忆库: {db_path} | 历史会话: {len(sessions_list)} 条[/dim]")
     except Exception:
         pass
 
