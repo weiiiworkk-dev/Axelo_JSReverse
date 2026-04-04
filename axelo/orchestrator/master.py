@@ -110,6 +110,9 @@ class MasterOrchestrator:
         url: str,
         goal: str,
         target_hint: str = "",
+        use_case: str = "research",
+        authorization_status: str = "pending",
+        replay_mode: str = "discover_only",
         mode_name: str = "interactive",
         session_id: str | None = None,
         budget_usd: float = 2.0,
@@ -124,6 +127,9 @@ class MasterOrchestrator:
             url=url,
             goal=goal,
             target_hint=target_hint,
+            use_case=use_case,
+            authorization_status=authorization_status,
+            replay_mode=replay_mode,
             mode_name=mode_name,
             session_id=session_id,
             budget_usd=budget_usd,
@@ -175,6 +181,9 @@ class MasterOrchestrator:
         url: str,
         goal: str,
         target_hint: str,
+        use_case: str,
+        authorization_status: str,
+        replay_mode: str,
         mode_name: str,
         session_id: str | None,
         budget_usd: float,
@@ -213,6 +222,9 @@ class MasterOrchestrator:
             session_id=sid,
             interaction_goal=goal,
             target_hint=target_hint,
+            use_case=use_case,
+            authorization_status=authorization_status,
+            replay_mode=replay_mode,
             browser_profile=BrowserProfile(),
             known_endpoint=known_endpoint,
             antibot_type=antibot_type,
@@ -223,6 +235,11 @@ class MasterOrchestrator:
         )
         runtime_policy = resolve_runtime_policy(target)
         target.browser_profile = runtime_policy.apply_to_profile(target.browser_profile)
+        target.compliance.allow_live_verification = (
+            target.authorization_status == "authorized" and target.replay_mode == "authorized_replay"
+        )
+        if not target.compliance.allow_live_verification:
+            target.compliance.notes.append("Live verification disabled by authorization/replay mode.")
 
         memory_ctx = self._retriever.query_for_url(url, goal)
         known_site_profile = match_profile(url)
@@ -629,6 +646,23 @@ class MasterOrchestrator:
         return True
 
     async def _run_codegen_and_verify(self, ctx: MasterRunContext) -> bool:
+        if ctx.target.execution_plan and ctx.target.execution_plan.skip_codegen:
+            ctx.target.trace = ctx.workflow.checkpoint(
+                ctx.sid,
+                ctx.target.trace,
+                "s7_codegen",
+                "skipped",
+                summary="Code generation disabled by compliance-aware execution plan",
+            )
+            ctx.target.trace = ctx.workflow.checkpoint(
+                ctx.sid,
+                ctx.target.trace,
+                "s8_verify",
+                "skipped",
+                summary="Verification disabled by compliance-aware execution plan",
+            )
+            return True
+
         if ctx.ai_client is None or ctx.analysis is None or ctx.hypothesis is None:
             ctx.result.error = "code generation prerequisites are missing"
             return False
@@ -855,6 +889,9 @@ def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_si
         normalized_goal = f"{normalized_goal}\n\n[target object] {target.target_hint}"
 
     context_parts = [
+        f"use case: {target.use_case}",
+        f"authorization: {target.authorization_status}",
+        f"replay mode: {target.replay_mode}",
         f"known endpoint: {target.known_endpoint or 'discover automatically'}",
         f"target hint: {target.target_hint or 'not provided'}",
         f"antibot: {target.antibot_type}",

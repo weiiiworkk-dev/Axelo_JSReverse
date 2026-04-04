@@ -63,6 +63,21 @@ def run(
         "--target-hint",
         help="目标对象提示，如商品 URL、SKU、搜索词、店铺名或类目名",
     ),
+    use_case: str = typer.Option(
+        "research",
+        "--use-case",
+        help="用途说明: research/internal/partner/debug",
+    ),
+    authorization_status: str = typer.Option(
+        "pending",
+        "--authorization-status",
+        help="授权状态: authorized/pending/unauthorized",
+    ),
+    replay_mode: str = typer.Option(
+        "discover_only",
+        "--replay-mode",
+        help="回放模式: discover_only/authorized_replay/official_api_only",
+    ),
     mode: str = typer.Option(
         "interactive",
         "--mode",
@@ -103,6 +118,9 @@ def run(
             url=url,
             goal=goal,
             target_hint=target_hint,
+            use_case=use_case,
+            authorization_status=authorization_status,
+            replay_mode=replay_mode,
             mode_name=mode,
             budget_usd=budget,
             known_endpoint=known_endpoint,
@@ -121,7 +139,9 @@ def run(
             f"[white]模式:[/white] [green]{run_cfg.mode_name.value}[/green]  "
             f"[white]预算:[/white] [cyan]${run_cfg.budget_usd}[/cyan]\n"
             f"[white]逆向任务:[/white] {run_cfg.goal}\n"
-            f"[white]目标对象:[/white] {run_cfg.target_hint or '未指定'}",
+            f"[white]目标对象:[/white] {run_cfg.target_hint or '未指定'}\n"
+            f"[white]用途/授权:[/white] {run_cfg.use_case.value} / {run_cfg.authorization_status.value}\n"
+            f"[white]回放模式:[/white] {run_cfg.replay_mode.value}",
             title="[bold cyan]Axelo JSReverse[/bold cyan]",
             border_style="cyan",
         )

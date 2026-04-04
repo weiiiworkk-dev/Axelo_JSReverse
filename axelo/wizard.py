@@ -296,6 +296,7 @@ def _launch_recommendations(
         recommendations.append(url_note)
     if not target_hint:
         recommendations.append("目标对象未指定。建议补商品 URL、搜索词、SKU 或类目锚点，避免系统抓到偏题接口。")
+    recommendations.append("当前默认是合规发现模式（pending + discover_only），不会直接做 live replay。")
     if not known_endpoint:
         recommendations.append("如果你已经知道接口片段，补一个路径关键词会显著加快定位。")
     if ("商品" in goal or "价格" in goal) and _target_url_note(url):
@@ -428,6 +429,9 @@ def _show_summary(
     url: str,
     goal: str,
     target_hint: str,
+    use_case: str,
+    authorization_status: str,
+    replay_mode: str,
     known_endpoint: str,
     antibot_type: str,
     requires_login: bool | None,
@@ -442,6 +446,9 @@ def _show_summary(
     config_table.add_row("目标 URL", f"[yellow]{url}[/yellow]")
     config_table.add_row("逆向目标", goal)
     config_table.add_row("目标对象", _target_hint_label(target_hint))
+    config_table.add_row("用途说明", use_case)
+    config_table.add_row("授权状态", authorization_status)
+    config_table.add_row("回放模式", replay_mode)
     config_table.add_row("接口线索", _endpoint_label(known_endpoint))
     config_table.add_row("反爬类型", _antibot_label(antibot_type))
     config_table.add_row("登录需求", _login_label(requires_login))
@@ -629,6 +636,13 @@ def _failure_insight(result, session_dir: Path) -> dict[str, object]:
             "优先检查观测到的 target requests 是否已经被正确锚定到生成代码常量。",
             "如果入口页过泛，请改用商品页、搜索页或补充更明确的目标对象提示。",
         ]
+    elif "x5secdata" in signal_text or "/_____tmd_____/punish" in signal_text or "rgv587_error" in signal_text or "fail_sys_user_validate" in signal_text:
+        cause = "回放请求已经命中了站点的风控挑战页，当前失败不是 DNS 或脚本崩溃，而是服务端把这次请求判成了挑战流量。"
+        actions = [
+            "停止自动重试，先把这次失败归档为风控命中，不要继续堆请求。",
+            "优先改成官方 API、商家/联盟接口、导出能力或经授权的数据通道。",
+            "如果必须继续此项目，先完成法务/平台授权评估，再把系统改成只做检测与人工介入，不做自动对抗。",
+        ]
     elif "budget exhausted" in signal_text:
         cause = "预算在进入 AI 分析前就耗尽了，当前任务没有拿到足够上下文。"
         actions = [
@@ -773,11 +787,17 @@ def main() -> None:
     crawl_rate = _ask_crawl_rate()
     mode = _ask_mode()
     budget = _ask_budget()
+    use_case = "research"
+    authorization_status = "pending"
+    replay_mode = "discover_only"
 
     _show_summary(
         url=url,
         goal=goal,
         target_hint=target_hint,
+        use_case=use_case,
+        authorization_status=authorization_status,
+        replay_mode=replay_mode,
         known_endpoint=known_endpoint,
         antibot_type=antibot_type,
         requires_login=requires_login,
@@ -798,6 +818,9 @@ def main() -> None:
             url=url,
             goal=goal,
             target_hint=target_hint,
+            use_case=use_case,
+            authorization_status=authorization_status,
+            replay_mode=replay_mode,
             mode_name=mode,
             budget_usd=budget,
             known_endpoint=known_endpoint,
@@ -823,6 +846,7 @@ def main() -> None:
         Panel(
             f"[white]会话:[/white] [cyan]{session_id}[/cyan]\n"
             f"[white]目标对象:[/white] {target_hint or '未指定'}\n"
+            f"[white]授权/回放:[/white] {authorization_status} / {replay_mode}\n"
             f"[white]日志:[/white] {log_path}",
             title="[bold cyan]已启动[/bold cyan]",
             border_style="cyan",

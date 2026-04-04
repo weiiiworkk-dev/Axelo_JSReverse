@@ -32,6 +32,25 @@ class RunMode(str, Enum):
     MANUAL = "manual"
 
 
+class UseCase(str, Enum):
+    RESEARCH = "research"
+    INTERNAL = "internal"
+    PARTNER = "partner"
+    DEBUG = "debug"
+
+
+class AuthorizationStatus(str, Enum):
+    AUTHORIZED = "authorized"
+    PENDING = "pending"
+    UNAUTHORIZED = "unauthorized"
+
+
+class ReplayMode(str, Enum):
+    DISCOVER_ONLY = "discover_only"
+    AUTHORIZED_REPLAY = "authorized_replay"
+    OFFICIAL_API_ONLY = "official_api_only"
+
+
 class RunConfig(BaseModel):
     """Canonical runtime input shared by wizard and CLI."""
 
@@ -40,6 +59,9 @@ class RunConfig(BaseModel):
     target_hint: str = ""
     mode_name: RunMode = RunMode.INTERACTIVE
     budget_usd: float = 2.0
+    use_case: UseCase = UseCase.RESEARCH
+    authorization_status: AuthorizationStatus = AuthorizationStatus.PENDING
+    replay_mode: ReplayMode = ReplayMode.DISCOVER_ONLY
 
     known_endpoint: str = ""
     antibot_type: AntiBotType = AntiBotType.UNKNOWN
@@ -68,6 +90,13 @@ class RunConfig(BaseModel):
     def _normalize_target_hint(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("use_case", "authorization_status", "replay_mode", mode="before")
+    @classmethod
+    def _normalize_mode_fields(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
     @field_validator("known_endpoint")
     @classmethod
     def _normalize_endpoint(cls, value: str) -> str:
@@ -87,6 +116,9 @@ class RunConfig(BaseModel):
             "target_hint": self.target_hint,
             "mode_name": self.mode_name.value,
             "budget_usd": self.budget_usd,
+            "use_case": self.use_case.value,
+            "authorization_status": self.authorization_status.value,
+            "replay_mode": self.replay_mode.value,
             "known_endpoint": self.known_endpoint,
             "antibot_type": self.antibot_type.value,
             "requires_login": self.requires_login,

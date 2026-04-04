@@ -10,7 +10,7 @@ from axelo.models.codegen import GeneratedCode
 from axelo.models.target import RequestCapture, TargetSite
 from axelo.verification.comparator import TokenComparator
 from axelo.verification.data_quality import evaluate_data_quality
-from axelo.verification.engine import VerificationEngine
+from axelo.verification.engine import VerificationEngine, _detect_risk_control
 from axelo.verification.replayer import ReplayResult, RequestReplayer
 from axelo.verification.stability import evaluate_stability
 
@@ -102,6 +102,47 @@ class TestVerificationEngine:
         assert result.attempts >= 1
         assert result.data_quality is not None
         assert result.stability is not None
+
+    def test_risk_control_response_stops_retry(self, monkeypatch):
+        engine = VerificationEngine()
+
+        async def fake_replay(script_path, target):
+            return {"Origin": "https://www.lazada.com.my"}, ReplayResult(
+                ok=True,
+                status_code=200,
+                response_body='{"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR"],"data":{"url":"https://www.lazada.com.my/_____tmd_____/punish?x5secdata=abc"}}',
+                headers={"Origin": "https://www.lazada.com.my"},
+                generated_data={"ret": ["FAIL_SYS_USER_VALIDATE"]},
+            )
+
+        async def fake_stability(script_path, target, samples):
+            return evaluate_stability(samples or [({"Origin": "x"}, [{"id": 1}])])
+
+        engine._replayer.replay_with_script = fake_replay  # type: ignore[method-assign]
+        engine._stability_check = fake_stability  # type: ignore[method-assign]
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+
+        generated = GeneratedCode(
+            session_id="t02",
+            output_mode="standalone",
+            crawler_script_path=Path("C:/__axelo__/token_generator.py"),
+        )
+        target = TargetSite(url="https://api.example.com", session_id="t02", interaction_goal="test")
+
+        result = asyncio.run(engine.verify(generated, target, live_verify=False))
+        assert result.ok is False
+        assert result.risk_control_reason == "risk-control challenge page detected"
+        assert "risk_control detected" in result.report
+
+
+def test_detect_risk_control_from_challenge_response():
+    replay = ReplayResult(
+        ok=True,
+        status_code=200,
+        response_body='{"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR"],"data":{"url":"https://www.lazada.com.my/_____tmd_____/punish?x5secdata=abc"}}',
+    )
+
+    assert _detect_risk_control(replay) == "risk-control challenge page detected"
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,8 @@ def test_planner_prefers_verified_adapter_registry_hit(tmp_path):
         interaction_goal="collect products",
         known_endpoint="/api/products",
         output_format="json_file",
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
     )
     generated = GeneratedCode(
         session_id="seed",
@@ -38,6 +40,8 @@ def test_planner_prefers_verified_adapter_registry_hit(tmp_path):
         interaction_goal="collect products",
         known_endpoint="/api/products",
         output_format="json_file",
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
     )
     decision = planner.build(target, budget_usd=1.0)
     assert decision.plan.tier == ExecutionTier.ADAPTER_REUSE
@@ -53,6 +57,8 @@ def test_planner_uses_light_browser_mode_for_known_endpoint_and_low_budget(tmp_p
         interaction_goal="collect products",
         known_endpoint="/api/products",
         output_format="json_file",
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
     )
     decision = planner.build(target, budget_usd=0.25)
     assert decision.plan.tier == ExecutionTier.BROWSER_LIGHT
@@ -66,11 +72,31 @@ def test_planner_routes_extreme_profile_to_manual_review(tmp_path):
         url="https://example.com/search",
         session_id="run03",
         interaction_goal="collect products",
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
     )
     target.site_profile.difficulty_hint = "extreme"
     decision = planner.build(target, budget_usd=1.0)
     assert decision.plan.tier == ExecutionTier.MANUAL_REVIEW
     assert decision.plan.requires_browser is False
+
+
+def test_planner_disables_executable_replay_when_not_authorized(tmp_path):
+    planner = Planner(AdapterRegistry(tmp_path))
+    target = TargetSite(
+        url="https://example.com/search",
+        session_id="run04",
+        interaction_goal="collect products",
+        authorization_status="pending",
+        replay_mode="discover_only",
+    )
+
+    decision = planner.build(target, budget_usd=1.0)
+
+    assert decision.plan.skip_codegen is True
+    assert decision.plan.verification_mode == VerificationMode.NONE
+    assert decision.plan.enable_action_flow is False
+    assert decision.plan.should_persist_adapter is False
 
 
 def test_adapter_registry_materializes_files(tmp_path):

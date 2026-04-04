@@ -13,6 +13,9 @@ def test_run_config_valid():
         url="https://example.com",
         goal="reverse signature",
         target_hint="iphone 15",
+        use_case="partner",
+        authorization_status="authorized",
+        replay_mode="authorized_replay",
         mode_name="interactive",
         budget_usd=3.0,
         known_endpoint="/api/search",
@@ -23,6 +26,9 @@ def test_run_config_valid():
     )
     kwargs = cfg.orchestrator_kwargs()
     assert kwargs["target_hint"] == "iphone 15"
+    assert kwargs["use_case"] == "partner"
+    assert kwargs["authorization_status"] == "authorized"
+    assert kwargs["replay_mode"] == "authorized_replay"
     assert kwargs["known_endpoint"] == "/api/search"
     assert kwargs["antibot_type"] == "cloudflare"
     assert kwargs["requires_login"] is True

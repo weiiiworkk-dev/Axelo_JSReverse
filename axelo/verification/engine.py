@@ -30,6 +30,7 @@ class VerificationResult:
     strategy_used: str = ""
     report: str = ""
     retry_reason: str = ""
+    risk_control_reason: str = ""
 
 
 class VerificationEngine:
@@ -100,12 +101,15 @@ class VerificationEngine:
             report_lines = [f"=== verification report (attempt {attempt}) ==="]
             if compare_result:
                 report_lines.append(compare_result.summary())
+            risk_control_reason = _detect_risk_control(replay_result)
+            if risk_control_reason:
+                report_lines.append(f"risk_control detected: {risk_control_reason}")
             report_lines.append(replay_result.summary())
             report_lines.append(data_quality.summary())
             report_lines.append(stability.summary())
 
             result = VerificationResult(
-                ok=overall_ok,
+                ok=overall_ok and not bool(risk_control_reason),
                 score=score,
                 replay=replay_result,
                 compare=compare_result,
@@ -114,7 +118,13 @@ class VerificationEngine:
                 attempts=attempt,
                 strategy_used=generated.output_mode,
                 report="\n".join(report_lines),
+                risk_control_reason=risk_control_reason,
             )
+
+            if risk_control_reason:
+                result.retry_reason = risk_control_reason
+                log.warning("risk_control_detected", attempt=attempt, reason=risk_control_reason)
+                return result
 
             if overall_ok or attempt == MAX_RETRIES:
                 return result
@@ -152,6 +162,9 @@ def _diagnose_failure(
     data_quality: DataQualityResult,
     stability: StabilityResult,
 ) -> str:
+    risk_control_reason = _detect_risk_control(replay)
+    if risk_control_reason:
+        return risk_control_reason
     if not replay.ok and replay.status_code == 403:
         return "HTTP 403: signature rejected or session blocked"
     if not replay.ok and replay.status_code == 401:
@@ -165,3 +178,16 @@ def _diagnose_failure(
     if not stability.ok:
         return f"stability check failed: {stability.notes}"
     return "unknown verification failure"
+
+
+def _detect_risk_control(replay: ReplayResult) -> str:
+    signal_text = "\n".join(
+        part for part in [replay.response_body or "", replay.error or ""] if part
+    ).lower()
+    if not signal_text:
+        return ""
+    if "x5secdata" in signal_text or "/_____tmd_____/punish" in signal_text:
+        return "risk-control challenge page detected"
+    if "rgv587_error" in signal_text or "fail_sys_user_validate" in signal_text:
+        return "risk-control validation rejected the replay request"
+    return ""

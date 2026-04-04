@@ -27,10 +27,28 @@ class Planner:
     ) -> PlanDecision:
         memory_ctx = memory_ctx or {}
         governor = CostGovernor(max_usd=budget_usd)
-        adapter = self._registry.lookup(target)
+        allow_executable_replay = (
+            target.authorization_status == "authorized" and target.replay_mode == "authorized_replay"
+        )
+        adapter = self._registry.lookup(target) if allow_executable_replay else None
 
         reasons: list[str] = []
         plan = ExecutionPlan()
+
+        if target.replay_mode != "authorized_replay":
+            plan.skip_codegen = True
+            plan.verification_mode = VerificationMode.NONE
+            plan.should_persist_adapter = False
+            plan.enable_action_flow = False
+            plan.enable_trace_capture = True
+            reasons.append(f"Replay mode '{target.replay_mode}' disables codegen and live verification.")
+
+        if target.authorization_status != "authorized":
+            plan.skip_codegen = True
+            plan.verification_mode = VerificationMode.NONE
+            plan.should_persist_adapter = False
+            plan.enable_action_flow = False
+            reasons.append(f"Authorization status '{target.authorization_status}' disables executable replay.")
 
         if target.site_profile.difficulty_hint == "extreme" and target.compliance.require_manual_for_extreme:
             plan.tier = ExecutionTier.MANUAL_REVIEW
@@ -48,15 +66,18 @@ class Planner:
             if target.known_endpoint and not target.site_profile.action_flow and not target.requires_login:
                 plan.tier = ExecutionTier.BROWSER_LIGHT
                 plan.requires_dynamic_analysis = False
-                plan.verification_mode = VerificationMode.BASIC
+                if plan.verification_mode != VerificationMode.NONE:
+                    plan.verification_mode = VerificationMode.BASIC
                 reasons.append("Known endpoint allows a lighter browser discovery pass.")
 
             if target.requires_login or target.site_profile.action_flow:
                 plan.tier = ExecutionTier.BROWSER_FULL
                 plan.requires_dynamic_analysis = True
-                plan.enable_action_flow = True
+                if target.authorization_status == "authorized" and target.replay_mode == "authorized_replay":
+                    plan.enable_action_flow = True
                 plan.enable_trace_capture = True
-                plan.verification_mode = VerificationMode.STRICT if target.requires_login else VerificationMode.STANDARD
+                if plan.verification_mode != VerificationMode.NONE:
+                    plan.verification_mode = VerificationMode.STRICT if target.requires_login else VerificationMode.STANDARD
                 reasons.append("Login or scripted interaction requires the full browser tier.")
 
             if memory_ctx.get("known_pattern") and plan.tier != ExecutionTier.BROWSER_FULL:

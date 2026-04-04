@@ -81,6 +81,9 @@ class TargetSite(BaseModel):
     trace: TraceArtifact = Field(default_factory=TraceArtifact)
     execution_plan: ExecutionPlan | None = None
     target_hint: str = ""
+    use_case: str = "research"
+    authorization_status: str = "pending"
+    replay_mode: str = "discover_only"
     known_endpoint: str = ""
     antibot_type: str = "unknown"
     requires_login: bool | None = None

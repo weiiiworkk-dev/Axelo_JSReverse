@@ -39,6 +39,8 @@ Important characteristics:
 - 9-step wizard
 - user-provided crawl context carried end-to-end
 - structured `ExecutionPlan` attached to every run
+- compliance-aware intent fields: `use_case`, `authorization_status`, `replay_mode`
+- safe-by-default discovery mode for non-authorized runs
 
 ## Planning Plane
 
@@ -60,6 +62,7 @@ Important characteristics:
 - tiered execution: `adapter_reuse`, `browser_light`, `browser_full`, `manual_review`
 - budget-aware degradation
 - verification-mode selection
+- compliance-aware downgrade that disables codegen and live replay outside authorized replay mode
 
 ## Workflow Plane
 
@@ -186,6 +189,7 @@ Important characteristics:
 - session-state artifact references
 - trace file references
 - workflow status serialization
+- risk-control evidence and authorization context preserved in report payloads
 
 ## End-to-End Flow
 
