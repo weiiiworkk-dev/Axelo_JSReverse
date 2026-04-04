@@ -15,5 +15,8 @@ class SignatureSpec(BaseModel):
     browser_dependencies: list[str] = Field(default_factory=list)
     replay_requirements: list[str] = Field(default_factory=list)
     normalization_rules: list[str] = Field(default_factory=list)
+    bridge_targets: list[str] = Field(default_factory=list)
+    preferred_bridge_target: str | None = None
+    topology_summary: list[str] = Field(default_factory=list)
     codegen_strategy: Literal["python_reconstruct", "js_bridge", "manual_required"] = "js_bridge"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)

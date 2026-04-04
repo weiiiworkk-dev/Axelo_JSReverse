@@ -1,8 +1,8 @@
 from __future__ import annotations
-from axelo.models.analysis import HookIntercept, StaticAnalysis
+
+from axelo.models.analysis import HookIntercept, StaticAnalysis, TaintEvent, TaintTopology
 
 
-# 高价值 Hook（强烈暗示签名生成）
 HIGH_VALUE_APIS = {
     "crypto.subtle.sign",
     "crypto.subtle.digest",
@@ -14,38 +14,55 @@ HIGH_VALUE_APIS = {
 
 class HookAnalyzer:
     """
-    分析 Hook 拦截记录，推断：
-    - 哪些 API 被实际调用（过滤掉未触发的）
-    - 调用顺序与重复次数
-    - 与静态分析 TokenCandidate 的关联
+    Summarize legacy hook intercepts and fold topology-derived sink mapping into
+    a compact runtime analysis report.
     """
 
     def analyze(
         self,
         intercepts: list[HookIntercept],
         static: StaticAnalysis | None = None,
+        *,
+        taint_events: list[TaintEvent] | None = None,
+        topologies: list[TaintTopology] | None = None,
     ) -> dict:
-        if not intercepts:
-            return {"apis_called": [], "high_value": [], "field_mapping": {}, "summary": "无 Hook 触发"}
+        taint_events = taint_events or []
+        topologies = topologies or []
+        if not intercepts and not taint_events and not topologies:
+            return {
+                "apis_called": [],
+                "high_value": [],
+                "field_mapping": {},
+                "summary": "No hook activity",
+            }
 
-        # 统计各 API 调用次数
         api_counts: dict[str, int] = {}
-        for ic in intercepts:
-            api_counts[ic.api_name] = api_counts.get(ic.api_name, 0) + 1
+        for intercept in intercepts:
+            api_counts[intercept.api_name] = api_counts.get(intercept.api_name, 0) + 1
+        for event in taint_events:
+            if event.api_name:
+                api_counts[event.api_name] = api_counts.get(event.api_name, 0) + 1
 
-        apis_called = sorted(api_counts.keys(), key=lambda k: -api_counts[k])
-        high_value = [a for a in apis_called if a in HIGH_VALUE_APIS]
+        apis_called = sorted(api_counts.keys(), key=lambda key: (-api_counts[key], key))
+        high_value = [api for api in apis_called if api in HIGH_VALUE_APIS]
 
-        # 尝试将 Hook 输出与目标请求字段关联
         field_mapping: dict[str, str] = {}
         if static:
             for candidate in static.token_candidates:
-                for ic in intercepts:
-                    if candidate.request_field and _apis_related(ic.api_name, candidate.token_type):
-                        field_mapping[ic.api_name] = candidate.request_field
+                for intercept in intercepts:
+                    if candidate.request_field and _apis_related(intercept.api_name, candidate.token_type):
+                        field_mapping[intercept.api_name] = candidate.request_field
 
-        summary_parts = [f"{api}×{cnt}" for api, cnt in api_counts.items()]
-        summary = "Hook调用: " + ", ".join(summary_parts[:8])
+        for topology in topologies:
+            for step in topology.ordered_steps:
+                if "[" in step:
+                    continue
+                field_mapping.setdefault(step, topology.sink_field)
+
+        summary_parts = [f"{api}x{count}" for api, count in api_counts.items()]
+        summary = "Hook calls: " + ", ".join(summary_parts[:8]) if summary_parts else "Hook calls: none"
+        if topologies:
+            summary += f"\nTopologies: {len(topologies)}"
 
         return {
             "apis_called": apis_called,

@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+
+
+class BridgeClient:
+    """HTTP client for the generated Playwright-backed bridge server."""
+
+    def __init__(self, base_url: str, *, timeout: float = 15.0) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}{path}"
+        with httpx.Client(timeout=timeout or self._timeout) as client:
+            response = client.request(method, url, json=payload)
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                data = response.json()
+                detail = data.get("error") or json.dumps(data, ensure_ascii=False)
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"Bridge {method} {path} failed: HTTP {response.status_code} {detail}")
+        return response.json()
+
+    def health(self) -> dict[str, Any]:
+        return self.request("GET", "/health", timeout=5.0)
+
+    def list_targets(self) -> list[str]:
+        return self.request("GET", "/bridge/list", timeout=5.0).get("targets", [])
+
+    def register_function(
+        self,
+        name: str,
+        *,
+        global_path: str | None = None,
+        owner_path: str | None = None,
+        resolver_source: str | None = None,
+        resolver_arg: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "name": name,
+            "globalPath": global_path,
+            "ownerPath": owner_path,
+            "resolverSource": resolver_source,
+            "resolverArg": resolver_arg or None,
+        }
+        return self.request("POST", "/bridge/register", payload, timeout=20.0)
+
+    def discover_functions(
+        self,
+        *,
+        min_score: float = 0.0,
+        sink_field: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = f"?min_score={min_score:.3f}"
+        if sink_field:
+            query += f"&sink_field={sink_field}"
+        data = self.request("GET", f"/executor/discover{query}", timeout=10.0)
+        return data.get("candidates", [])
+
+    def invoke_function(
+        self,
+        target_fn_name: str,
+        args: list[Any] | None = None,
+        *,
+        auto_register: bool = True,
+    ) -> Any:
+        payload = {
+            "name": target_fn_name,
+            "args": list(args or []),
+            "autoRegister": auto_register,
+        }
+        data = self.request("POST", "/executor/invoke", payload, timeout=20.0)
+        return data.get("result")
+
+
+class BridgeDriver(BridgeClient):
+    """Thin semantic alias for callers that treat the bridge as a runtime driver."""
+
+    pass

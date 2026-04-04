@@ -73,11 +73,66 @@ class HookIntercept(BaseModel):
     sequence: int = 0
 
 
+class TaintSink(BaseModel):
+    """One tainted request sink observed in the page."""
+
+    request_id: str = ""
+    sink_field: str = ""
+    sink_kind: Literal["header", "body", "query", "beacon", "unknown"] = "unknown"
+    request_url: str = ""
+    request_method: str = ""
+
+
+class TaintEvent(BaseModel):
+    """Structured taint event emitted by the browser runtime."""
+
+    event_type: Literal["source", "transform", "sink"]
+    api_name: str
+    taint_ids: list[str] = Field(default_factory=list)
+    parent_taint_ids: list[str] = Field(default_factory=list)
+    sequence: int = 0
+    timestamp: float = 0.0
+    stack_trace: list[str] = Field(default_factory=list)
+    value_preview: str = ""
+    sink: TaintSink | None = None
+
+
+class BridgeTargetCandidate(BaseModel):
+    """Callable browser-side function candidate derived from taint topology."""
+
+    name: str
+    global_path: str = ""
+    owner_path: str = ""
+    resolver_source: str = ""
+    score: float = 0.0
+    callable: bool = False
+    sink_field: str = ""
+    evidence_frames: list[str] = Field(default_factory=list)
+
+
+class TaintTopology(BaseModel):
+    """One taint chain ending at a request sink."""
+
+    sink_field: str
+    sink_kind: Literal["header", "body", "query", "beacon", "unknown"] = "unknown"
+    request_id: str = ""
+    request_url: str = ""
+    request_method: str = ""
+    ordered_steps: list[str] = Field(default_factory=list)
+    taint_ids: list[str] = Field(default_factory=list)
+    entrypoint_candidates: list[BridgeTargetCandidate] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
 class DynamicAnalysis(BaseModel):
     """Runtime analysis results inferred from browser hooks."""
 
     bundle_id: str
     hook_intercepts: list[HookIntercept] = Field(default_factory=list)
+    taint_events: list[TaintEvent] = Field(default_factory=list)
+    topologies: list[TaintTopology] = Field(default_factory=list)
+    bridge_candidates: list[BridgeTargetCandidate] = Field(default_factory=list)
+    topology_summary: list[str] = Field(default_factory=list)
     confirmed_generators: list[str] = Field(default_factory=list)
     field_mapping: dict[str, str] = Field(default_factory=dict)
     crypto_primitives: list[str] = Field(default_factory=list)

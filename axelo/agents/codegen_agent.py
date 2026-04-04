@@ -48,7 +48,7 @@ class CodeGenAgent(BaseAgent):
         selected_template, template_code = self._templates.select_template(hypothesis, templates)
 
         if hypothesis.template_name and selected_template is not None and self._templates.is_ready(hypothesis, selected_template):
-            output = self._templates.render(selected_template, target, hypothesis)
+            output = self._templates.render(selected_template, target, hypothesis, dynamic=dynamic)
         else:
             output = await self._ai_codegen.generate(
                 target=target,
@@ -62,6 +62,7 @@ class CodeGenAgent(BaseAgent):
             output=output,
             hypothesis=hypothesis,
             target=target,
+            dynamic=dynamic,
             output_dir=output_dir,
         )
 

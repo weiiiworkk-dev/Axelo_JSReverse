@@ -45,5 +45,8 @@ def test_rendered_templates_include_simulation_interfaces():
     assert "/environment/status" in bridge
     assert "/interaction/run-pointer-path" in bridge
     assert "/interaction/replay-pointer-trace" in bridge
+    assert "/executor/discover" in bridge
+    assert "/executor/invoke" in bridge
     assert "environmentSimulation" in crawler
     assert "interactionSimulation" in crawler
+    assert "def invoke_function(" in crawler

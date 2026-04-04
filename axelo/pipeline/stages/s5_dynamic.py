@@ -7,6 +7,7 @@ import structlog
 
 from axelo.analysis.dynamic.crypto_detector import detect_algorithm
 from axelo.analysis.dynamic.hook_analyzer import HookAnalyzer
+from axelo.analysis.dynamic.topology_builder import TopologyBuilder
 from axelo.analysis.dynamic.trace_builder import TraceBuilder
 from axelo.browser.driver import BrowserDriver
 from axelo.browser.hooks import JSHookInjector
@@ -42,6 +43,9 @@ class DynamicAnalysisStage(PipelineStage):
         max_attempts = 1 if verification_mode != VerificationMode.STRICT else max(1, settings.max_dynamic_retries + 1)
         decisions: list[Decision] = []
         latest_trace_path: Path | None = None
+        latest_taint_events_path: Path | None = None
+        latest_topology_json_path: Path | None = None
+        latest_topology_mermaid_path: Path | None = None
 
         for attempt in range(1, max_attempts + 1):
             dynamic, hook_analysis, algo_info, intercepts, trace_path = await self._collect_attempt(
@@ -51,6 +55,9 @@ class DynamicAnalysisStage(PipelineStage):
                 static_results=static_results,
             )
             latest_trace_path = trace_path
+            latest_taint_events_path = traces_dir / "taint_events.json"
+            latest_topology_json_path = traces_dir / "topology.json"
+            latest_topology_mermaid_path = traces_dir / "topology.mmd"
 
             summary = hook_analysis.get("summary", "No hook activity")
             if algo_info:
@@ -75,7 +82,12 @@ class DynamicAnalysisStage(PipelineStage):
                 return StageResult(
                     stage_name=self.name,
                     success=True,
-                    artifacts={"hook_trace": trace_path},
+                    artifacts={
+                        "hook_trace": trace_path,
+                        "taint_events": latest_taint_events_path,
+                        "topology_json": latest_topology_json_path,
+                        "topology_mermaid": latest_topology_mermaid_path,
+                    },
                     decisions=decisions,
                     summary=f"Dynamic analysis skipped after {attempt} attempt(s)",
                     next_input={"dynamic": None, "static_results": static_results, "target": target},
@@ -85,7 +97,12 @@ class DynamicAnalysisStage(PipelineStage):
                 return StageResult(
                     stage_name=self.name,
                     success=True,
-                    artifacts={"hook_trace": trace_path},
+                    artifacts={
+                        "hook_trace": trace_path,
+                        "taint_events": latest_taint_events_path,
+                        "topology_json": latest_topology_json_path,
+                        "topology_mermaid": latest_topology_mermaid_path,
+                    },
                     decisions=decisions,
                     summary=(
                         f"Hook intercepts={len(intercepts)}, crypto_primitives={len(dynamic.crypto_primitives)}, "
@@ -98,7 +115,12 @@ class DynamicAnalysisStage(PipelineStage):
                 return StageResult(
                     stage_name=self.name,
                     success=False,
-                    artifacts={"hook_trace": trace_path},
+                    artifacts={
+                        "hook_trace": trace_path,
+                        "taint_events": latest_taint_events_path,
+                        "topology_json": latest_topology_json_path,
+                        "topology_mermaid": latest_topology_mermaid_path,
+                    },
                     decisions=decisions,
                     error=f"dynamic retry exhausted after {max_attempts} attempts",
                     summary=f"Dynamic retry exhausted after {max_attempts} attempts",
@@ -109,7 +131,16 @@ class DynamicAnalysisStage(PipelineStage):
         return StageResult(
             stage_name=self.name,
             success=False,
-            artifacts={"hook_trace": latest_trace_path} if latest_trace_path else {},
+            artifacts=(
+                {
+                    "hook_trace": latest_trace_path,
+                    "taint_events": latest_taint_events_path,
+                    "topology_json": latest_topology_json_path,
+                    "topology_mermaid": latest_topology_mermaid_path,
+                }
+                if latest_trace_path
+                else {}
+            ),
             decisions=decisions,
             error="dynamic analysis ended unexpectedly",
         )
@@ -141,23 +172,75 @@ class DynamicAnalysisStage(PipelineStage):
             await interceptor.drain()
 
         intercepts = hook_injector.get_intercepts()
+        taint_events = hook_injector.get_taint_events()
+        api_requests = interceptor.get_api_calls() or target.target_requests
+        topology_builder = TopologyBuilder()
+        topology_result = topology_builder.build(taint_events, api_requests)
+
         hook_analyzer = HookAnalyzer()
         first_static = next(iter(static_results.values()), None)
-        hook_analysis = hook_analyzer.analyze(intercepts, first_static)
+        hook_analysis = hook_analyzer.analyze(
+            intercepts,
+            first_static,
+            taint_events=taint_events,
+            topologies=topology_result.topologies,
+        )
 
         trace_builder = TraceBuilder()
         bundle_id = next(iter(static_results), "unknown")
-        dynamic = trace_builder.build(bundle_id, intercepts, target.target_requests, hook_analysis)
+        dynamic = trace_builder.build(
+            bundle_id,
+            intercepts,
+            api_requests,
+            hook_analysis,
+            taint_events=taint_events,
+            topologies=topology_result.topologies,
+            bridge_candidates=topology_result.bridge_candidates,
+            topology_summary=topology_result.topology_summary,
+        )
         algo_info = detect_algorithm(intercepts)
 
         trace_path = traces_dir / f"hook_trace_attempt_{attempt}.json"
+        taint_events_path = traces_dir / "taint_events.json"
+        topology_json_path = traces_dir / "topology.json"
+        topology_mermaid_path = traces_dir / "topology.mmd"
+        taint_events_path.write_text(
+            json.dumps(
+                [event.model_dump(mode="json") for event in taint_events],
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        topology_json_path.write_text(
+            json.dumps(
+                {
+                    "topologies": [item.model_dump(mode="json") for item in topology_result.topologies],
+                    "bridge_candidates": [item.model_dump(mode="json") for item in topology_result.bridge_candidates],
+                    "summary": topology_result.topology_summary,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        topology_mermaid_path.write_text(
+            topology_builder.render_mermaid(topology_result.topologies),
+            encoding="utf-8",
+        )
         trace_path.write_text(
             json.dumps(
                 {
                     "attempt": attempt,
                     "intercepts": [intercept.model_dump(mode="json") for intercept in intercepts],
+                    "taint_events": [event.model_dump(mode="json") for event in taint_events],
                     "hook_analysis": hook_analysis,
                     "algo_info": algo_info,
+                    "topology": {
+                        "topologies": [item.model_dump(mode="json") for item in topology_result.topologies],
+                        "bridge_candidates": [item.model_dump(mode="json") for item in topology_result.bridge_candidates],
+                        "summary": topology_result.topology_summary,
+                    },
                     "dynamic": dynamic.model_dump(mode="json"),
                 },
                 ensure_ascii=False,

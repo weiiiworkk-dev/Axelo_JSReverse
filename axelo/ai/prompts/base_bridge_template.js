@@ -12,6 +12,8 @@ const DEFAULT_STORAGE_STATE_PATH = process.env.AXELO_BRIDGE_STORAGE_STATE || __A
 const DEFAULT_APP_KEY = process.env.AXELO_BRIDGE_APP_KEY || __AXELO_DEFAULT_APP_KEY__;
 const DEFAULT_ENVIRONMENT_SIMULATION = __AXELO_DEFAULT_ENVIRONMENT_SIMULATION__;
 const DEFAULT_INTERACTION_SIMULATION = __AXELO_DEFAULT_INTERACTION_SIMULATION__;
+const DEFAULT_EXECUTOR_CANDIDATES = __AXELO_EXECUTOR_CANDIDATES__;
+const DEFAULT_PREFERRED_BRIDGE_TARGET = __AXELO_PREFERRED_BRIDGE_TARGET__;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_EVENTS = 200;
 
@@ -143,7 +145,8 @@ function defaultConfig() {
     autoRestartOnCrash: true,
     autoRestartOnDisconnect: true,
     autoRestartOnChallenge: false,
-    defaultSigner: '',
+    defaultSigner: process.env.AXELO_BRIDGE_DEFAULT_SIGNER || DEFAULT_PREFERRED_BRIDGE_TARGET || '',
+    executorCandidates: DEFAULT_EXECUTOR_CANDIDATES,
     environmentSimulation: DEFAULT_ENVIRONMENT_SIMULATION,
     interactionSimulation: DEFAULT_INTERACTION_SIMULATION,
     challengeUrlPatterns: ['captcha', 'challenge', 'verify', 'punish', 'x5secdata'],
@@ -328,6 +331,7 @@ function summarizeRuntime() {
       autoRestartOnDisconnect: runtime.config.autoRestartOnDisconnect,
       autoRestartOnChallenge: runtime.config.autoRestartOnChallenge,
       defaultSigner: runtime.config.defaultSigner || null,
+      executorCandidateCount: Array.isArray(runtime.config.executorCandidates) ? runtime.config.executorCandidates.length : 0,
       environmentSimulation: runtime.config.environmentSimulation || {},
       interactionSimulation: runtime.config.interactionSimulation || {},
     },
@@ -692,6 +696,70 @@ async function callBridgeTarget(body) {
   return withTimeout(page.evaluate(({ name, args }) => window.__AXELO_BRIDGE__.call(name, args), { name: body.name, args }), runtime.config.callTimeoutMs, `Bridge call "${body.name}"`);
 }
 
+function normalizeExecutorCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const normalized = {
+    name: candidate.name ? String(candidate.name) : '',
+    globalPath: candidate.globalPath ? String(candidate.globalPath) : '',
+    ownerPath: candidate.ownerPath ? String(candidate.ownerPath) : '',
+    resolverSource: candidate.resolverSource ? String(candidate.resolverSource) : '',
+    resolverArg: candidate.resolverArg && typeof candidate.resolverArg === 'object' ? candidate.resolverArg : null,
+    score: Number(candidate.score || 0),
+    callable: Boolean(candidate.callable || candidate.globalPath || candidate.resolverSource),
+    sinkField: candidate.sinkField ? String(candidate.sinkField) : '',
+    evidenceFrames: Array.isArray(candidate.evidenceFrames) ? candidate.evidenceFrames.map((item) => String(item)) : [],
+  };
+  if (!normalized.name) return null;
+  return normalized;
+}
+
+function executorCandidates() {
+  const raw = Array.isArray(runtime.config.executorCandidates) ? runtime.config.executorCandidates : [];
+  return raw.map(normalizeExecutorCandidate).filter(Boolean);
+}
+
+async function discoverExecutorCandidates(options) {
+  const minScore = Number(options && options.minScore != null ? options.minScore : 0);
+  const sinkField = options && options.sinkField ? String(options.sinkField) : '';
+  const candidates = executorCandidates()
+    .filter((candidate) => candidate.score >= minScore)
+    .filter((candidate) => !sinkField || !candidate.sinkField || candidate.sinkField === sinkField)
+    .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
+  return candidates;
+}
+
+async function registerExecutorCandidate(candidate) {
+  if (!candidate) throw createError(404, 'Executor candidate not found');
+  if (!candidate.globalPath && !candidate.resolverSource) {
+    throw createError(409, `Executor candidate is not callable: ${candidate.name}`);
+  }
+  return registerBridgeTarget({
+    name: candidate.name,
+    globalPath: candidate.globalPath || null,
+    ownerPath: candidate.ownerPath || null,
+    resolverSource: candidate.resolverSource || null,
+    resolverArg: candidate.resolverArg || { name: candidate.name },
+  });
+}
+
+async function invokeExecutor(body) {
+  if (!body || !body.name) throw createError(400, 'Missing "name"');
+  const args = Array.isArray(body.args) ? body.args : body.payload !== undefined ? [body.payload] : [];
+  const autoRegister = body.autoRegister !== false;
+  const bridgeTargets = await listBridgeTargets();
+  if (!bridgeTargets.includes(body.name) && autoRegister) {
+    const candidate = (await discoverExecutorCandidates({
+      minScore: Number(body.minScore || 0),
+      sinkField: body.sinkField || '',
+    })).find((item) => item.name === body.name);
+    if (!candidate) {
+      throw createError(404, `Executor candidate not found: ${body.name}`);
+    }
+    await registerExecutorCandidate(candidate);
+  }
+  return callBridgeTarget({ name: body.name, args });
+}
+
 async function signRequest(body) {
   await ensureRuntimeReady('sign_request');
   const inputUrl = body && body.url;
@@ -712,8 +780,9 @@ async function signRequest(body) {
 
   const signerName = body.signer || runtime.config.defaultSigner || '';
   if (signerName) {
-    const signerResult = await callBridgeTarget({
+    const signerResult = await invokeExecutor({
       name: signerName,
+      autoRegister: body.autoRegister !== false,
       args: Array.isArray(body.signerArgs) ? body.signerArgs : [{
         url: inputUrl,
         method: body.method || 'GET',
@@ -950,6 +1019,14 @@ async function routeRequest(req, res) {
   if (method === 'GET' && pathname === '/health') return sendJson(res, 200, summarizeRuntime());
   if (method === 'GET' && pathname === '/events') return sendJson(res, 200, { events: drainEvents(parsedUrl.searchParams.get('since')), nextCursor: runtime.nextEventId });
   if (method === 'GET' && pathname === '/bridge/list') return sendJson(res, 200, { targets: await listBridgeTargets() });
+  if (method === 'GET' && pathname === '/executor/discover') {
+    return sendJson(res, 200, {
+      candidates: await discoverExecutorCandidates({
+        minScore: parsedUrl.searchParams.get('min_score'),
+        sinkField: parsedUrl.searchParams.get('sink_field'),
+      }),
+    });
+  }
   if (method === 'GET' && pathname === '/environment/status') return sendJson(res, 200, await environmentStatus());
   if (method !== 'POST') return sendJson(res, 404, { error: 'Not found' });
 
@@ -961,6 +1038,7 @@ async function routeRequest(req, res) {
   if (pathname === '/set-cookies') return sendJson(res, 200, await setCookies(body));
   if (pathname === '/bridge/register') return sendJson(res, 200, await registerBridgeTarget(body));
   if (pathname === '/bridge/call') return sendJson(res, 200, { result: await callBridgeTarget(body) });
+  if (pathname === '/executor/invoke') return sendJson(res, 200, { result: await invokeExecutor(body) });
   if (pathname === '/interaction/run-pointer-path') return sendJson(res, 200, await runPointerPath(body));
   if (pathname === '/interaction/replay-pointer-trace') return sendJson(res, 200, await replayPointerTrace(body));
   if (pathname === '/sign') return sendJson(res, 200, await signRequest(body));

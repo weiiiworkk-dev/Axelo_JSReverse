@@ -1,10 +1,14 @@
 from .analysis import (
     AIHypothesis,
     AnalysisResult,
+    BridgeTargetCandidate,
     DynamicAnalysis,
     FunctionSignature,
     HookIntercept,
     StaticAnalysis,
+    TaintEvent,
+    TaintSink,
+    TaintTopology,
     TokenCandidate,
 )
 from .bundle import DeobfuscationResult, JSBundle
@@ -38,6 +42,7 @@ __all__ = [
     "BrowserAction",
     "BrowserActionType",
     "BrowserProfile",
+    "BridgeTargetCandidate",
     "CompliancePolicy",
     "ExecutionPlan",
     "ExecutionTier",
@@ -68,6 +73,9 @@ __all__ = [
     "StageStatus",
     "StaticAnalysis",
     "TargetSite",
+    "TaintEvent",
+    "TaintSink",
+    "TaintTopology",
     "TokenCandidate",
     "TraceArtifact",
     "VerificationMode",

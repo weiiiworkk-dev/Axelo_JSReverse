@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from axelo.browser.bridge_client import BridgeDriver
+
 
 class __AXELO_CRAWLER_CLASS__:
     BRIDGE_PORT = __AXELO_BRIDGE_PORT__
@@ -29,6 +31,8 @@ class __AXELO_CRAWLER_CLASS__:
     DEFAULT_STORAGE_STATE_PATH = __AXELO_STORAGE_STATE_PATH__
     DEFAULT_ENVIRONMENT = __AXELO_DEFAULT_ENVIRONMENT__
     DEFAULT_INTERACTION = __AXELO_DEFAULT_INTERACTION__
+    BRIDGE_TARGETS = __AXELO_BRIDGE_TARGETS__
+    PREFERRED_BRIDGE_TARGET = __AXELO_PREFERRED_BRIDGE_TARGET__
 
     DEFAULT_HEADERS = __AXELO_DEFAULT_HEADERS__
     OBSERVED_TARGETS = __AXELO_OBSERVED_TARGETS__
@@ -49,10 +53,11 @@ class __AXELO_CRAWLER_CLASS__:
         self._last_request_url: str = ""
         self._bridge_event_cursor = 0
         self._bridge_headless = bridge_headless
-        self._bridge_signers = bridge_signers or []
+        self._bridge_signers = bridge_signers or list(self.BRIDGE_TARGETS or [])
         self._bridge_environment = dict(bridge_environment or self.DEFAULT_ENVIRONMENT or {})
         self._bridge_interaction = dict(bridge_interaction or self.DEFAULT_INTERACTION or {})
         self._bridge_base_url = f"http://127.0.0.1:{self.BRIDGE_PORT}"
+        self._bridge_driver = BridgeDriver(self._bridge_base_url)
         self._file_dir = Path(__file__).resolve().parent
         self._session_dir = self._file_dir.parent
         self._repo_root = self._find_repo_root()
@@ -119,20 +124,7 @@ class __AXELO_CRAWLER_CLASS__:
         payload: dict[str, Any] | None = None,
         timeout: float = 15.0,
     ) -> dict[str, Any]:
-        url = f"{self._bridge_base_url}{path}"
-        with httpx.Client(timeout=timeout) as client:
-            response = client.request(method, url, json=payload)
-
-        if response.status_code >= 400:
-            detail = ""
-            try:
-                data = response.json()
-                detail = data.get("error") or json.dumps(data, ensure_ascii=False)
-            except Exception:
-                detail = response.text
-            raise RuntimeError(f"Bridge {method} {path} failed: HTTP {response.status_code} {detail}")
-
-        return response.json()
+        return self._bridge_driver.request(method, path, payload, timeout=timeout)
 
     def _bridge_health(self) -> dict[str, Any]:
         return self._bridge_request("GET", "/health", timeout=5.0)
@@ -150,7 +142,10 @@ class __AXELO_CRAWLER_CLASS__:
             "headless": self._bridge_headless,
             "locale": self.BRIDGE_LOCALE,
             "timezoneId": self.BRIDGE_TIMEZONE,
-            "defaultSigner": self._bridge_signers[0]["name"] if self._bridge_signers else "",
+            "defaultSigner": (
+                self.PREFERRED_BRIDGE_TARGET
+                or (self._bridge_signers[0]["name"] if self._bridge_signers else "")
+            ),
             "environmentSimulation": self._bridge_environment,
             "interactionSimulation": self._bridge_interaction,
         }
@@ -175,6 +170,45 @@ class __AXELO_CRAWLER_CLASS__:
     def list_bridge_targets(self) -> list[str]:
         data = self._bridge_request("GET", "/bridge/list", timeout=5.0)
         return data.get("targets", [])
+
+    def discover_functions(
+        self,
+        *,
+        min_score: float = 0.0,
+        sink_field: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._bridge_driver.discover_functions(min_score=min_score, sink_field=sink_field)
+
+    def register_function(
+        self,
+        name: str,
+        *,
+        global_path: str | None = None,
+        owner_path: str | None = None,
+        resolver_source: str | None = None,
+        resolver_arg: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._bridge_driver.register_function(
+            name,
+            global_path=global_path,
+            owner_path=owner_path,
+            resolver_source=resolver_source,
+            resolver_arg=resolver_arg,
+        )
+
+    def invoke_function(
+        self,
+        target_fn_name: str,
+        args: list[Any] | None = None,
+        *,
+        auto_register: bool = True,
+    ) -> Any:
+        self._assert_bridge_ready()
+        return self._bridge_driver.invoke_function(
+            target_fn_name,
+            args=args,
+            auto_register=auto_register,
+        )
 
     def _assert_bridge_ready(self, health: dict[str, Any] | None = None) -> dict[str, Any]:
         health = health or self._bridge_health()
@@ -219,8 +253,9 @@ class __AXELO_CRAWLER_CLASS__:
             "body": body,
             "cookies": self._cookies,
         }
-        if self._bridge_signers:
-            payload["signer"] = self._bridge_signers[0]["name"]
+        preferred_signer = self.PREFERRED_BRIDGE_TARGET or (self._bridge_signers[0]["name"] if self._bridge_signers else "")
+        if preferred_signer:
+            payload["signer"] = preferred_signer
         data = self._bridge_request("POST", "/sign", payload, timeout=20.0)
         return data.get("headers", {})
 

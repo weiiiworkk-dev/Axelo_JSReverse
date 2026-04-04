@@ -102,6 +102,14 @@ class ContextBuilder:
 
     def _format_dynamic(self, dynamic: DynamicAnalysis) -> str:
         lines = ["## 动态分析：Hook 拦截轨迹"]
+        if dynamic.topology_summary:
+            lines.append("**已确认的数据流拓扑:**")
+            for item in dynamic.topology_summary[:5]:
+                lines.append(f"  - {item}")
+        if dynamic.bridge_candidates:
+            names = [item.name for item in dynamic.bridge_candidates if item.callable][:5]
+            if names:
+                lines.append(f"**可复用浏览器入口:** {', '.join(names)}")
         if dynamic.crypto_primitives:
             lines.append(f"**实际使用的加密原语**: {', '.join(dynamic.crypto_primitives)}")
         if dynamic.confirmed_generators:
@@ -110,6 +118,9 @@ class ContextBuilder:
             lines.append("**API → 请求字段映射:**")
             for api, field in dynamic.field_mapping.items():
                 lines.append(f"  - `{api}` → `{field}`")
+
+        if dynamic.taint_events:
+            lines.append(f"**污点事件数**: {len(dynamic.taint_events)}")
 
         # 展示关键 Hook 记录（最多10条）
         if dynamic.hook_intercepts:

@@ -46,16 +46,23 @@ class HypothesisAgent(BaseAgent):
 
         if scan_report:
             context = (
-                f"## Scanner 预扫描报告\n"
+                "## Scanner 预扫描报告\n"
                 f"难度预估: {scan_report.estimated_difficulty}\n"
                 f"关键函数: {scan_report.interesting_functions}\n\n"
                 f"{context}"
             )
+        if dynamic and dynamic.topology_summary:
+            topology_block = "\n".join(f"- {item}" for item in dynamic.topology_summary[:5])
+            context = f"## 已确认的数据流拓扑\n{topology_block}\n\n{context}"
 
         client = self._build_client()
         response = await client.analyze(
             system_prompt=HYPOTHESIS_SYSTEM.format(memory_context=memory_text),
-            user_message=f"目标: {target.interaction_goal}\n\n{context}",
+            user_message=(
+                f"目标: {target.interaction_goal}\n\n"
+                "请基于已确认的数据流拓扑解释并补全语义，不要改写已确认的步骤顺序或输出字段。\n\n"
+                f"{context}"
+            ),
             output_schema=AIHypothesisOutput,
             tool_name="hypothesis",
             max_tokens=3072,

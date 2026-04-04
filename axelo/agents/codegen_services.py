@@ -90,8 +90,14 @@ class TemplateCodegenService:
     def is_ready(self, hypothesis: AIHypothesis, template_item) -> bool:
         return _template_is_ready(hypothesis, template_item)
 
-    def render(self, template_item, target: TargetSite, hypothesis: AIHypothesis) -> CodeGenOutput:
-        return _render_template_codegen(template_item, target, hypothesis)
+    def render(
+        self,
+        template_item,
+        target: TargetSite,
+        hypothesis: AIHypothesis,
+        dynamic: DynamicAnalysis | None = None,
+    ) -> CodeGenOutput:
+        return _render_template_codegen(template_item, target, hypothesis, dynamic=dynamic)
 
 
 class AICodegenService:
@@ -150,7 +156,12 @@ class AICodegenService:
             return output
 
         return CodeGenOutput(
-            crawler_code=_render_base_crawler_template(target, bridge_port=8721),
+            crawler_code=_render_base_crawler_template(
+                target,
+                hypothesis=hypothesis,
+                dynamic=dynamic,
+                bridge_port=8721,
+            ),
             dependencies=["httpx>=0.27.0"],
             bridge_server_code="",
             notes=_render_js_bridge_notes(target, hypothesis, bridge_port=8721),
@@ -167,6 +178,7 @@ class ArtifactWriter:
         output: CodeGenOutput,
         hypothesis: AIHypothesis,
         target: TargetSite,
+        dynamic: DynamicAnalysis | None,
         output_dir: Path,
     ) -> dict[str, Path]:
         artifacts: dict[str, Path] = {}
@@ -179,7 +191,15 @@ class ArtifactWriter:
             artifacts["crawler_script"] = path
         if hypothesis.codegen_strategy == "js_bridge":
             path = output_dir / "bridge_server.js"
-            path.write_text(_render_base_bridge_template(target, bridge_port=8721), encoding="utf-8")
+            path.write_text(
+                _render_base_bridge_template(
+                    target,
+                    hypothesis=hypothesis,
+                    dynamic=dynamic,
+                    bridge_port=8721,
+                ),
+                encoding="utf-8",
+            )
             artifacts["bridge_server"] = path
         elif output.bridge_server_code:
             path = output_dir / "bridge_server.js"
@@ -240,7 +260,18 @@ def _collect_snippets(hypothesis: AIHypothesis, static_results: dict[str, Static
 
 
 def _collect_hook_data(dynamic: DynamicAnalysis | None) -> str:
-    if not dynamic or not dynamic.hook_intercepts:
+    if not dynamic:
+        return "(no dynamic hook data)"
+    if dynamic.topology_summary:
+        return json.dumps(
+            {
+                "topology_summary": dynamic.topology_summary,
+                "bridge_candidates": [item.model_dump(mode="json") for item in dynamic.bridge_candidates[:5]],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    if not dynamic.hook_intercepts:
         return "(no dynamic hook data)"
     return json.dumps(
         [item.model_dump(mode="json") for item in dynamic.hook_intercepts[:5]],
@@ -319,7 +350,13 @@ def _repair_generated_code_for_target(code: str, target: TargetSite) -> str:
     return code
 
 
-def _render_base_bridge_template(target: TargetSite, bridge_port: int) -> str:
+def _render_base_bridge_template(
+    target: TargetSite,
+    *,
+    hypothesis: AIHypothesis | None = None,
+    dynamic: DynamicAnalysis | None = None,
+    bridge_port: int,
+) -> str:
     raw = BASE_BRIDGE_TEMPLATE.read_text(encoding="utf-8")
     storage_state_path = (
         str(Path(target.session_state.storage_state_path).resolve())
@@ -327,11 +364,19 @@ def _render_base_bridge_template(target: TargetSite, bridge_port: int) -> str:
         else ""
     )
     simulation_payload = build_simulation_payload(target.browser_profile)
+    executor_candidates = _executor_candidates(dynamic)
+    preferred_target = (
+        hypothesis.signature_spec.preferred_bridge_target
+        if hypothesis and hypothesis.signature_spec and hypothesis.signature_spec.preferred_bridge_target
+        else ""
+    )
     replacements = {
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
         "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
         "__AXELO_DEFAULT_APP_KEY__": json.dumps(_default_app_key(target), ensure_ascii=False),
+        "__AXELO_EXECUTOR_CANDIDATES__": json.dumps(executor_candidates, ensure_ascii=False, indent=2),
+        "__AXELO_PREFERRED_BRIDGE_TARGET__": json.dumps(preferred_target, ensure_ascii=False),
         "__AXELO_DEFAULT_ENVIRONMENT_SIMULATION__": json.dumps(
             simulation_payload["environmentSimulation"],
             ensure_ascii=False,
@@ -352,7 +397,13 @@ def _render_base_bridge_template(target: TargetSite, bridge_port: int) -> str:
     return raw
 
 
-def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
+def _render_base_crawler_template(
+    target: TargetSite,
+    *,
+    hypothesis: AIHypothesis | None = None,
+    dynamic: DynamicAnalysis | None = None,
+    bridge_port: int,
+) -> str:
     raw = BASE_CRAWLER_TEMPLATE.read_text(encoding="utf-8")
     storage_state_path = (
         str(Path(target.session_state.storage_state_path).resolve())
@@ -360,6 +411,12 @@ def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
         else ""
     )
     simulation_payload = build_simulation_payload(target.browser_profile)
+    executor_candidates = _executor_candidates(dynamic)
+    preferred_target = (
+        hypothesis.signature_spec.preferred_bridge_target
+        if hypothesis and hypothesis.signature_spec and hypothesis.signature_spec.preferred_bridge_target
+        else ""
+    )
     replacements = {
         "__AXELO_CRAWLER_CLASS__": _crawler_class_name(target.url),
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
@@ -370,6 +427,8 @@ def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
         "__AXELO_BRIDGE_LOCALE__": json.dumps(target.browser_profile.locale or "en-US", ensure_ascii=False),
         "__AXELO_BRIDGE_TIMEZONE__": json.dumps(target.browser_profile.timezone or "UTC", ensure_ascii=False),
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
+        "__AXELO_BRIDGE_TARGETS__": json.dumps(executor_candidates, ensure_ascii=False, indent=4),
+        "__AXELO_PREFERRED_BRIDGE_TARGET__": json.dumps(preferred_target, ensure_ascii=False),
         "__AXELO_DEFAULT_HEADERS__": json.dumps(_safe_default_headers(target), ensure_ascii=False, indent=4),
         "__AXELO_OBSERVED_TARGETS__": json.dumps(_observed_targets_payload(target), ensure_ascii=False, indent=4),
         "__AXELO_DEFAULT_ENVIRONMENT__": json.dumps(
@@ -408,6 +467,27 @@ def _crawler_class_name(url: str) -> str:
             continue
         parts.append("".join(piece.capitalize() for piece in cleaned.split()))
     return "".join(parts or ["Generated", "Bridge"]) + "Crawler"
+
+
+def _executor_candidates(dynamic: DynamicAnalysis | None) -> list[dict[str, object]]:
+    if not dynamic:
+        return []
+    candidates = []
+    for item in dynamic.bridge_candidates:
+        candidates.append(
+            {
+                "name": item.name,
+                "globalPath": item.global_path or None,
+                "ownerPath": item.owner_path or None,
+                "resolverSource": item.resolver_source or None,
+                "resolverArg": {"name": item.name},
+                "score": item.score,
+                "callable": item.callable,
+                "sinkField": item.sink_field,
+                "evidenceFrames": item.evidence_frames,
+            }
+        )
+    return candidates
 
 
 def _safe_default_headers(target: TargetSite) -> dict[str, str]:
@@ -551,10 +631,20 @@ def _template_is_ready(hypothesis: AIHypothesis, template_item) -> bool:
     return bool(hypothesis.secret_candidate)
 
 
-def _render_template_codegen(template_item, target: TargetSite, hypothesis: AIHypothesis) -> CodeGenOutput:
+def _render_template_codegen(
+    template_item,
+    target: TargetSite,
+    hypothesis: AIHypothesis,
+    dynamic: DynamicAnalysis | None = None,
+) -> CodeGenOutput:
     if getattr(template_item, "algorithm_type", "") == "fingerprint":
         return CodeGenOutput(
-            crawler_code=_render_base_crawler_template(target, bridge_port=8721),
+            crawler_code=_render_base_crawler_template(
+                target,
+                hypothesis=hypothesis,
+                dynamic=dynamic,
+                bridge_port=8721,
+            ),
             dependencies=["httpx>=0.27.0"],
             bridge_server_code="",
             notes=(

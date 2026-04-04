@@ -13,6 +13,11 @@ def build_signature_spec(
 ) -> SignatureSpec:
     token_types: list[str] = []
     browser_dependencies: set[str] = set()
+    output_fields = dict(hypothesis.outputs)
+    canonical_steps = list(hypothesis.steps)
+    topology_summary: list[str] = []
+    bridge_targets: list[str] = []
+    preferred_bridge_target: str | None = None
 
     for static in static_results.values():
         for candidate in static.token_candidates:
@@ -25,6 +30,29 @@ def build_signature_spec(
 
     if dynamic:
         browser_dependencies.update(dynamic.crypto_primitives)
+        topology_summary = list(dynamic.topology_summary)
+        if dynamic.topologies:
+            canonical_steps = list(dynamic.topologies[0].ordered_steps)
+            output_fields = {
+                item.sink_field: f"{item.sink_kind} sink derived from taint topology"
+                for item in dynamic.topologies
+                if item.sink_field
+            } or output_fields
+            for topology in dynamic.topologies:
+                for step in topology.ordered_steps:
+                    if "[" not in step:
+                        browser_dependencies.add(step)
+        bridge_targets = [
+            item.name
+            for item in dynamic.bridge_candidates
+            if item.callable and item.name
+        ]
+        if dynamic.bridge_candidates:
+            best_candidate = next(
+                (item for item in dynamic.bridge_candidates if item.callable),
+                dynamic.bridge_candidates[0],
+            )
+            preferred_bridge_target = best_candidate.name or None
 
     algorithm_id = token_types[0] if token_types else "unknown"
     replay_requirements = []
@@ -36,20 +64,23 @@ def build_signature_spec(
         replay_requirements.append(f"Anti-bot context: {target.antibot_type}")
 
     codegen_strategy = hypothesis.codegen_strategy
-    if browser_dependencies and codegen_strategy == "python_reconstruct":
+    if (browser_dependencies or preferred_bridge_target) and codegen_strategy == "python_reconstruct":
         codegen_strategy = "js_bridge"
 
     return SignatureSpec(
         algorithm_id=algorithm_id,
-        canonical_steps=hypothesis.steps,
+        canonical_steps=canonical_steps,
         input_fields=sorted(set(hypothesis.inputs)),
-        output_fields=hypothesis.outputs,
+        output_fields=output_fields,
         browser_dependencies=sorted(browser_dependencies),
         replay_requirements=replay_requirements,
         normalization_rules=[
             "Preserve header casing emitted by the generated crawler",
             "Treat timestamp and nonce fields as temporal values unless static evidence proves otherwise",
         ],
+        bridge_targets=list(dict.fromkeys(bridge_targets)),
+        preferred_bridge_target=preferred_bridge_target,
+        topology_summary=topology_summary,
         codegen_strategy=codegen_strategy,
         confidence=hypothesis.confidence,
     )
