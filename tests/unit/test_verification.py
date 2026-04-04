@@ -39,6 +39,12 @@ class TestTokenComparator:
         result = self.cmp.compare({"x-token": "some-token"}, cap)
         assert "x-token" in result.missing
 
+    def test_cookie_header_is_ignored_for_comparison(self):
+        cap = _make_capture({"accept": "application/json"})
+        result = self.cmp.compare({"Cookie": "a=b", "accept": "application/json"}, cap)
+        assert "Cookie" not in result.missing
+        assert result.ok is True
+
 
 def test_data_quality_list_payload():
     result = evaluate_data_quality([{"id": 1, "name": "x"}])

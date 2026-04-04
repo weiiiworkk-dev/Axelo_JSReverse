@@ -47,7 +47,12 @@ class MemoryDB:
     def get_site_pattern(self, domain: str) -> SitePattern | None:
         with Session(self._engine) as s:
             return s.exec(
-                select(SitePattern).where(SitePattern.domain == domain).order_by(SitePattern.success_count.desc())
+                select(SitePattern)
+                .where(
+                    SitePattern.domain == domain,
+                    (SitePattern.verified == True) | (SitePattern.success_count > 0),
+                )
+                .order_by(SitePattern.success_count.desc())
             ).first()
 
     def save_site_pattern(self, pattern: SitePattern) -> SitePattern:

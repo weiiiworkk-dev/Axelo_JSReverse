@@ -139,16 +139,6 @@ class AnalysisFlow:
                 scan_report=ctx.scan_report,
             )
 
-        if not self._routing_service.choose_route(ctx).requires_ai:
-            return AnalysisArtifacts(
-                difficulty=ctx.difficulty,
-                dynamic=ctx.dynamic,
-                family_match=ctx.family_match,
-                analysis=ctx.analysis,
-                hypothesis=ctx.hypothesis,
-                scan_report=ctx.scan_report,
-            )
-
         if not ctx.governor.allow_ai(ctx.cost, ctx.target.execution_plan):
             if ctx.target.execution_plan and ctx.target.execution_plan.skip_codegen:
                 ctx.cost.set_route("static_only")
@@ -201,6 +191,56 @@ class AnalysisFlow:
                 family_match=ctx.family_match,
                 analysis=ctx.analysis,
                 hypothesis=ctx.hypothesis,
+            )
+
+        if self._routing_service.should_use_family_codegen(ctx):
+            ctx.cost.set_route("family_codegen")
+            ctx.hypothesis = build_hypothesis_from_family(ctx.family_match, ctx.target)
+            ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
+            ctx.analysis = AnalysisResult(
+                session_id=ctx.sid,
+                static=ctx.static_results,
+                dynamic=ctx.dynamic,
+                ai_hypothesis=ctx.hypothesis,
+                signature_spec=ctx.hypothesis.signature_spec,
+                overall_confidence=ctx.hypothesis.confidence,
+                ready_for_codegen=True,
+                manual_review_required=False,
+                signature_family=ctx.family_match.family_id,
+                analysis_notes="High-confidence family detection satisfied bridge codegen prerequisites.",
+            )
+            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="family_codegen")
+            ctx.target.trace = ctx.workflow.checkpoint(
+                ctx.sid,
+                ctx.target.trace,
+                "s6_ai_analyze",
+                "skipped",
+                summary=f"Family-backed bridge generation: {ctx.family_match.family_id}",
+            )
+            self._analysis_cache.save(
+                ctx.target,
+                bundle_hashes=ctx.bundle_hashes,
+                static_results=ctx.static_results,
+                signature_family=ctx.family_match.family_id,
+                template_name=ctx.family_match.template_name,
+                signature_spec=ctx.hypothesis.signature_spec,
+            )
+            return AnalysisArtifacts(
+                difficulty=ctx.difficulty,
+                dynamic=ctx.dynamic,
+                family_match=ctx.family_match,
+                analysis=ctx.analysis,
+                hypothesis=ctx.hypothesis,
+            )
+
+        if not self._routing_service.choose_route(ctx).requires_ai:
+            return AnalysisArtifacts(
+                difficulty=ctx.difficulty,
+                dynamic=ctx.dynamic,
+                family_match=ctx.family_match,
+                analysis=ctx.analysis,
+                hypothesis=ctx.hypothesis,
+                scan_report=ctx.scan_report,
             )
 
         ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)

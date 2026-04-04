@@ -54,7 +54,8 @@ def build_signature_spec(
             )
             preferred_bridge_target = best_candidate.name or None
 
-    algorithm_id = token_types[0] if token_types else "unknown"
+    inferred_algorithm_id = _infer_algorithm_id(target, hypothesis)
+    algorithm_id = inferred_algorithm_id if inferred_algorithm_id != "unknown" else (token_types[0] if token_types else "unknown")
     replay_requirements = []
     if target.known_endpoint:
         replay_requirements.append(f"Known endpoint: {target.known_endpoint}")
@@ -84,3 +85,19 @@ def build_signature_spec(
         codegen_strategy=codegen_strategy,
         confidence=hypothesis.confidence,
     )
+
+
+def _infer_algorithm_id(target: TargetSite, hypothesis: AIHypothesis) -> str:
+    template_name = (hypothesis.template_name or "").lower()
+    notes = (hypothesis.notes or "").lower()
+    description = (hypothesis.algorithm_description or "").lower()
+    text = " ".join([template_name, notes, description])
+    if "mtop" in text or any("/h5/mtop." in (request.url or "").lower() for request in (target.target_requests or target.captured_requests)):
+        return "mtop"
+    if "hmac" in text:
+        return "hmac"
+    if "md5" in text:
+        return "md5"
+    if "fingerprint" in text or "canvas" in text:
+        return "fingerprint"
+    return "unknown"

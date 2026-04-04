@@ -16,6 +16,14 @@ class TokenComparator:
         "x-timestamp", "x-ts", "x-nonce", "x-request-id",
         "x-trace-id", "timestamp", "nonce",
     }
+    IGNORED_GENERATED_FIELDS = {
+        "cookie",
+        "content-length",
+        "host",
+        "connection",
+        "accept-encoding",
+        "transfer-encoding",
+    }
 
     # Base64 格式检测
     B64_PATTERN = re.compile(r'^[A-Za-z0-9+/]{16,}={0,2}$')
@@ -31,9 +39,13 @@ class TokenComparator:
         results: list[FieldResult] = []
         missing_fields: list[str] = []
         matched_fields: list[str] = []
+        compared_fields = 0
 
         for field, gen_value in generated.items():
             field_lower = field.lower()
+            if field_lower in self.IGNORED_GENERATED_FIELDS:
+                continue
+            compared_fields += 1
             gt_value = gt_headers.get(field_lower)
 
             if gt_value is None:
@@ -56,13 +68,13 @@ class TokenComparator:
                 if ok:
                     matched_fields.append(field)
 
-        overall_ok = len(missing_fields) == 0 and len(matched_fields) == len(generated)
+        overall_ok = len(missing_fields) == 0 and len(matched_fields) == compared_fields
         return CompareResult(
             ok=overall_ok,
             field_results=results,
             matched=matched_fields,
             missing=missing_fields,
-            score=len(matched_fields) / max(len(generated), 1),
+            score=len(matched_fields) / max(compared_fields, 1),
         )
 
     def _check_format(self, gen: str, gt: str) -> tuple[bool, str]:

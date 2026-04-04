@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
 
 import structlog
 
 from axelo.memory.db import MemoryDB
 from axelo.memory.schema import ReverseSession, SitePattern, SolutionTemplate
 from axelo.memory.vector_store import VectorStore
+from axelo.utils.domain import extract_site_domain
 
 log = structlog.get_logger()
 
@@ -160,9 +160,5 @@ class MemoryRetriever:
 
 
 def _extract_domain(url: str) -> str:
-    try:
-        host = urlparse(url).hostname or ""
-        parts = host.split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else host
-    except Exception:
-        return url[:50]
+    domain = extract_site_domain(url)
+    return domain or url[:50]

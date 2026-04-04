@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from pprint import pformat
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -427,20 +428,12 @@ def _render_base_crawler_template(
         "__AXELO_BRIDGE_LOCALE__": json.dumps(target.browser_profile.locale or "en-US", ensure_ascii=False),
         "__AXELO_BRIDGE_TIMEZONE__": json.dumps(target.browser_profile.timezone or "UTC", ensure_ascii=False),
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
-        "__AXELO_BRIDGE_TARGETS__": json.dumps(executor_candidates, ensure_ascii=False, indent=4),
+        "__AXELO_BRIDGE_TARGETS__": _python_literal(executor_candidates),
         "__AXELO_PREFERRED_BRIDGE_TARGET__": json.dumps(preferred_target, ensure_ascii=False),
-        "__AXELO_DEFAULT_HEADERS__": json.dumps(_safe_default_headers(target), ensure_ascii=False, indent=4),
-        "__AXELO_OBSERVED_TARGETS__": json.dumps(_observed_targets_payload(target), ensure_ascii=False, indent=4),
-        "__AXELO_DEFAULT_ENVIRONMENT__": json.dumps(
-            simulation_payload["environmentSimulation"],
-            ensure_ascii=False,
-            indent=4,
-        ),
-        "__AXELO_DEFAULT_INTERACTION__": json.dumps(
-            simulation_payload["interactionSimulation"],
-            ensure_ascii=False,
-            indent=4,
-        ),
+        "__AXELO_DEFAULT_HEADERS__": _python_literal(_safe_default_headers(target)),
+        "__AXELO_OBSERVED_TARGETS__": _python_literal(_observed_targets_payload(target)),
+        "__AXELO_DEFAULT_ENVIRONMENT__": _python_literal(simulation_payload["environmentSimulation"]),
+        "__AXELO_DEFAULT_INTERACTION__": _python_literal(simulation_payload["interactionSimulation"]),
     }
     for placeholder, value in replacements.items():
         raw = raw.replace(placeholder, value)
@@ -456,6 +449,10 @@ def _default_app_key(target: TargetSite) -> str:
             if values and values[0]:
                 return values[0]
     return ""
+
+
+def _python_literal(value: object) -> str:
+    return pformat(value, width=100, sort_dicts=False)
 
 
 def _crawler_class_name(url: str) -> str:
@@ -509,8 +506,9 @@ def _safe_default_headers(target: TargetSite) -> dict[str, str]:
         "Accept": headers.get("Accept") or "application/json, text/plain, */*",
         "Accept-Language": headers.get("Accept-Language") or locale,
         "Referer": headers.get("Referer") or (f"{target.url}" if target.url else ""),
-        "Origin": headers.get("Origin") or page_origin,
     }
+    if headers.get("Origin"):
+        normalized["Origin"] = headers["Origin"]
     if headers.get("Content-Type"):
         normalized["Content-Type"] = headers["Content-Type"]
     if headers.get("X-Requested-With"):

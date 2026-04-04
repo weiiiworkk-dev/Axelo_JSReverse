@@ -156,4 +156,4 @@ def match_profile(url: str) -> SiteProfile | None:
             if pat and pat in host:
                 return profile
     # 返回通用兜底
-    return next((p for p in KNOWN_PROFILES if p.category == "generic-spa"), None)
+    return None

@@ -45,9 +45,10 @@ class VerifierAgent(BaseAgent):
             script_preview = ""
             if generated.crawler_script_path and generated.crawler_script_path.exists():
                 script_preview = generated.crawler_script_path.read_text(encoding="utf-8")[:1500]
+            replay_status = result.replay.status_code if result.replay is not None else 0
 
             context = (
-                f"验证摘要:\nstatus={result.status_code} retry_reason={result.retry_reason or 'n/a'} "
+                f"验证摘要:\nstatus={replay_status} retry_reason={result.retry_reason or 'n/a'} "
                 f"risk={result.risk_control_reason or 'n/a'}\n\n"
                 f"重试原因: {result.retry_reason}\n\n"
                 f"算法假设:\n{hypothesis.algorithm_description}\n\n"

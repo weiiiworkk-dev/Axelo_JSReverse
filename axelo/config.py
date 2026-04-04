@@ -1,17 +1,24 @@
 from pathlib import Path
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_WORKSPACE = _PROJECT_ROOT / "workspace"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AXELO_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="AXELO_", env_file=str(_PROJECT_ROOT / ".env"), extra="ignore")
 
     anthropic_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("ANTHROPIC_API_KEY", "AXELO_ANTHROPIC_API_KEY"),
     )
     model: str = "claude-opus-4-6"
-    workspace: Path = Path("./workspace")
+    workspace: Path = _DEFAULT_WORKSPACE
+    sessions_root: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("AXELO_SESSIONS_DIR", "AXELO_SESSIONS_ROOT"),
+    )
     node_bin: str = "node"
     browser: str = "chromium"
     headless: bool = True
@@ -28,8 +35,20 @@ class Settings(BaseSettings):
     control_api_port: int = 8787
     platform_poll_interval_sec: float = 1.0
 
+    @field_validator("workspace", "sessions_root", mode="before")
+    @classmethod
+    def _resolve_project_relative_paths(cls, value):
+        if value in (None, ""):
+            return None if value is None else value
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        return (_PROJECT_ROOT / path).resolve()
+
     @property
     def sessions_dir(self) -> Path:
+        if self.sessions_root is not None:
+            return Path(self.sessions_root)
         return self.workspace / "sessions"
 
     @property
@@ -51,6 +70,10 @@ class Settings(BaseSettings):
     @property
     def platform_warehouse_dir(self) -> Path:
         return self.platform_dir / "warehouse"
+
+    @property
+    def has_anthropic_api_key(self) -> bool:
+        return bool(self.anthropic_api_key and self.anthropic_api_key.strip())
 
     def session_dir(self, session_id: str) -> Path:
         return self.sessions_dir / session_id

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from pydantic import BaseModel, Field
 from playwright.async_api import Page
 
@@ -53,6 +55,13 @@ class ActionRunner:
                 result.failures.append(message)
                 if not action.optional:
                     raise
+        if _should_attempt_search(target):
+            try:
+                if await self._attempt_target_search(page, target, policy):
+                    result.executed += 2
+                    result.final_url = page.url
+            except Exception as exc:
+                result.failures.append(f"auto_search: {exc}")
         return result
 
     async def _execute(self, page: Page, action: BrowserAction, policy: RuntimePolicy) -> None:
@@ -78,3 +87,53 @@ class ActionRunner:
             await page.evaluate(action.script)
             return
         raise ValueError(f"Unsupported action type: {action.action_type}")
+
+    async def _attempt_target_search(
+        self,
+        page: Page,
+        target: TargetSite,
+        policy: RuntimePolicy,
+    ) -> bool:
+        query = target.target_hint.strip()
+        if not query:
+            return False
+
+        locators = [
+            page.get_by_role("searchbox"),
+            page.locator("input[name='q']"),
+            page.locator("input[type='search']"),
+            page.locator("input[placeholder*='Search' i]"),
+            page.locator("input[aria-label*='Search' i]"),
+        ]
+        last_error = "no visible search box"
+        for locator in locators:
+            field = locator.first
+            try:
+                await field.wait_for(state="visible", timeout=2_000)
+                await field.click(timeout=5_000)
+                await field.fill(query, timeout=5_000)
+                await field.press("Enter", timeout=5_000)
+                await page.wait_for_load_state(policy.goto_wait_until, timeout=20_000)
+                await page.wait_for_timeout(policy.post_navigation_wait_ms)
+                return True
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+        raise RuntimeError(last_error)
+
+
+def _should_attempt_search(target: TargetSite) -> bool:
+    if not target.target_hint or target.site_profile.action_flow or target.known_endpoint:
+        return False
+    if _is_generic_entry_url(target.url):
+        return True
+
+    goal = (target.interaction_goal or "").lower()
+    return any(keyword in goal for keyword in ("search", "搜索", "商品", "price", "product", "catalog"))
+
+
+def _is_generic_entry_url(url: str) -> bool:
+    parsed = urlsplit(url)
+    normalized_path = parsed.path.rstrip("/")
+    has_meaningful_query = bool(parsed.query and parsed.query.strip())
+    return normalized_path in {"", "/"} and not has_meaningful_query

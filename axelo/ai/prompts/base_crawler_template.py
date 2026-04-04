@@ -64,6 +64,7 @@ class __AXELO_CRAWLER_CLASS__:
 
         default_storage_state = self.DEFAULT_STORAGE_STATE_PATH or str(self._session_dir / "browser_storage_state.json")
         self._storage_state_path = Path(storage_state_path or default_storage_state)
+        self._bootstrap_cookies_from_storage_state()
 
         if bridge:
             self._start_bridge()
@@ -251,8 +252,9 @@ class __AXELO_CRAWLER_CLASS__:
             "url": url,
             "method": method,
             "body": body,
-            "cookies": self._cookies,
         }
+        if self._cookies:
+            payload["cookies"] = self._cookies
         preferred_signer = self.PREFERRED_BRIDGE_TARGET or (self._bridge_signers[0]["name"] if self._bridge_signers else "")
         if preferred_signer:
             payload["signer"] = preferred_signer
@@ -274,6 +276,31 @@ class __AXELO_CRAWLER_CLASS__:
                 self._bridge_set_cookies(self._cookies)
             except Exception:
                 pass
+
+    def _bootstrap_cookies_from_storage_state(self) -> None:
+        if self._cookies or not self._storage_state_path.exists():
+            return
+        try:
+            payload = json.loads(self._storage_state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+
+        target_host = urllib.parse.urlsplit(self.PAGE_ORIGIN or self.START_URL).hostname or ""
+        fallback: dict[str, str] = {}
+        scoped: dict[str, str] = {}
+        for cookie in payload.get("cookies", []):
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if not name or value is None:
+                continue
+            fallback[str(name)] = str(value)
+            domain = str(cookie.get("domain") or "").lstrip(".")
+            if domain and target_host.endswith(domain):
+                scoped[str(name)] = str(value)
+
+        self._cookies.update(scoped or fallback)
+        if self._cookies:
+            self._last_headers["Cookie"] = self._cookie_header()
 
     @staticmethod
     def _normalize_scalar(value: Any) -> str:
@@ -333,18 +360,74 @@ class __AXELO_CRAWLER_CLASS__:
         method: str,
         body_text: str,
         extra_headers: dict[str, str] | None = None,
-    ) -> dict[str, str]:
-        bridge_headers = self._bridge_sign(final_url, method, body_text if method != "GET" else "")
-        headers = {**self.DEFAULT_HEADERS}
-        if extra_headers:
-            headers.update({str(key): str(value) for key, value in extra_headers.items() if value is not None})
-        headers.update(bridge_headers)
-        if self._cookies:
+    ) -> tuple[str, dict[str, str]]:
+        bridge_fields = self._bridge_sign(final_url, method, body_text if method != "GET" else "")
+        final_url, bridge_headers = self._apply_bridge_fields(final_url, bridge_fields)
+        headers = self._merge_headers(self.DEFAULT_HEADERS, extra_headers or {})
+        headers = self._merge_headers(headers, bridge_headers)
+        if self._cookies and self._should_attach_cookie_header(final_url, method, headers):
             headers["Cookie"] = self._cookie_header()
 
         self._last_request_url = final_url
         self._last_headers = dict(headers)
-        return headers
+        return final_url, headers
+
+    def _should_attach_cookie_header(self, url: str, method: str, headers: dict[str, str]) -> bool:
+        if any(str(key).lower() == "cookie" for key in headers):
+            return True
+        parsed = urllib.parse.urlsplit(url)
+        request_host = (parsed.hostname or "").lower()
+        page_host = urllib.parse.urlsplit(self.PAGE_ORIGIN or self.START_URL).hostname or ""
+        site_suffix = page_host[4:] if page_host.startswith("www.") else page_host
+        if request_host and site_suffix:
+            if request_host == page_host or request_host == site_suffix or request_host.endswith(f".{site_suffix}"):
+                return True
+        path = (parsed.path or "").lower()
+        if "/h5/" in path:
+            return True
+        return method.upper() not in {"GET", "HEAD"}
+
+    @staticmethod
+    def _merge_headers(
+        base_headers: dict[str, str] | None,
+        extra_headers: dict[str, str] | None,
+    ) -> dict[str, str]:
+        merged: dict[str, str] = {}
+        canonical_names: dict[str, str] = {}
+        for source in (base_headers or {}, extra_headers or {}):
+            for key, value in source.items():
+                if value is None:
+                    continue
+                actual_key = str(key)
+                lowered = actual_key.lower()
+                previous_key = canonical_names.get(lowered)
+                if previous_key and previous_key in merged:
+                    del merged[previous_key]
+                merged[actual_key] = str(value)
+                canonical_names[lowered] = actual_key
+        return merged
+
+    def _apply_bridge_fields(self, url: str, bridge_fields: dict[str, str]) -> tuple[str, dict[str, str]]:
+        if not bridge_fields:
+            return url, {}
+
+        parsed = urllib.parse.urlsplit(url)
+        query_pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        query_map = {key: value for key, value in query_pairs}
+        header_fields: dict[str, str] = {}
+
+        for key, value in bridge_fields.items():
+            lowered = str(key).lower()
+            if lowered in {"sign", "t"}:
+                query_map[str(key)] = str(value)
+            else:
+                header_fields[str(key)] = str(value)
+
+        rebuilt_query = urllib.parse.urlencode(list(query_map.items()), doseq=True)
+        rebuilt_url = urllib.parse.urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, rebuilt_query, parsed.fragment)
+        )
+        return rebuilt_url, header_fields
 
     @staticmethod
     def _parse_response(response: httpx.Response) -> Any:
@@ -384,7 +467,7 @@ class __AXELO_CRAWLER_CLASS__:
         if inferred_content_type and "Content-Type" not in request_headers and "content-type" not in request_headers:
             request_headers["Content-Type"] = inferred_content_type
 
-        prepared_headers = self._prepare_headers(
+        final_url, prepared_headers = self._prepare_headers(
             final_url=final_url,
             method=method,
             body_text=body_text,

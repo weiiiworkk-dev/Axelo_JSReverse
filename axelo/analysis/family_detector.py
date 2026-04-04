@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Iterable
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -34,7 +35,9 @@ def detect_signature_family(
 ) -> SignatureFamilyMatch:
     memory_ctx = memory_ctx or {}
     known_pattern = memory_ctx.get("known_pattern") or {}
-    known_algo = (known_pattern.get("algorithm_type") or "").lower()
+    known_algo = ""
+    if known_pattern and (known_pattern.get("verified") or known_pattern.get("success_count", 0) > 0):
+        known_algo = (known_pattern.get("algorithm_type") or "").lower()
     available_templates = list(templates or [])
 
     token_types: list[str] = []
@@ -80,6 +83,19 @@ def detect_signature_family(
             family_id="canvas-fingerprint-bridge",
             algorithm_type="fingerprint",
             confidence=0.88,
+            source="heuristic",
+            generator_func_ids=generator_func_ids,
+            request_fields=request_fields,
+            env_access=env_access,
+            string_constants=string_constants,
+            templates=available_templates,
+        )
+
+    if _is_mtop_h5_family(target, request_fields, string_constants):
+        return _build_match(
+            family_id="mtop-h5-token",
+            algorithm_type="mtop",
+            confidence=0.94,
             source="heuristic",
             generator_func_ids=generator_func_ids,
             request_fields=request_fields,
@@ -177,7 +193,7 @@ def _build_match(
 ) -> SignatureFamilyMatch:
     template_name = _pick_template_name(family_id, algorithm_type, templates)
     secret_candidate = _pick_secret_candidate(string_constants, algorithm_type)
-    codegen_strategy = "js_bridge" if algorithm_type in {"fingerprint", "rsa", "aes"} else "python_reconstruct"
+    codegen_strategy = "js_bridge" if algorithm_type in {"fingerprint", "rsa", "aes", "mtop"} else "python_reconstruct"
     template_ready = bool(template_name) and (algorithm_type == "fingerprint" or bool(secret_candidate))
     return SignatureFamilyMatch(
         family_id=family_id,
@@ -199,6 +215,8 @@ def _build_match(
 def _family_id_for_algorithm(algorithm_type: str, env_access: set[str]) -> str:
     if algorithm_type == "fingerprint" or _is_fingerprint(env_access, [], set()):
         return "canvas-fingerprint-bridge"
+    if algorithm_type == "mtop":
+        return "mtop-h5-token"
     if algorithm_type == "hmac":
         return "hmac-sha256-timestamp"
     if algorithm_type == "md5":
@@ -239,13 +257,15 @@ def _pick_secret_candidate(string_constants: list[str], algorithm_type: str) -> 
             continue
         if item.startswith("http") or "/" in item or " " in item:
             continue
-        if re.fullmatch(r"[A-Za-z0-9_\\-+=/]{8,96}", item):
+        if re.fullmatch(r"[A-Za-z0-9_+=/\-]{8,96}", item):
             candidates.append(item)
     candidates.sort(key=len, reverse=True)
     return candidates[0] if candidates else ""
 
 
 def _outputs_from_request_fields(request_fields: dict[str, str], algorithm_type: str) -> dict[str, str]:
+    if algorithm_type == "mtop":
+        return {"sign": "mtop H5 token signature", "t": "mtop request timestamp"}
     if request_fields:
         return {
             key: f"{value} derived signing field" if value != "unknown" else "derived signing field"
@@ -261,6 +281,8 @@ def _outputs_from_request_fields(request_fields: dict[str, str], algorithm_type:
 
 
 def _default_inputs(algorithm_type: str) -> list[str]:
+    if algorithm_type == "mtop":
+        return ["url", "method", "body", "cookies", "appKey"]
     if algorithm_type == "hmac":
         return ["url", "method", "body", "timestamp", "nonce", "secret_key"]
     if algorithm_type == "md5":
@@ -271,6 +293,13 @@ def _default_inputs(algorithm_type: str) -> list[str]:
 
 
 def _default_steps(algorithm_type: str) -> list[str]:
+    if algorithm_type == "mtop":
+        return [
+            "Read the `_m_h5_tk` cookie from the active browser session.",
+            "Extract the token prefix and current `t` query parameter.",
+            "Build the canonical MD5 payload as `token&t&appKey&data`.",
+            "Replay the request through the browser-backed signer so cookies stay consistent.",
+        ]
     if algorithm_type == "hmac":
         return [
             "Read the current timestamp and optional nonce.",
@@ -301,12 +330,16 @@ def _notes_for_match(algorithm_type: str, env_access: set[str], secret_candidate
     notes = []
     if secret_candidate:
         notes.append(f"Extracted reusable secret candidate: {secret_candidate[:24]}")
+    if algorithm_type == "mtop":
+        notes.append("Observed MTop/H5 request shape; prefer cookie-backed bridge signing with `_m_h5_tk`.")
     if algorithm_type == "fingerprint" and env_access:
         notes.append(f"Observed browser dependencies: {', '.join(sorted(env_access)[:5])}")
     return "\n".join(notes)
 
 
 def _description_for_family(match: SignatureFamilyMatch) -> str:
+    if match.algorithm_type == "mtop":
+        return "Generate MTop H5 signing fields from browser cookies and query parameters, then replay requests through the browser bridge."
     if match.algorithm_type == "hmac":
         return "Generate request headers by applying HMAC-SHA256 to a canonical string built from the request inputs and temporal fields."
     if match.algorithm_type == "md5":
@@ -314,3 +347,26 @@ def _description_for_family(match: SignatureFamilyMatch) -> str:
     if match.algorithm_type == "fingerprint":
         return "Generate browser-derived fingerprint headers from canvas/WebGL signals and attach them to the request."
     return f"Generate signing fields using the detected {match.algorithm_type or 'custom'} request-signing family."
+
+
+def _is_mtop_h5_family(
+    target: TargetSite,
+    request_fields: dict[str, str],
+    string_constants: list[str],
+) -> bool:
+    joined_strings = " ".join(item.lower() for item in string_constants)
+    if "_m_h5_tk" in joined_strings or "mtop" in joined_strings:
+        return True
+
+    requests = target.target_requests or target.captured_requests
+    for request in requests[:8]:
+        parsed = urlsplit(request.url or "")
+        path = (parsed.path or "").lower()
+        if "/h5/mtop." not in path:
+            continue
+        query = {key.lower() for key in parse_qs(parsed.query).keys()}
+        if {"appkey", "t", "sign", "data"}.issubset(query):
+            return True
+
+    lowered_fields = {key.lower() for key in request_fields.keys()}
+    return {"sign", "t"}.issubset(lowered_fields)

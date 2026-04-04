@@ -33,6 +33,7 @@ from axelo.planner import Planner
 from axelo.policies import resolve_runtime_policy
 from axelo.storage import AdapterRegistry, AnalysisCache, SessionStore, WorkflowStore
 from axelo.telemetry import write_run_report
+from axelo.utils.domain import extract_site_domain
 
 log = structlog.get_logger()
 
@@ -239,7 +240,7 @@ class MasterOrchestrator:
 
         memory_ctx = self._retriever.query_for_url(url, goal)
         known_site_profile = match_profile(url)
-        target.site_profile.domain = urlparse(url).netloc
+        target.site_profile.domain = extract_site_domain(url) or urlparse(url).netloc
         if known_site_profile:
             target.site_profile.difficulty_hint = known_site_profile.difficulty
             target.site_profile.extraction_hints = list(known_site_profile.analysis_hints)

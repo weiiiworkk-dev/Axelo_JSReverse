@@ -1,12 +1,12 @@
 from __future__ import annotations
 import json
-from urllib.parse import urlparse
 from axelo.memory.db import MemoryDB
 from axelo.memory.vector_store import VectorStore
 from axelo.memory.schema import ReverseSession, SitePattern, JSBundleCache
 from axelo.models.analysis import AnalysisResult, AIHypothesis
 from axelo.models.target import TargetSite
 from axelo.cost.tracker import CostRecord
+from axelo.utils.domain import extract_site_domain
 import structlog
 
 log = structlog.get_logger()
@@ -84,7 +84,7 @@ class MemoryWriter:
         self._db.update_pattern_stats(domain, verified)
 
         # 如果是新站点，自动创建/更新站点模式记录
-        if hypothesis and not self._db.get_site_pattern(domain):
+        if verified and hypothesis and not self._db.get_site_pattern(domain):
             pattern = SitePattern(
                 domain=domain,
                 algorithm_type=_infer_algo_type(hypothesis),
@@ -117,12 +117,7 @@ class MemoryWriter:
 
 
 def _extract_domain(url: str) -> str:
-    try:
-        host = urlparse(url).hostname or ""
-        parts = host.split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else host
-    except Exception:
-        return ""
+    return extract_site_domain(url)
 
 
 def _estimate_difficulty(hypothesis: AIHypothesis | None, analysis: AnalysisResult) -> str:
