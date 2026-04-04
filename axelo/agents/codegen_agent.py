@@ -10,6 +10,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from axelo.agents.base import BaseAgent
 from axelo.ai.hypothesis import CodeGenOutput
+from axelo.browser.simulation import SIMULATION_INIT_SCRIPT_TEMPLATE, build_simulation_payload
 from axelo.memory.retriever import MemoryRetriever
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
 from axelo.models.target import TargetSite
@@ -285,11 +286,26 @@ def _render_base_bridge_template(target: TargetSite, bridge_port: int) -> str:
         if target.session_state.storage_state_path
         else ""
     )
+    simulation_payload = build_simulation_payload(target.browser_profile)
     replacements = {
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
         "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
         "__AXELO_DEFAULT_APP_KEY__": json.dumps(_default_app_key(target), ensure_ascii=False),
+        "__AXELO_DEFAULT_ENVIRONMENT_SIMULATION__": json.dumps(
+            simulation_payload["environmentSimulation"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "__AXELO_DEFAULT_INTERACTION_SIMULATION__": json.dumps(
+            simulation_payload["interactionSimulation"],
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "__AXELO_SIMULATION_INIT_SCRIPT_TEMPLATE__": json.dumps(
+            SIMULATION_INIT_SCRIPT_TEMPLATE,
+            ensure_ascii=False,
+        ),
     }
     for placeholder, value in replacements.items():
         raw = raw.replace(placeholder, value)
@@ -303,6 +319,7 @@ def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
         if target.session_state.storage_state_path
         else ""
     )
+    simulation_payload = build_simulation_payload(target.browser_profile)
     replacements = {
         "__AXELO_CRAWLER_CLASS__": _crawler_class_name(target.url),
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
@@ -315,6 +332,16 @@ def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
         "__AXELO_DEFAULT_HEADERS__": json.dumps(_safe_default_headers(target), ensure_ascii=False, indent=4),
         "__AXELO_OBSERVED_TARGETS__": json.dumps(_observed_targets_payload(target), ensure_ascii=False, indent=4),
+        "__AXELO_DEFAULT_ENVIRONMENT__": json.dumps(
+            simulation_payload["environmentSimulation"],
+            ensure_ascii=False,
+            indent=4,
+        ),
+        "__AXELO_DEFAULT_INTERACTION__": json.dumps(
+            simulation_payload["interactionSimulation"],
+            ensure_ascii=False,
+            indent=4,
+        ),
     }
     for placeholder, value in replacements.items():
         raw = raw.replace(placeholder, value)
@@ -466,10 +493,13 @@ def _render_js_bridge_notes(target: TargetSite, hypothesis: AIHypothesis, bridge
         "### Safety / Scope\n"
         "- This implementation depends on a real browser context.\n"
         "- It does not include webdriver spoofing, stealth plugins, or CDP-hiding logic.\n"
+        "- Environment simulation is limited to rendering determinism, API availability, and interaction diagnostics.\n"
         "- Challenge and crash states are surfaced back to Python rather than bypassed.\n\n"
         "### Current Session Defaults\n"
         f"- Start URL: `{target.url}`\n"
         f"- Storage state: `{target.session_state.storage_state_path or '(none)'}`\n"
         f"- Bridge port: `{bridge_port}`\n"
-        f"- Strategy: `{hypothesis.codegen_strategy}`"
+        f"- Strategy: `{hypothesis.codegen_strategy}`\n"
+        f"- Environment profile: `{target.browser_profile.environment_simulation.profile_name}`\n"
+        f"- Interaction mode: `{target.browser_profile.interaction_simulation.mode}`"
     )

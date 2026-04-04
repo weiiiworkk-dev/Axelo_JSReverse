@@ -72,6 +72,8 @@
     - `viewport`
     - `readinessSelector`
     - `defaultSigner`
+    - `environmentSimulation`
+    - `interactionSimulation`
   - 初始化或重建浏览器运行时
 - `POST /restart`
   - 强制重启浏览器运行时
@@ -83,12 +85,18 @@
   - 写入 cookie 到 context
 - `GET /bridge/list`
   - 返回已注册 target
+- `GET /environment/status`
+  - 返回环境模拟状态、交互状态和诊断摘要
 - `POST /bridge/register`
   - 支持两种模式：
     - `{name, globalPath, ownerPath}`
     - `{name, resolverSource, resolverArg}`
 - `POST /bridge/call`
   - 接收 `{name, args}` 或 `{name, payload}`
+- `POST /interaction/run-pointer-path`
+  - 执行可参数化的 synthetic pointer path
+- `POST /interaction/replay-pointer-trace`
+  - 回放 JSON 轨迹或内联 points
 - `POST /sign`
   - 保留兼容入口
   - 接收 `{url, method, body, signer, signerArgs, cookies}`
@@ -129,6 +137,7 @@
 - 启动 bridge 子进程后不要只靠 `sleep`，而是轮询 `/health`
 - 在首次使用前调用 `/init`
 - 如果已有 storage-state 文件，传给 `/init`
+- 允许通过 `/init` 透传 `environmentSimulation` 和 `interactionSimulation`
 - 如果需要浏览器里的原始函数，先调用 `/bridge/register`
 - 调用 `/sign` 或 `/bridge/call` 后再发真实请求
 - 在以下情况中止并返回明确错误：

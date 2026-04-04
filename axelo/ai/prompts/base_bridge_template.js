@@ -10,11 +10,14 @@ const PORT = Number(process.env.AXELO_BRIDGE_PORT || __AXELO_BRIDGE_PORT__);
 const DEFAULT_START_URL = process.env.AXELO_BRIDGE_START_URL || __AXELO_START_URL__;
 const DEFAULT_STORAGE_STATE_PATH = process.env.AXELO_BRIDGE_STORAGE_STATE || __AXELO_STORAGE_STATE_PATH__;
 const DEFAULT_APP_KEY = process.env.AXELO_BRIDGE_APP_KEY || __AXELO_DEFAULT_APP_KEY__;
+const DEFAULT_ENVIRONMENT_SIMULATION = __AXELO_DEFAULT_ENVIRONMENT_SIMULATION__;
+const DEFAULT_INTERACTION_SIMULATION = __AXELO_DEFAULT_INTERACTION_SIMULATION__;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_EVENTS = 200;
 
 const playwrightInfo = tryRequire(['playwright', 'playwright-core']);
 const playwright = playwrightInfo ? playwrightInfo.module : null;
+const SIMULATION_INIT_SCRIPT_TEMPLATE = __AXELO_SIMULATION_INIT_SCRIPT_TEMPLATE__;
 
 const BRIDGE_INIT_SCRIPT = String.raw`
 (() => {
@@ -118,6 +121,8 @@ const runtime = {
   lastTitle: '',
   nextEventId: 0,
   events: [],
+  lastEnvironmentStatus: null,
+  lastInteractionStatus: null,
   config: defaultConfig(),
 };
 
@@ -139,6 +144,8 @@ function defaultConfig() {
     autoRestartOnDisconnect: true,
     autoRestartOnChallenge: false,
     defaultSigner: '',
+    environmentSimulation: DEFAULT_ENVIRONMENT_SIMULATION,
+    interactionSimulation: DEFAULT_INTERACTION_SIMULATION,
     challengeUrlPatterns: ['captcha', 'challenge', 'verify', 'punish', 'x5secdata'],
     challengeTitlePatterns: ['captcha', 'challenge', 'verify'],
     challengeTextPatterns: ['captcha', 'challenge', 'verify', 'slider', 'human', 'fail_sys_user_validate', 'rgv587_error', 'x5secdata'],
@@ -214,17 +221,74 @@ function clearRestartTimer() {
   }
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeValue(current, patch) {
+  if (Array.isArray(patch)) return patch.slice();
+  if (!isPlainObject(patch)) return patch;
+  const base = isPlainObject(current) ? current : {};
+  const next = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    next[key] = mergeValue(base[key], value);
+  }
+  return next;
+}
+
 function mergeConfig(current, patch) {
   const next = { ...current };
   for (const [key, value] of Object.entries(patch || {})) {
     if (value === undefined) continue;
-    if (key === 'viewport' && value && typeof value === 'object') {
-      next.viewport = { ...current.viewport, ...value };
-      continue;
-    }
-    next[key] = value;
+    next[key] = mergeValue(current[key], value);
   }
   return next;
+}
+
+function summarizeEnvironmentConfig() {
+  const config = runtime.config.environmentSimulation || {};
+  const media = config.media || {};
+  return {
+    profileName: config.profileName || null,
+    colorScheme: config.colorScheme || null,
+    reducedMotion: config.reducedMotion || null,
+    deviceScaleFactor: config.deviceScaleFactor ?? null,
+    hasTouch: config.hasTouch ?? null,
+    isMobile: config.isMobile ?? null,
+    pointer: media.pointer || null,
+    hover: media.hover || null,
+    diagnostics: runtime.lastEnvironmentStatus && Array.isArray(runtime.lastEnvironmentStatus.diagnostics)
+      ? runtime.lastEnvironmentStatus.diagnostics.length
+      : 0,
+    webgl: runtime.lastEnvironmentStatus ? runtime.lastEnvironmentStatus.webgl || null : null,
+  };
+}
+
+function summarizeInteractionConfig() {
+  const config = runtime.config.interactionSimulation || {};
+  const pointer = config.pointer || {};
+  return {
+    profileName: config.profileName || null,
+    mode: config.mode || 'playwright_mouse',
+    highFrequencyDispatch: Boolean(config.highFrequencyDispatch),
+    defaultSeed: pointer.defaultSeed ?? config.defaultSeed ?? null,
+    sampleRateHz: pointer.sampleRateHz ?? null,
+    durationMs: pointer.durationMs ?? null,
+    lastPathSummary: runtime.lastInteractionStatus ? runtime.lastInteractionStatus.lastPathSummary || null : null,
+    lastDispatchSummary: runtime.lastInteractionStatus ? runtime.lastInteractionStatus.lastDispatchSummary || null : null,
+  };
+}
+
+function renderSimulationInitScript(config) {
+  return SIMULATION_INIT_SCRIPT_TEMPLATE.replace('__AXELO_SIMULATION_CONFIG__', JSON.stringify(config || {}));
+}
+
+function simulationPayload() {
+  return {
+    environmentSimulation: runtime.config.environmentSimulation || {},
+    interactionSimulation: runtime.config.interactionSimulation || {},
+  };
 }
 
 function dependencyStatus() {
@@ -248,6 +312,9 @@ function summarizeRuntime() {
     lastChallenge: runtime.lastChallenge,
     lastEventId: runtime.nextEventId,
     dependency: dependencyStatus(),
+    diagnosticsReady: Boolean(runtime.lastEnvironmentStatus && runtime.lastInteractionStatus),
+    environment: summarizeEnvironmentConfig(),
+    interaction: summarizeInteractionConfig(),
     config: {
       startUrl: runtime.config.startUrl,
       headless: runtime.config.headless,
@@ -261,6 +328,8 @@ function summarizeRuntime() {
       autoRestartOnDisconnect: runtime.config.autoRestartOnDisconnect,
       autoRestartOnChallenge: runtime.config.autoRestartOnChallenge,
       defaultSigner: runtime.config.defaultSigner || null,
+      environmentSimulation: runtime.config.environmentSimulation || {},
+      interactionSimulation: runtime.config.interactionSimulation || {},
     },
   };
 }
@@ -295,6 +364,16 @@ async function withTimeout(promise, timeoutMs, label) {
   }
 }
 
+function sanitizeConfigPatch(patch) {
+  const allowed = new Set(Object.keys(defaultConfig()));
+  const next = {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (!allowed.has(key)) throw createError(400, `Unsupported init option: ${key}`);
+    next[key] = value;
+  }
+  return next;
+}
+
 function readStorageStateIfAny() {
   if (runtime.cachedStorageState) return runtime.cachedStorageState;
   if (runtime.config.storageStatePath) {
@@ -306,8 +385,34 @@ function readStorageStateIfAny() {
   return undefined;
 }
 
-async function installBridgeOnPage(page) {
-  await withTimeout(page.evaluate(BRIDGE_INIT_SCRIPT), Math.min(runtime.config.callTimeoutMs, 3000), 'Bridge injection');
+async function installRuntimeScriptsOnPage(page) {
+  const timeoutMs = Math.min(runtime.config.callTimeoutMs, 3000);
+  await withTimeout(page.evaluate(BRIDGE_INIT_SCRIPT), timeoutMs, 'Bridge injection');
+  await withTimeout(
+    page.evaluate(renderSimulationInitScript(simulationPayload())),
+    timeoutMs,
+    'Simulation injection',
+  );
+}
+
+async function refreshSimulationStatus(page) {
+  const activePage = page || runtime.page;
+  if (!activePage || activePage.isClosed()) return null;
+  const status = await activePage.evaluate(() => ({
+    environment: window.__AXELO_ENV__ && typeof window.__AXELO_ENV__.getStatus === 'function'
+      ? window.__AXELO_ENV__.getStatus()
+      : null,
+    interaction: window.__AXELO_INTERACTION__ && typeof window.__AXELO_INTERACTION__.getStatus === 'function'
+      ? window.__AXELO_INTERACTION__.getStatus()
+      : null,
+  })).catch((error) => {
+    setRuntimeError('Simulation status refresh failed', serializeError(error));
+    return null;
+  });
+  if (!status) return null;
+  runtime.lastEnvironmentStatus = status.environment || null;
+  runtime.lastInteractionStatus = status.interaction || null;
+  return status;
 }
 
 function detectChallenge(snapshot) {
@@ -346,6 +451,8 @@ async function inspectManagedPage(source) {
     runtime.phase = 'ready';
   }
 
+  await refreshSimulationStatus(runtime.page);
+
   return { url: runtime.lastUrl, title: runtime.lastTitle, readyState: snapshot.readyState, challengeDetected: findings.length > 0, findings };
 }
 
@@ -366,6 +473,8 @@ async function closeRuntime(preserveStorageState) {
     runtime.browser = null;
     runtime.context = null;
     runtime.page = null;
+    runtime.lastEnvironmentStatus = null;
+    runtime.lastInteractionStatus = null;
     runtime.shuttingDown = false;
   }
 }
@@ -408,7 +517,10 @@ async function attachManagedPage(page, source) {
   });
 
   page.on('domcontentloaded', async () => {
-    if (!runtime.shuttingDown) await installBridgeOnPage(page).catch((error) => setRuntimeError('Bridge injection failed', serializeError(error)));
+    if (!runtime.shuttingDown) {
+      await installRuntimeScriptsOnPage(page).catch((error) => setRuntimeError('Runtime injection failed', serializeError(error)));
+      await refreshSimulationStatus(page).catch(() => {});
+    }
   });
   page.on('load', async () => {
     if (!runtime.shuttingDown) await inspectManagedPage('load');
@@ -417,7 +529,8 @@ async function attachManagedPage(page, source) {
     if (!runtime.shuttingDown && frame === page.mainFrame()) await inspectManagedPage('navigation');
   });
 
-  await installBridgeOnPage(page);
+  await installRuntimeScriptsOnPage(page);
+  await refreshSimulationStatus(page).catch(() => {});
 }
 
 async function createBrowserRuntime() {
@@ -432,10 +545,17 @@ async function createBrowserRuntime() {
     timezoneId: runtime.config.timezoneId,
     viewport: runtime.config.viewport,
   };
+  const environment = runtime.config.environmentSimulation || {};
+  if (environment.colorScheme) contextOptions.colorScheme = environment.colorScheme;
+  if (environment.reducedMotion) contextOptions.reducedMotion = environment.reducedMotion;
+  if (environment.deviceScaleFactor) contextOptions.deviceScaleFactor = environment.deviceScaleFactor;
+  if (environment.hasTouch !== undefined) contextOptions.hasTouch = Boolean(environment.hasTouch);
+  if (environment.isMobile !== undefined) contextOptions.isMobile = Boolean(environment.isMobile);
   const storageState = readStorageStateIfAny();
   if (storageState) contextOptions.storageState = storageState;
   runtime.context = await runtime.browser.newContext(contextOptions);
   await runtime.context.addInitScript(BRIDGE_INIT_SCRIPT);
+  await runtime.context.addInitScript(renderSimulationInitScript(simulationPayload()));
 
   runtime.browser.on('disconnected', () => {
     if (runtime.shuttingDown) return;
@@ -490,7 +610,7 @@ async function startRuntime(reason) {
 
 async function restartRuntime(reason, patch) {
   runtime.reconnectCount += 1;
-  runtime.config = mergeConfig(runtime.config, patch || {});
+  runtime.config = mergeConfig(runtime.config, sanitizeConfigPatch(patch || {}));
   enqueueEvent('runtime_restarting', { reason, reconnectCount: runtime.reconnectCount });
   return startRuntime(reason || 'restart');
 }
@@ -498,7 +618,8 @@ async function restartRuntime(reason, patch) {
 async function ensureRuntimeReady(reason) {
   if (!runtime.context || !runtime.page || runtime.page.isClosed()) await startRuntime(reason || 'ensure_runtime');
   if (!runtime.page || runtime.page.isClosed()) throw createError(503, 'Managed page is not available');
-  await installBridgeOnPage(runtime.page);
+  await installRuntimeScriptsOnPage(runtime.page);
+  await refreshSimulationStatus(runtime.page);
   await inspectManagedPage('ensure_runtime');
   if (runtime.phase === 'challenge') throw createError(409, 'Challenge page detected', runtime.lastChallenge);
   if (runtime.phase !== 'ready') runtime.phase = 'ready';
@@ -633,6 +754,156 @@ async function navigate(body) {
   return state;
 }
 
+async function environmentStatus() {
+  const page = await ensureRuntimeReady('environment_status');
+  const status = await refreshSimulationStatus(page);
+  return {
+    environment: status ? status.environment : runtime.lastEnvironmentStatus,
+    interaction: status ? status.interaction : runtime.lastInteractionStatus,
+    runtime: summarizeRuntime(),
+  };
+}
+
+function normalizeTracePayload(body) {
+  if (body && Array.isArray(body.points)) return body.points;
+  if (body && Array.isArray(body.trace)) return body.trace;
+  if (body && body.trace && Array.isArray(body.trace.points)) return body.trace.points;
+  return null;
+}
+
+function readTraceFile(tracePath) {
+  const resolved = path.resolve(String(tracePath));
+  if (!fs.existsSync(resolved)) throw createError(400, `tracePath does not exist: ${resolved}`);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+  } catch (error) {
+    throw createError(400, `tracePath is not valid JSON: ${resolved}`, serializeError(error));
+  }
+  const points = normalizeTracePayload(parsed);
+  if (!points) throw createError(400, `tracePath does not contain trace points: ${resolved}`);
+  return { points, resolved };
+}
+
+async function buildPointerPath(body) {
+  const page = await ensureRuntimeReady('build_pointer_path');
+  const pathResult = await withTimeout(
+    page.evaluate((options) => window.__AXELO_INTERACTION__.buildPointerPath(options || {}), body || {}),
+    runtime.config.callTimeoutMs,
+    'Pointer path generation',
+  );
+  await refreshSimulationStatus(page);
+  return pathResult;
+}
+
+async function dispatchPointerPath(page, pathResult, body, metrics) {
+  const dispatchResult = await withTimeout(
+    page.evaluate(({ pathPayload, options }) => window.__AXELO_INTERACTION__.dispatchPointerPath(pathPayload, options || {}), {
+      pathPayload: pathResult,
+      options: body || {},
+    }),
+    runtime.config.callTimeoutMs,
+    'Pointer dispatch',
+  );
+  metrics.eventsEmitted = dispatchResult && Number.isFinite(Number(dispatchResult.eventsEmitted))
+    ? Number(dispatchResult.eventsEmitted)
+    : metrics.points;
+  return dispatchResult;
+}
+
+async function performMousePath(page, pathResult, metrics) {
+  const points = Array.isArray(pathResult && pathResult.points) ? pathResult.points : [];
+  if (points.length === 0) throw createError(400, 'Pointer path contains no points');
+  let previousTs = 0;
+  for (const point of points) {
+    const delta = Math.max(0, Math.round(Number(point.ts || 0) - previousTs));
+    if (delta > 0) await page.waitForTimeout(delta);
+    await page.mouse.move(Number(point.x), Number(point.y), { steps: 1 });
+    previousTs = Math.round(Number(point.ts || 0));
+  }
+  metrics.eventsEmitted = points.length;
+}
+
+function makeInteractionMetrics(mode, pathResult) {
+  const points = Array.isArray(pathResult && pathResult.points) ? pathResult.points : [];
+  const durationMs = points.length > 0 ? Math.round(Number(points[points.length - 1].ts || 0)) : Math.round(Number(pathResult && pathResult.durationMs || 0));
+  return {
+    seed: pathResult && pathResult.seed != null ? pathResult.seed : null,
+    points: points.length,
+    durationMs,
+    avgStepMs: points.length > 1 ? Number((durationMs / (points.length - 1)).toFixed(2)) : durationMs,
+    mode,
+    eventsEmitted: 0,
+    errors: [],
+  };
+}
+
+async function runPointerPath(body) {
+  const page = await ensureRuntimeReady('run_pointer_path');
+  enqueueEvent('pointer_path_started', { mode: body && body.dispatchMode ? body.dispatchMode : null });
+  const pathResult = await buildPointerPath(body || {});
+  const requestedMode = body && body.dispatchMode ? String(body.dispatchMode) : '';
+  const defaultMode = runtime.config.interactionSimulation && runtime.config.interactionSimulation.mode
+    ? String(runtime.config.interactionSimulation.mode)
+    : 'playwright_mouse';
+  const mode = requestedMode || defaultMode;
+  const metrics = makeInteractionMetrics(mode, pathResult);
+  try {
+    if (mode === 'dispatch') {
+      await dispatchPointerPath(page, pathResult, body, metrics);
+    } else {
+      await performMousePath(page, pathResult, metrics);
+    }
+  } catch (error) {
+    metrics.errors.push(serializeError(error));
+    throw error;
+  } finally {
+    await refreshSimulationStatus(page).catch(() => {});
+  }
+  enqueueEvent('pointer_path_completed', metrics);
+  return metrics;
+}
+
+async function replayPointerTrace(body) {
+  const page = await ensureRuntimeReady('replay_pointer_trace');
+  let points = normalizeTracePayload(body);
+  let tracePath = null;
+  if (!points && body && body.tracePath) {
+    const loaded = readTraceFile(body.tracePath);
+    points = loaded.points;
+    tracePath = loaded.resolved;
+  }
+  if (!points) throw createError(400, 'Missing "points", "trace", or "tracePath"');
+  const normalized = await withTimeout(
+    page.evaluate((trace) => window.__AXELO_INTERACTION__.normalizeTracePoints(trace), { points }),
+    runtime.config.callTimeoutMs,
+    'Trace normalization',
+  );
+  const pathResult = { points: normalized };
+  const requestedMode = body && body.dispatchMode ? String(body.dispatchMode) : '';
+  const defaultMode = runtime.config.interactionSimulation && runtime.config.interactionSimulation.mode
+    ? String(runtime.config.interactionSimulation.mode)
+    : 'playwright_mouse';
+  const mode = requestedMode || defaultMode;
+  const metrics = makeInteractionMetrics(mode, pathResult);
+  if (tracePath) metrics.tracePath = tracePath;
+  enqueueEvent('pointer_trace_started', { mode, tracePath });
+  try {
+    if (mode === 'dispatch') {
+      await dispatchPointerPath(page, pathResult, body, metrics);
+    } else {
+      await performMousePath(page, pathResult, metrics);
+    }
+  } catch (error) {
+    metrics.errors.push(serializeError(error));
+    throw error;
+  } finally {
+    await refreshSimulationStatus(page).catch(() => {});
+  }
+  enqueueEvent('pointer_trace_completed', metrics);
+  return metrics;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let chunks = '';
@@ -679,6 +950,7 @@ async function routeRequest(req, res) {
   if (method === 'GET' && pathname === '/health') return sendJson(res, 200, summarizeRuntime());
   if (method === 'GET' && pathname === '/events') return sendJson(res, 200, { events: drainEvents(parsedUrl.searchParams.get('since')), nextCursor: runtime.nextEventId });
   if (method === 'GET' && pathname === '/bridge/list') return sendJson(res, 200, { targets: await listBridgeTargets() });
+  if (method === 'GET' && pathname === '/environment/status') return sendJson(res, 200, await environmentStatus());
   if (method !== 'POST') return sendJson(res, 404, { error: 'Not found' });
 
   const body = await readJsonBody(req);
@@ -689,6 +961,8 @@ async function routeRequest(req, res) {
   if (pathname === '/set-cookies') return sendJson(res, 200, await setCookies(body));
   if (pathname === '/bridge/register') return sendJson(res, 200, await registerBridgeTarget(body));
   if (pathname === '/bridge/call') return sendJson(res, 200, { result: await callBridgeTarget(body) });
+  if (pathname === '/interaction/run-pointer-path') return sendJson(res, 200, await runPointerPath(body));
+  if (pathname === '/interaction/replay-pointer-trace') return sendJson(res, 200, await replayPointerTrace(body));
   if (pathname === '/sign') return sendJson(res, 200, await signRequest(body));
   return sendJson(res, 404, { error: 'Not found' });
 }

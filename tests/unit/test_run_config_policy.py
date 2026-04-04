@@ -55,7 +55,9 @@ def test_runtime_policy_cloudflare_conservative():
         known_endpoint="/api/x",
     )
     policy = resolve_runtime_policy(target)
-    assert policy.force_stealth is True
     assert policy.goto_wait_until == "load"
     assert policy.request_interval_seconds == 3.0
     assert policy.post_navigation_wait_ms >= 3000
+    profile = policy.apply_to_profile(target.browser_profile)
+    assert profile is not target.browser_profile
+    assert profile.environment_simulation.profile_name == "desktop"

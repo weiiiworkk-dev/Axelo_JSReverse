@@ -27,6 +27,8 @@ class __AXELO_CRAWLER_CLASS__:
     BRIDGE_LOCALE = __AXELO_BRIDGE_LOCALE__
     BRIDGE_TIMEZONE = __AXELO_BRIDGE_TIMEZONE__
     DEFAULT_STORAGE_STATE_PATH = __AXELO_STORAGE_STATE_PATH__
+    DEFAULT_ENVIRONMENT = __AXELO_DEFAULT_ENVIRONMENT__
+    DEFAULT_INTERACTION = __AXELO_DEFAULT_INTERACTION__
 
     DEFAULT_HEADERS = __AXELO_DEFAULT_HEADERS__
     OBSERVED_TARGETS = __AXELO_OBSERVED_TARGETS__
@@ -38,6 +40,8 @@ class __AXELO_CRAWLER_CLASS__:
         bridge_headless: bool = True,
         bridge_signers: list[dict[str, Any]] | None = None,
         storage_state_path: str | None = None,
+        bridge_environment: dict[str, Any] | None = None,
+        bridge_interaction: dict[str, Any] | None = None,
     ) -> None:
         self._proc: subprocess.Popen[str] | None = None
         self._cookies: dict[str, str] = dict(cookies or {})
@@ -46,6 +50,8 @@ class __AXELO_CRAWLER_CLASS__:
         self._bridge_event_cursor = 0
         self._bridge_headless = bridge_headless
         self._bridge_signers = bridge_signers or []
+        self._bridge_environment = dict(bridge_environment or self.DEFAULT_ENVIRONMENT or {})
+        self._bridge_interaction = dict(bridge_interaction or self.DEFAULT_INTERACTION or {})
         self._bridge_base_url = f"http://127.0.0.1:{self.BRIDGE_PORT}"
         self._file_dir = Path(__file__).resolve().parent
         self._session_dir = self._file_dir.parent
@@ -145,6 +151,8 @@ class __AXELO_CRAWLER_CLASS__:
             "locale": self.BRIDGE_LOCALE,
             "timezoneId": self.BRIDGE_TIMEZONE,
             "defaultSigner": self._bridge_signers[0]["name"] if self._bridge_signers else "",
+            "environmentSimulation": self._bridge_environment,
+            "interactionSimulation": self._bridge_interaction,
         }
         data = self._bridge_request("POST", "/init", payload, timeout=45.0)
         self._assert_bridge_ready(data)
@@ -180,6 +188,28 @@ class __AXELO_CRAWLER_CLASS__:
 
     def poll_bridge_events(self) -> list[dict[str, Any]]:
         return self._bridge_events()
+
+    def bridge_environment_status(self) -> dict[str, Any]:
+        return self._bridge_request("GET", "/environment/status", timeout=10.0)
+
+    def run_pointer_path(self, **payload: Any) -> dict[str, Any]:
+        self._assert_bridge_ready()
+        return self._bridge_request("POST", "/interaction/run-pointer-path", payload, timeout=60.0)
+
+    def replay_pointer_trace(
+        self,
+        *,
+        points: list[dict[str, Any]] | None = None,
+        trace_path: str | None = None,
+        **payload: Any,
+    ) -> dict[str, Any]:
+        self._assert_bridge_ready()
+        request_payload = dict(payload)
+        if points is not None:
+            request_payload["points"] = points
+        if trace_path:
+            request_payload["tracePath"] = trace_path
+        return self._bridge_request("POST", "/interaction/replay-pointer-trace", request_payload, timeout=60.0)
 
     def _bridge_sign(self, url: str, method: str = "GET", body: str = "") -> dict[str, str]:
         self._assert_bridge_ready()

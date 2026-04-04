@@ -72,7 +72,16 @@ async function main() {
       browser = await playwrightInfo.module.chromium.launch({ headless: true });
       addCheck(checks, 'chromium_launch', true, {});
 
-      context = await browser.newContext();
+      context = await browser.newContext({
+        colorScheme: 'light',
+        reducedMotion: 'no-preference',
+        deviceScaleFactor: 1,
+      });
+      addCheck(checks, 'context_rendering_options', true, {
+        colorScheme: 'light',
+        reducedMotion: 'no-preference',
+        deviceScaleFactor: 1,
+      });
       const page = await context.newPage();
       await page.goto('data:text/html,<title>axelo-bridge-env</title><h1>ok</h1>', {
         waitUntil: 'domcontentloaded',
@@ -82,6 +91,7 @@ async function main() {
       addCheck(checks, 'page_bootstrap', title === 'axelo-bridge-env', { title });
     } catch (error) {
       addCheck(checks, 'chromium_launch', false, { error: error.message });
+      addCheck(checks, 'context_rendering_options', false, { error: error.message });
     } finally {
       if (context) {
         await context.close().catch(() => {});
@@ -100,6 +110,7 @@ async function main() {
     recommendations: [
       'Use playwright for the bridge runtime.',
       'Do not add stealth or anti-detection plugins to this environment check.',
+      'Use context.addInitScript only for auditable environment simulation and diagnostics.',
       'Install browsers with: npx playwright install chromium',
     ],
   };
