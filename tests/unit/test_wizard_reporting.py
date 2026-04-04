@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from axelo.models.execution import VerificationMode
+from axelo.presentation import verification_status_markup, verification_was_skipped
 from axelo.wizard import _failure_insight, _target_hint_required
 
 
@@ -45,3 +47,58 @@ def test_failure_insight_explains_dns_host_guess_issue(tmp_path: Path):
 
     assert insight["stage"] == "s8_verify"
     assert "API 主机不可解析" in insight["cause"]
+
+
+def test_failure_insight_marks_compliance_skip_as_skipped(tmp_path: Path):
+    session_dir = tmp_path / "session"
+    output_dir = session_dir / "output"
+    output_dir.mkdir(parents=True)
+
+    (session_dir / "workflow_trace.json").write_text(
+        json.dumps(
+            {
+                "checkpoints": [
+                    {
+                        "stage_name": "s7_codegen",
+                        "status": "skipped",
+                        "summary": "Code generation disabled by compliance-aware execution plan",
+                    },
+                    {
+                        "stage_name": "s8_verify",
+                        "status": "skipped",
+                        "summary": "Verification disabled by compliance-aware execution plan",
+                    },
+                    {
+                        "stage_name": "memory_write",
+                        "status": "completed",
+                        "summary": "Memory updated",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "run_report.json").write_text(json.dumps({"result": {}}), encoding="utf-8")
+
+    result = SimpleNamespace(
+        completed=True,
+        verified=False,
+        error=None,
+        execution_plan=SimpleNamespace(verification_mode=VerificationMode.NONE, skip_codegen=True),
+    )
+
+    insight = _failure_insight(result, session_dir)
+
+    assert insight["title"] == "验证已跳过摘要"
+    assert insight["stage"] == "s8_verify"
+    assert "不是验证失败" in insight["cause"]
+
+
+def test_verification_status_markup_reports_skipped():
+    result = SimpleNamespace(
+        verified=False,
+        execution_plan=SimpleNamespace(verification_mode=VerificationMode.NONE, skip_codegen=True),
+    )
+
+    assert verification_was_skipped(result) is True
+    assert verification_status_markup(result) == "[cyan]已跳过[/cyan]"

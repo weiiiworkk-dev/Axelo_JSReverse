@@ -16,6 +16,7 @@ from axelo.config import settings
 from axelo.models.run_config import RunConfig
 from axelo.modes.registry import available_modes
 from axelo.orchestrator.master import MasterOrchestrator
+from axelo.presentation import verification_status_markup, verification_was_skipped
 from axelo.storage.session_store import SessionStore
 
 if sys.platform == "win32":
@@ -181,11 +182,14 @@ def run(
     result = asyncio.run(orchestrator.run(**kwargs))
 
     if result.completed:
-        console.print(f"\n[bold green]✓ 逆向完成[/bold green]  会话: [cyan]{result.session_id}[/cyan]")
+        if verification_was_skipped(result):
+            console.print(f"\n[bold cyan]✓ 流程完成（验证已跳过）[/bold cyan]  会话: [cyan]{result.session_id}[/cyan]")
+        else:
+            console.print(f"\n[bold green]✓ 逆向完成[/bold green]  会话: [cyan]{result.session_id}[/cyan]")
         if result.difficulty:
             console.print(
                 f"难度: [yellow]{result.difficulty.level}[/yellow]  "
-                f"验证: {'[green]通过[/green]' if result.verified else '[red]未通过[/red]'}"
+                f"验证: {verification_status_markup(result)}"
             )
         if result.execution_plan:
             console.print(

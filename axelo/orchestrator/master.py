@@ -2,101 +2,38 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlparse
 
 import structlog
 
-from axelo.agents.memory_writer_agent import MemoryWriterAgent
-from axelo.ai.client import AIClient
-from axelo.analysis import ASTAnalyzer, build_signature_spec
-from axelo.analysis.family_detector import SignatureFamilyMatch, build_hypothesis_from_family, detect_signature_family
-from axelo.classifier.rules import DifficultyScore, classify
+from axelo.analysis import ASTAnalyzer
+from axelo.app.flows import AnalysisFlow, DeliveryFlow, DiscoveryFlow, ReuseFlow
+from axelo.classifier.rules import DifficultyScore
 from axelo.config import settings
 from axelo.cost import CostBudget, CostGovernor, CostRecord
+from axelo.domain.services import (
+    AnalysisRoutingService,
+    PlanningService,
+    VerificationPolicyService,
+)
 from axelo.js_tools.runner import NodeRunner
 from axelo.memory.db import MemoryDB
 from axelo.memory.retriever import MemoryRetriever
 from axelo.memory.vector_store import VectorStore
 from axelo.memory.writer import MemoryWriter
-from axelo.models.analysis import AIHypothesis, AnalysisResult, DynamicAnalysis, StaticAnalysis
-from axelo.models.codegen import GeneratedCode
-from axelo.models.execution import ExecutionPlan, ExecutionTier, VerificationMode
-from axelo.models.pipeline import Decision, DecisionType, PipelineState
+from axelo.models.execution import ExecutionPlan
+from axelo.models.pipeline import PipelineState
 from axelo.models.target import BrowserProfile, TargetSite
 from axelo.modes.registry import create_mode
+from axelo.orchestrator.runtime import MasterResult, MasterRunContext
 from axelo.orchestrator.workflow_runtime import WorkflowRuntime
-from axelo.planner import Planner
 from axelo.patterns.common import match_profile
 from axelo.policies import resolve_runtime_policy
 from axelo.storage import AdapterRegistry, AnalysisCache, SessionStore, WorkflowStore
 from axelo.telemetry import write_run_report
-from axelo.verification.engine import VerificationEngine
-
-from axelo.pipeline.stages import (
-    AIAnalysisStage,
-    CodeGenStage,
-    CrawlStage,
-    DeobfuscateStage,
-    DynamicAnalysisStage,
-    FetchStage,
-    StaticAnalysisStage,
-    VerifyStage,
-)
 
 log = structlog.get_logger()
-
-
-@dataclass
-class MasterResult:
-    session_id: str
-    url: str
-    difficulty: DifficultyScore | None = None
-    analysis: AnalysisResult | None = None
-    generated: GeneratedCode | None = None
-    verified: bool = False
-    cost: CostRecord | None = None
-    output_dir: Path | None = None
-    report_path: Path | None = None
-    execution_plan: ExecutionPlan | None = None
-    adapter_reused: bool = False
-    route_label: str = ""
-    reuse_hits: list[str] = field(default_factory=list)
-    error: str | None = None
-    completed: bool = False
-
-
-@dataclass
-class MasterRunContext:
-    sid: str
-    mode_name: str
-    mode: object
-    cost: CostRecord
-    budget: CostBudget
-    governor: CostGovernor
-    result: MasterResult
-    state: PipelineState
-    workflow: WorkflowRuntime
-    target: TargetSite
-    runtime_policy: object
-    session_dir: Path
-    output_dir: Path
-    memory_ctx: dict[str, object]
-    adapter_candidate: object | None = None
-    analysis: AnalysisResult | None = None
-    generated: GeneratedCode | None = None
-    verified: bool = False
-    difficulty: DifficultyScore | None = None
-    static_results: dict[str, StaticAnalysis] = field(default_factory=dict)
-    bundle_hashes: list[str] = field(default_factory=list)
-    dynamic: DynamicAnalysis | None = None
-    hypothesis: AIHypothesis | None = None
-    ai_client: AIClient | None = None
-    analysis_cache_hit: bool = False
-    family_match: SignatureFamilyMatch | None = None
-    scan_report: object | None = None
 
 
 class MasterOrchestrator:
@@ -107,12 +44,41 @@ class MasterOrchestrator:
         self._workflow_store = WorkflowStore(settings.sessions_dir)
         self._adapter_registry = AdapterRegistry(settings.workspace)
         self._analysis_cache = AnalysisCache(settings.workspace)
-        self._planner = Planner(self._adapter_registry)
         mem_dir = settings.workspace / "memory"
         self._db = MemoryDB(mem_dir / "axelo.db")
         self._vs = VectorStore(mem_dir / "vectors")
         self._retriever = MemoryRetriever(self._db, self._vs)
         self._mem_writer = MemoryWriter(self._db, self._vs)
+
+        self._planning = PlanningService(self._adapter_registry)
+        self._analysis_routing = AnalysisRoutingService()
+        self._verification_policy = VerificationPolicyService()
+
+        self._reuse_flow = ReuseFlow(
+            store=self._store,
+            workflow_store=self._workflow_store,
+            adapter_registry=self._adapter_registry,
+        )
+        self._discovery_flow = DiscoveryFlow(
+            store=self._store,
+            analysis_cache=self._analysis_cache,
+            db=self._db,
+            routing_service=self._analysis_routing,
+        )
+        self._analysis_flow = AnalysisFlow(
+            store=self._store,
+            db=self._db,
+            retriever=self._retriever,
+            analysis_cache=self._analysis_cache,
+            routing_service=self._analysis_routing,
+        )
+        self._delivery_flow = DeliveryFlow(
+            store=self._store,
+            adapter_registry=self._adapter_registry,
+            retriever=self._retriever,
+            mem_writer=self._mem_writer,
+            verification_policy=self._verification_policy,
+        )
 
     async def run(
         self,
@@ -152,7 +118,7 @@ class MasterOrchestrator:
             browser_profile=browser_profile,
         )
 
-        short_circuit = await self._maybe_short_circuit(ctx)
+        short_circuit = await self._reuse_flow.run(ctx)
         if short_circuit is not None:
             return await self._finalize_run(ctx, short_circuit)
 
@@ -161,29 +127,38 @@ class MasterOrchestrator:
         ctx.cost.add_node_call(stage="node_runtime")
 
         try:
-            target = ctx.target
-            target.trace = ctx.workflow.checkpoint(ctx.sid, target.trace, "master", "started", summary="Run started")
+            ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "master", "started", summary="Run started")
             ctx.state.workflow_status = "running"
             self._store.save(ctx.state)
 
             ast_analyzer = ASTAnalyzer(runner)
-            if not await self._run_discovery_stages(ctx, runner=runner, ast_analyzer=ast_analyzer):
+            discovery = await self._discovery_flow.run(ctx, runner=runner, ast_analyzer=ast_analyzer)
+            if discovery is None:
                 return await self._finalize_run(ctx, False)
-            if not await self._run_analysis_stages(ctx):
+
+            analysis = await self._analysis_flow.run(ctx)
+            if analysis is None:
                 return await self._finalize_run(ctx, False)
-            if not await self._run_codegen_and_verify(ctx):
+
+            delivery = await self._delivery_flow.run(ctx)
+            if delivery is None:
                 return await self._finalize_run(ctx, False)
         except Exception as exc:
             ctx.result.error = str(exc)
             ctx.state.workflow_status = "failed"
             ctx.state.error = ctx.result.error
             self._store.save(ctx.state)
-            ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "master", "failed", summary=ctx.result.error)
+            ctx.target.trace = ctx.workflow.checkpoint(
+                ctx.sid,
+                ctx.target.trace,
+                "master",
+                "failed",
+                summary=ctx.result.error,
+            )
             return await self._finalize_run(ctx, False)
         finally:
             await runner.stop()
 
-        await self._write_memory(ctx)
         return await self._finalize_run(ctx, True)
 
     async def _initialize_run_context(
@@ -266,7 +241,7 @@ class MasterOrchestrator:
 
         target.interaction_goal = _build_enriched_goal(target, goal, runtime_policy, known_site_profile)
         planning_started = time.monotonic()
-        plan_decision = self._planner.build(target, budget_usd=budget_usd, memory_ctx=memory_ctx)
+        plan_decision = self._planning.build(target, budget_usd=budget_usd, memory_ctx=memory_ctx)
         target.execution_plan = plan_decision.plan
         cost.set_route(target.execution_plan.route_label)
         if target.execution_plan.adapter_hit:
@@ -352,871 +327,6 @@ class MasterOrchestrator:
         ctx.result.report_path = report_path
         return ctx.result
 
-    async def _maybe_short_circuit(self, ctx: MasterRunContext) -> bool | None:
-        if ctx.target.execution_plan.tier == ExecutionTier.MANUAL_REVIEW:
-            ctx.cost.set_route("manual_review")
-            ctx.analysis = AnalysisResult(session_id=ctx.sid, manual_review_required=True)
-            ctx.state.workflow_status = "waiting_manual_review"
-            ctx.state.manual_review_reason = "; ".join(ctx.target.execution_plan.reasons)
-            self._store.save(ctx.state)
-            ctx.target.trace = ctx.workflow.request_manual_review(
-                ctx.sid,
-                ctx.target.trace,
-                "planning",
-                summary=ctx.state.manual_review_reason or "Planner requested manual review",
-            )
-            ctx.result.error = "manual review required by execution plan"
-            return False
-
-        if ctx.target.execution_plan.tier != ExecutionTier.ADAPTER_REUSE or ctx.adapter_candidate is None:
-            return None
-
-        ctx.cost.set_route("adapter_reuse")
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "adapter_reuse",
-            "running",
-            summary=getattr(ctx.adapter_candidate, "registry_key", ""),
-        )
-        reused, reuse_verified = await self._reuse_adapter(
-            sid=ctx.sid,
-            target=ctx.target,
-            adapter=ctx.adapter_candidate,
-            output_dir=ctx.output_dir,
-        )
-        if reuse_verified:
-            ctx.generated = reused
-            ctx.verified = True
-            ctx.result.output_dir = ctx.output_dir
-            ctx.result.adapter_reused = True
-            ctx.cost.add_reuse_hit("adapter")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "adapter_reuse",
-                "completed",
-                summary="Verified adapter reused successfully",
-                artifacts=_artifact_map(
-                    {
-                        key: path
-                        for key, path in {
-                            "crawler_script": reused.crawler_script_path,
-                            "bridge_server": reused.bridge_server_path,
-                            "manifest": reused.manifest_path,
-                            "session_state": reused.session_state_path,
-                        }.items()
-                        if path is not None
-                    }
-                ),
-            )
-            return True
-
-        ctx.target.execution_plan = _escalate_execution_plan(
-            ctx.target.execution_plan,
-            "Adapter reuse failed verification; escalating to full pipeline.",
-        )
-        ctx.state.execution_plan = ctx.target.execution_plan.model_dump(mode="json")
-        self._store.save(ctx.state)
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "adapter_reuse",
-            "failed",
-            summary="Adapter verification failed, escalated to full pipeline",
-        )
-        return None
-
-    async def _run_discovery_stages(
-        self,
-        ctx: MasterRunContext,
-        *,
-        runner: NodeRunner,
-        ast_analyzer: ASTAnalyzer,
-    ) -> bool:
-        crawl_stage = CrawlStage()
-        fetch_stage = FetchStage()
-        deob_stage = DeobfuscateStage(runner)
-        static_stage = StaticAnalysisStage(ast_analyzer)
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s1_crawl", "running")
-        ctx.state.current_stage_index = 0
-        self._store.save(ctx.state)
-        crawl_result = await self._execute_stage_with_metrics(
-            ctx,
-            crawl_stage,
-            ctx.state,
-            ctx.mode,
-            target=ctx.target,
-        )
-        if not crawl_result.success:
-            ctx.result.error = crawl_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s1_crawl",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-        ctx.target = crawl_result.next_input.get("target", ctx.target)
-        ctx.cost.add_browser_session(stage="s1_crawl")
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s1_crawl",
-            "completed",
-            summary=crawl_result.summary,
-            artifacts=_artifact_map(crawl_result.artifacts),
-        )
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s2_fetch", "running")
-        ctx.state.current_stage_index = 1
-        self._store.save(ctx.state)
-        fetch_result = await self._execute_stage_with_metrics(
-            ctx,
-            fetch_stage,
-            ctx.state,
-            ctx.mode,
-            target=ctx.target,
-            expand=False,
-        )
-        if not fetch_result.success:
-            ctx.result.error = fetch_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s2_fetch",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-        bundles = fetch_result.next_input.get("bundles", [])
-        ctx.bundle_hashes = _bundle_hashes(bundles)
-        for bundle in bundles:
-            ctx.cost.add_bundle_bytes(bundle.size_bytes, stage="s2_fetch")
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s2_fetch",
-            "completed",
-            summary=fetch_result.summary,
-            artifacts=_artifact_map(fetch_result.artifacts),
-        )
-
-        analysis_cache_entry = self._analysis_cache.lookup(ctx.target, ctx.bundle_hashes)
-        if analysis_cache_entry is not None:
-            ctx.analysis_cache_hit = True
-            ctx.cost.add_reuse_hit("analysis_cache")
-            ctx.static_results = analysis_cache_entry.static_models()
-            ctx.cost.set_stage_timing("s3_deobfuscate", 0, status="skipped", exit_reason="analysis_cache_hit")
-            ctx.cost.set_stage_timing("s4_static", 0, status="skipped", exit_reason="analysis_cache_hit")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s3_deobfuscate",
-                "skipped",
-                summary="Reused cached analysis artifacts",
-            )
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s4_static",
-                "skipped",
-                summary="Reused cached static analysis",
-            )
-            return True
-
-        bundles, cached_static = await self._check_bundle_cache(bundles)
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s3_deobfuscate", "running")
-        ctx.state.current_stage_index = 2
-        self._store.save(ctx.state)
-        deob_result = await self._execute_stage_with_metrics(
-            ctx,
-            deob_stage,
-            ctx.state,
-            ctx.mode,
-            bundles=bundles,
-        )
-        if not deob_result.success:
-            ctx.result.error = deob_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s3_deobfuscate",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-        bundles = deob_result.next_input.get("bundles", bundles)
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s3_deobfuscate",
-            "completed",
-            summary=deob_result.summary,
-            artifacts=_artifact_map(deob_result.artifacts),
-        )
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s4_static", "running")
-        ctx.state.current_stage_index = 3
-        self._store.save(ctx.state)
-        static_result = await self._execute_stage_with_metrics(
-            ctx,
-            static_stage,
-            ctx.state,
-            ctx.mode,
-            bundles=bundles,
-        )
-        if not static_result.success:
-            ctx.result.error = static_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s4_static",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-        ctx.static_results = {
-            **cached_static,
-            **static_result.next_input.get("static_results", {}),
-        }
-
-        if (
-            not _has_static_candidates(ctx.static_results)
-            and fetch_result.next_input.get("can_expand")
-            and ctx.target.execution_plan
-            and ctx.target.execution_plan.tier == ExecutionTier.BROWSER_FULL
-        ):
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s2_fetch",
-                "running",
-                summary="Static analysis found no candidates; expanding JS fetch window",
-            )
-            expanded_fetch = await self._execute_stage_with_metrics(
-                ctx,
-                fetch_stage,
-                ctx.state,
-                ctx.mode,
-                target=ctx.target,
-                expand=True,
-            )
-            if expanded_fetch.success:
-                bundles = expanded_fetch.next_input.get("bundles", [])
-                ctx.bundle_hashes = _bundle_hashes(bundles)
-                for bundle in bundles:
-                    ctx.cost.add_bundle_bytes(bundle.size_bytes, stage="s2_fetch")
-                bundles, cached_static = await self._check_bundle_cache(bundles)
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s2_fetch",
-                    "completed",
-                    summary=expanded_fetch.summary,
-                    artifacts=_artifact_map(expanded_fetch.artifacts),
-                )
-
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s3_deobfuscate",
-                    "running",
-                    summary="Expanded pass",
-                )
-                deob_result = await self._execute_stage_with_metrics(
-                    ctx,
-                    deob_stage,
-                    ctx.state,
-                    ctx.mode,
-                    bundles=bundles,
-                )
-                if not deob_result.success:
-                    ctx.result.error = deob_result.error
-                    return False
-                bundles = deob_result.next_input.get("bundles", bundles)
-
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s4_static",
-                    "running",
-                    summary="Expanded pass",
-                )
-                static_result = await self._execute_stage_with_metrics(
-                    ctx,
-                    static_stage,
-                    ctx.state,
-                    ctx.mode,
-                    bundles=bundles,
-                )
-                if not static_result.success:
-                    ctx.result.error = static_result.error
-                    return False
-                ctx.static_results = {
-                    **cached_static,
-                    **static_result.next_input.get("static_results", {}),
-                }
-
-        self._analysis_cache.save(
-            ctx.target,
-            bundle_hashes=ctx.bundle_hashes,
-            static_results=ctx.static_results,
-        )
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s4_static",
-            "completed",
-            summary=static_result.summary,
-            artifacts=_artifact_map(static_result.artifacts),
-        )
-        return True
-
-    async def _run_analysis_stages(self, ctx: MasterRunContext) -> bool:
-        known_pattern = self._db.get_site_pattern(ctx.memory_ctx.get("domain", "")) if ctx.memory_ctx.get("known_pattern") else None
-        ctx.difficulty = classify(ctx.target, ctx.static_results, known_pattern)
-        ctx.result.difficulty = ctx.difficulty
-
-        if ctx.difficulty.level == "extreme" and ctx.target.compliance.require_manual_for_extreme:
-            ctx.analysis = AnalysisResult(session_id=ctx.sid, static=ctx.static_results, manual_review_required=True)
-            ctx.state.workflow_status = "waiting_manual_review"
-            ctx.state.manual_review_reason = "Extreme target requires manual review"
-            self._store.save(ctx.state)
-            ctx.target.trace = ctx.workflow.request_manual_review(
-                ctx.sid,
-                ctx.target.trace,
-                "difficulty",
-                summary=f"Extreme site classified: {ctx.difficulty.reasons}",
-            )
-
-            decision = Decision(
-                stage="difficulty",
-                decision_type=DecisionType.MANUAL_REVIEW,
-                prompt="Target classified as extreme. Manual review is required before continuing.",
-                options=["stop_for_manual_review", "force_continue"],
-                default="stop_for_manual_review",
-                context_summary=", ".join(ctx.difficulty.reasons),
-            )
-            outcome = await ctx.mode.gate(decision, ctx.state)
-            if outcome != "force_continue":
-                ctx.result.error = "manual review required for extreme target"
-                return False
-            ctx.state.workflow_status = "running"
-            ctx.state.manual_review_reason = ""
-            self._store.save(ctx.state)
-
-        if ctx.difficulty.recommended_path in ("static+dynamic", "full+human") and ctx.governor.allow_dynamic(
-            ctx.cost,
-            ctx.target.execution_plan,
-        ):
-            dyn_stage = DynamicAnalysisStage()
-            ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s5_dynamic", "running")
-            ctx.state.current_stage_index = 4
-            self._store.save(ctx.state)
-            dyn_result = await self._execute_stage_with_metrics(
-                ctx,
-                dyn_stage,
-                ctx.state,
-                ctx.mode,
-                target=ctx.target,
-                static_results=ctx.static_results,
-            )
-            if not dyn_result.success:
-                ctx.result.error = dyn_result.error
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s5_dynamic",
-                    "failed",
-                    summary=ctx.result.error or "",
-                )
-                return False
-            ctx.dynamic = dyn_result.next_input.get("dynamic")
-            ctx.cost.add_browser_session(stage="s5_dynamic")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s5_dynamic",
-                "completed",
-                summary=dyn_result.summary,
-                artifacts=_artifact_map(dyn_result.artifacts),
-            )
-
-        templates = self._retriever.get_all_templates()
-        ctx.family_match = detect_signature_family(
-            ctx.target,
-            ctx.static_results,
-            dynamic=ctx.dynamic,
-            memory_ctx=ctx.memory_ctx,
-            templates=templates,
-        )
-        ctx.analysis = AnalysisResult(
-            session_id=ctx.sid,
-            static=ctx.static_results,
-            dynamic=ctx.dynamic,
-            signature_family=ctx.family_match.family_id,
-        )
-
-        if _should_static_only(ctx):
-            ctx.cost.set_route("static_only")
-            ctx.analysis.overall_confidence = max(_top_static_confidence(ctx.static_results), ctx.family_match.confidence)
-            ctx.analysis.analysis_notes = "Static evidence was sufficient for discovery/archive output."
-            if ctx.family_match.family_id != "unknown":
-                ctx.hypothesis = build_hypothesis_from_family(ctx.family_match, ctx.target)
-                ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
-                ctx.analysis.ai_hypothesis = ctx.hypothesis
-                ctx.analysis.signature_spec = ctx.hypothesis.signature_spec
-            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="static_only")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s6_ai_analyze",
-                "skipped",
-                summary="Static-only route satisfied discovery/archive requirements",
-            )
-            self._analysis_cache.save(
-                ctx.target,
-                bundle_hashes=ctx.bundle_hashes,
-                static_results=ctx.static_results,
-                signature_family=ctx.family_match.family_id,
-                template_name=ctx.family_match.template_name,
-                signature_spec=ctx.analysis.signature_spec,
-            )
-            return True
-
-        if not ctx.governor.allow_ai(ctx.cost, ctx.target.execution_plan):
-            if ctx.target.execution_plan and ctx.target.execution_plan.skip_codegen:
-                ctx.cost.set_route("static_only")
-                ctx.analysis.analysis_notes = "Budget exhausted before scanner stage; archived static evidence only."
-                ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="budget_exhausted")
-                return True
-            ctx.result.error = "budget exhausted before AI analysis"
-            return False
-
-        if (
-            ctx.family_match.template_ready
-            and ctx.target.execution_plan
-            and not ctx.target.execution_plan.skip_codegen
-            and ctx.family_match.confidence >= 0.8
-        ):
-            ctx.cost.set_route("template_codegen")
-            ctx.hypothesis = build_hypothesis_from_family(ctx.family_match, ctx.target)
-            ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
-            ctx.analysis = AnalysisResult(
-                session_id=ctx.sid,
-                static=ctx.static_results,
-                dynamic=ctx.dynamic,
-                ai_hypothesis=ctx.hypothesis,
-                signature_spec=ctx.hypothesis.signature_spec,
-                overall_confidence=ctx.hypothesis.confidence,
-                ready_for_codegen=True,
-                manual_review_required=False,
-                signature_family=ctx.family_match.family_id,
-                analysis_notes="Template-backed family detection satisfied codegen prerequisites.",
-            )
-            ctx.cost.set_stage_timing("s6_ai_analyze", 0, status="skipped", exit_reason="template_codegen")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s6_ai_analyze",
-                "skipped",
-                summary=f"Template-backed family detection: {ctx.family_match.family_id}",
-            )
-            self._analysis_cache.save(
-                ctx.target,
-                bundle_hashes=ctx.bundle_hashes,
-                static_results=ctx.static_results,
-                signature_family=ctx.family_match.family_id,
-                template_name=ctx.family_match.template_name,
-                signature_spec=ctx.hypothesis.signature_spec,
-            )
-            return True
-
-        ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
-        ai_stage = AIAnalysisStage(ctx.ai_client, ctx.cost, ctx.budget, self._retriever)
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s6_ai_analyze", "running")
-        ctx.state.current_stage_index = 5
-        self._store.save(ctx.state)
-        ai_result = await self._execute_stage_with_metrics(
-            ctx,
-            ai_stage,
-            ctx.state,
-            ctx.mode,
-            target=ctx.target,
-            static_results=ctx.static_results,
-            dynamic=ctx.dynamic,
-        )
-        if not ai_result.success:
-            ctx.result.error = ai_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s6_ai_analyze",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-
-        ctx.analysis = ai_result.next_input.get("analysis", ctx.analysis)
-        ctx.hypothesis = ai_result.next_input.get("hypothesis")
-        ctx.scan_report = ai_result.next_input.get("scan_report")
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s6_ai_analyze",
-            "completed",
-            summary=ai_result.summary,
-            artifacts=_artifact_map(ai_result.artifacts),
-        )
-
-        if ctx.analysis is not None and ctx.analysis.signature_family == "unknown":
-            ctx.analysis.signature_family = ctx.family_match.family_id
-        if ctx.target.execution_plan and ctx.target.execution_plan.ai_mode == "scanner_only":
-            ctx.cost.set_route("scanner_only")
-            self._analysis_cache.save(
-                ctx.target,
-                bundle_hashes=ctx.bundle_hashes,
-                static_results=ctx.static_results,
-                signature_family=ctx.family_match.family_id,
-                template_name=ctx.family_match.template_name,
-                scan_report=ctx.scan_report.model_dump(mode="json") if hasattr(ctx.scan_report, "model_dump") else None,
-                signature_spec=ctx.analysis.signature_spec if ctx.analysis else None,
-            )
-            return ctx.analysis is not None
-
-        if ctx.analysis is None or ctx.hypothesis is None:
-            ctx.result.error = "AI analysis did not produce a usable hypothesis"
-            return False
-
-        ctx.cost.set_route("full_ai")
-        if not ctx.analysis.ready_for_codegen and ctx.mode_name != "auto":
-            decision = Decision(
-                stage="master",
-                decision_type=DecisionType.APPROVE_STAGE,
-                prompt=f"AI confidence is low ({ctx.hypothesis.confidence:.0%}). Continue with code generation?",
-                options=["continue", "stop"],
-                default="continue",
-            )
-            outcome = await ctx.mode.gate(decision, ctx.state)
-            if outcome == "stop":
-                ctx.result.error = "user declined low-confidence result"
-                return False
-
-        if ctx.analysis.manual_review_required or (
-            ctx.analysis.signature_spec and ctx.analysis.signature_spec.codegen_strategy == "manual_required"
-        ):
-            ctx.result.error = "signature spec requires manual implementation"
-            ctx.target.trace = ctx.workflow.request_manual_review(
-                ctx.sid,
-                ctx.target.trace,
-                "signature_spec",
-                summary="Structured analysis marked this target as manual_required",
-            )
-            return False
-
-        self._analysis_cache.save(
-            ctx.target,
-            bundle_hashes=ctx.bundle_hashes,
-            static_results=ctx.static_results,
-            signature_family=ctx.analysis.signature_family,
-            template_name=ctx.hypothesis.template_name,
-            scan_report=ctx.scan_report.model_dump(mode="json") if hasattr(ctx.scan_report, "model_dump") else None,
-            signature_spec=ctx.analysis.signature_spec,
-        )
-        return True
-
-    async def _run_codegen_and_verify(self, ctx: MasterRunContext) -> bool:
-        if ctx.target.execution_plan and ctx.target.execution_plan.skip_codegen:
-            ctx.cost.set_stage_timing("s7_codegen", 0, status="skipped", exit_reason="skip_codegen")
-            ctx.cost.set_stage_timing("s8_verify", 0, status="skipped", exit_reason="skip_codegen")
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s7_codegen",
-                "skipped",
-                summary="Code generation disabled by compliance-aware execution plan",
-            )
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s8_verify",
-                "skipped",
-                summary="Verification disabled by compliance-aware execution plan",
-            )
-            return True
-
-        if ctx.analysis is None or ctx.hypothesis is None:
-            ctx.result.error = "code generation prerequisites are missing"
-            return False
-        if ctx.ai_client is None:
-            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
-
-        codegen_stage = CodeGenStage(ctx.ai_client, ctx.cost, ctx.budget, self._retriever)
-        verify_stage = VerifyStage(ctx.ai_client, ctx.cost, ctx.budget)
-
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s7_codegen", "running")
-        ctx.state.current_stage_index = 6
-        self._store.save(ctx.state)
-        codegen_result = await self._execute_stage_with_metrics(
-            ctx,
-            codegen_stage,
-            ctx.state,
-            ctx.mode,
-            hypothesis=ctx.hypothesis,
-            static_results=ctx.static_results,
-            target=ctx.target,
-            dynamic=ctx.dynamic,
-        )
-        if not codegen_result.success:
-            ctx.result.error = codegen_result.error
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s7_codegen",
-                "failed",
-                summary=ctx.result.error or "",
-            )
-            return False
-
-        ctx.generated = codegen_result.next_input.get("generated")
-        if ctx.generated is None:
-            ctx.result.error = "code generation did not return crawler artifacts"
-            return False
-
-        if ctx.hypothesis and ctx.hypothesis.template_name:
-            ctx.cost.set_route("template_codegen")
-        ctx.result.output_dir = ctx.output_dir
-        ctx.target.trace = ctx.workflow.checkpoint(
-            ctx.sid,
-            ctx.target.trace,
-            "s7_codegen",
-            "completed",
-            summary=codegen_result.summary,
-            artifacts=_artifact_map(codegen_result.artifacts),
-        )
-
-        ctx.target.compliance.stability_runs = ctx.governor.stability_runs(ctx.target, ctx.target.execution_plan)
-        max_verify_retries = max(1, ctx.target.compliance.max_auto_verify_retries)
-        for attempt in range(max_verify_retries):
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s8_verify",
-                "running",
-                summary=f"attempt {attempt + 1}/{max_verify_retries}",
-            )
-            ctx.state.current_stage_index = 7
-            self._store.save(ctx.state)
-            verify_result = await self._execute_stage_with_metrics(
-                ctx,
-                verify_stage,
-                ctx.state,
-                ctx.mode,
-                generated=ctx.generated,
-                target=ctx.target,
-                hypothesis=ctx.hypothesis,
-                live_verify=ctx.target.compliance.allow_live_verification,
-            )
-            if not verify_result.success:
-                ctx.result.error = verify_result.error
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s8_verify",
-                    "failed",
-                    summary=ctx.result.error or "",
-                )
-                return False
-
-            ctx.generated = verify_result.next_input.get("generated", ctx.generated)
-            verification = verify_result.next_input.get("verification")
-            verification_analysis = verify_result.next_input.get("verification_analysis")
-            ctx.verified = ctx.generated.verified
-            ctx.target.trace = ctx.workflow.checkpoint(
-                ctx.sid,
-                ctx.target.trace,
-                "s8_verify",
-                "completed" if ctx.verified else "failed",
-                summary=verify_result.summary,
-                artifacts=_artifact_map(verify_result.artifacts),
-            )
-            if ctx.verified:
-                break
-            if verification_analysis and verification_analysis.retry_strategy == "switch_to_bridge":
-                ctx.hypothesis.codegen_strategy = "js_bridge"
-                ctx.hypothesis.signature_spec = build_signature_spec(ctx.target, ctx.hypothesis, ctx.static_results, ctx.dynamic)
-                ctx.analysis.ai_hypothesis = ctx.hypothesis
-                ctx.analysis.signature_spec = ctx.hypothesis.signature_spec
-                ctx.analysis.overall_confidence = ctx.hypothesis.confidence
-                ctx.analysis.ready_for_codegen = (
-                    ctx.hypothesis.confidence > 0.5
-                    and ctx.hypothesis.signature_spec.codegen_strategy != "manual_required"
-                )
-                ctx.analysis.manual_review_required = ctx.hypothesis.signature_spec.codegen_strategy == "manual_required"
-
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s7_codegen",
-                    "running",
-                    summary="retry with js_bridge",
-                )
-                ctx.state.current_stage_index = 6
-                self._store.save(ctx.state)
-                codegen_result = await codegen_stage.execute(
-                    ctx.state,
-                    ctx.mode,
-                    hypothesis=ctx.hypothesis,
-                    static_results=ctx.static_results,
-                    target=ctx.target,
-                    dynamic=ctx.dynamic,
-                )
-                if not codegen_result.success:
-                    ctx.result.error = codegen_result.error
-                    ctx.target.trace = ctx.workflow.checkpoint(
-                        ctx.sid,
-                        ctx.target.trace,
-                        "s7_codegen",
-                        "failed",
-                        summary=ctx.result.error or "",
-                    )
-                    return False
-                ctx.generated = codegen_result.next_input.get("generated", ctx.generated)
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s7_codegen",
-                    "completed",
-                    summary=f"{codegen_result.summary} (retry)",
-                    artifacts=_artifact_map(codegen_result.artifacts),
-                )
-                continue
-            if verification_analysis and verification_analysis.retry_strategy == "patch_code":
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s7_codegen",
-                    "running",
-                    summary="retry with patch_code",
-                )
-                ctx.state.current_stage_index = 6
-                self._store.save(ctx.state)
-                codegen_result = await self._execute_stage_with_metrics(
-                    ctx,
-                    codegen_stage,
-                    ctx.state,
-                    ctx.mode,
-                    hypothesis=ctx.hypothesis,
-                    static_results=ctx.static_results,
-                    target=ctx.target,
-                    dynamic=ctx.dynamic,
-                )
-                if not codegen_result.success:
-                    ctx.result.error = codegen_result.error
-                    return False
-                ctx.generated = codegen_result.next_input.get("generated", ctx.generated)
-                ctx.target.trace = ctx.workflow.checkpoint(
-                    ctx.sid,
-                    ctx.target.trace,
-                    "s7_codegen",
-                    "completed",
-                    summary=f"{codegen_result.summary} (patch retry)",
-                    artifacts=_artifact_map(codegen_result.artifacts),
-                )
-                continue
-            if verification_analysis and verification_analysis.retry_strategy == "give_up":
-                break
-            if verification is not None and not verification.retry_reason:
-                break
-
-        ctx.generated.verified = ctx.verified
-        if ctx.verified and ctx.target.execution_plan.should_persist_adapter:
-            self._adapter_registry.register(ctx.target, ctx.generated, ctx.analysis, verified=True)
-        return True
-
-    async def _write_memory(self, ctx: MasterRunContext) -> None:
-        if ctx.analysis is None:
-            return
-        if ctx.ai_client is None:
-            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
-        mem_agent = MemoryWriterAgent(ctx.ai_client, ctx.cost, ctx.budget, writer=self._mem_writer)
-        await mem_agent.write(
-            session_id=ctx.sid,
-            target=ctx.target,
-            analysis=ctx.analysis,
-            hypothesis=ctx.analysis.ai_hypothesis if ctx.analysis else None,
-            cost=ctx.cost,
-            verified=ctx.verified,
-        )
-        ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "memory_write", "completed", summary="Memory updated")
-        ctx.state.current_stage_index = 8
-        self._store.save(ctx.state)
-
-    async def _execute_stage_with_metrics(self, ctx: MasterRunContext, stage, *args, **kwargs):
-        started = time.monotonic()
-        result = await stage.execute(*args, **kwargs)
-        ctx.cost.set_stage_timing(
-            stage.name,
-            int((time.monotonic() - started) * 1000),
-            status="completed" if result.success else "failed",
-            exit_reason=result.error or "",
-        )
-        return result
-
-    async def _check_bundle_cache(self, bundles):
-        uncached = []
-        cached_static: dict[str, StaticAnalysis] = {}
-        for bundle in bundles:
-            cached = self._db.get_bundle_cache(bundle.content_hash)
-            if cached and cached.analysis_json:
-                try:
-                    static = StaticAnalysis.model_validate_json(cached.analysis_json)
-                    cached_static[bundle.bundle_id] = static
-                    log.info("static_cache_hit", bundle_id=bundle.bundle_id)
-                    continue
-                except ValueError:
-                    log.exception("static_cache_invalid", bundle_id=bundle.bundle_id)
-            uncached.append(bundle)
-        return uncached, cached_static
-
-    async def _reuse_adapter(
-        self,
-        *,
-        sid: str,
-        target: TargetSite,
-        adapter,
-        output_dir: Path,
-    ) -> tuple[GeneratedCode, bool]:
-        materialized = self._adapter_registry.materialize(adapter, output_dir)
-        if materialized.session_state_path:
-            target.session_state.storage_state_path = str(materialized.session_state_path)
-
-        generated = GeneratedCode(
-            session_id=sid,
-            output_mode=adapter.output_mode,
-            crawler_script_path=materialized.crawler_script_path,
-            bridge_server_path=materialized.bridge_server_path,
-            manifest_path=materialized.manifest_path,
-            session_state_path=materialized.session_state_path,
-            verified=False,
-            verification_notes="adapter registry reuse candidate",
-        )
-
-        verifier = VerificationEngine()
-        verification = await verifier.verify(
-            generated,
-            target,
-            live_verify=target.compliance.allow_live_verification,
-        )
-        generated.verified = verification.ok
-        generated.verification_notes = verification.report
-        return generated, verification.ok
-
 
 def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_site_profile) -> str:
     login_context = "unknown"
@@ -1250,58 +360,4 @@ def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_si
     return enriched
 
 
-def _has_static_candidates(static_results: dict[str, StaticAnalysis]) -> bool:
-    return any(analysis.token_candidates for analysis in static_results.values())
-
-
-def _top_static_confidence(static_results: dict[str, StaticAnalysis]) -> float:
-    best = 0.0
-    for analysis in static_results.values():
-        for candidate in analysis.token_candidates:
-            best = max(best, candidate.confidence)
-    return best
-
-
-def _bundle_hashes(bundles) -> list[str]:
-    hashes: list[str] = []
-    for bundle in bundles:
-        content_hash = getattr(bundle, "content_hash", "")
-        if content_hash and content_hash not in hashes:
-            hashes.append(content_hash)
-    return hashes
-
-
-def _should_static_only(ctx: MasterRunContext) -> bool:
-    plan = ctx.target.execution_plan
-    if plan is None or not plan.skip_codegen:
-        return False
-    if ctx.analysis_cache_hit:
-        return True
-    if ctx.memory_ctx.get("known_pattern"):
-        return True
-    return _top_static_confidence(ctx.static_results) >= 0.75
-
-
-def _artifact_map(artifacts: dict[str, Path]) -> dict[str, str]:
-    return {key: str(path) for key, path in artifacts.items()}
-
-
-def _escalate_execution_plan(plan: ExecutionPlan, reason: str) -> ExecutionPlan:
-    escalated = plan.model_copy(deep=True)
-    escalated.tier = ExecutionTier.BROWSER_FULL
-    escalated.adapter_hit = False
-    escalated.adapter_key = ""
-    escalated.requires_browser = True
-    escalated.requires_dynamic_analysis = True
-    escalated.requires_ai = True
-    escalated.skip_fetch_and_static = False
-    escalated.skip_codegen = False
-    escalated.should_persist_adapter = True
-    escalated.enable_trace_capture = True
-    escalated.enable_action_flow = True
-    escalated.enable_target_confirmation = True
-    escalated.max_crawl_retries = max(2, escalated.max_crawl_retries)
-    escalated.max_session_rotations = max(2, escalated.max_session_rotations)
-    escalated.verification_mode = VerificationMode.STANDARD
-    escalated.reasons.append(reason)
-    return escalated
+__all__ = ["MasterOrchestrator", "MasterResult"]

@@ -21,16 +21,19 @@ from rich.panel import Panel
 from rich.table import Table
 
 from axelo.config import settings
+from axelo.domain.services import RiskControlService
 from axelo.models.run_config import RunConfig
+from axelo.presentation import verification_status_markup, verification_was_skipped
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 console = Console()
+_RISK_CONTROL = RiskControlService()
 
 _PROJECT_ROOT = Path(__file__).parent.parent
-_STEP_TOTAL = 10
+_STEP_TOTAL = 11
 
 _BANNER = """
 [bold cyan]    _              _         _  ____  ____                              [/bold cyan]
@@ -53,6 +56,25 @@ _MODES = [
     ("interactive", "关键节点人工确认，适合第一次跑"),
     ("auto", "全自动执行，适合目标很明确的重复任务"),
     ("manual", "每一步都等待审批，控制权最高"),
+]
+
+_USE_CASE_OPTIONS = [
+    ("research", "研究 / 协议理解"),
+    ("internal", "自有系统 / 内部排查"),
+    ("partner", "授权合作方 / 受控接入"),
+    ("debug", "调试 / 复现问题"),
+]
+
+_AUTHORIZATION_OPTIONS = [
+    ("authorized", "已授权（允许受控回放）"),
+    ("pending", "待确认（先做发现）"),
+    ("unauthorized", "未授权（仅做合规诊断）"),
+]
+
+_REPLAY_OPTIONS = [
+    ("discover_only", "discover_only  -  只做发现与静态分析"),
+    ("authorized_replay", "authorized_replay  -  允许受控 codegen 和 live verify"),
+    ("official_api_only", "official_api_only  -  只走官方 / 授权接口通道"),
 ]
 
 _BUDGETS = [
@@ -277,6 +299,21 @@ def _crawl_rate_label(crawl_rate: str) -> str:
     return mapping.get(crawl_rate, crawl_rate)
 
 
+def _use_case_label(use_case: str) -> str:
+    mapping = {value: label for value, label in _USE_CASE_OPTIONS}
+    return mapping.get(use_case, use_case)
+
+
+def _authorization_label(status: str) -> str:
+    mapping = {value: label for value, label in _AUTHORIZATION_OPTIONS}
+    return mapping.get(status, status)
+
+
+def _replay_mode_label(replay_mode: str) -> str:
+    mapping = {value: label for value, label in _REPLAY_OPTIONS}
+    return mapping.get(replay_mode, replay_mode)
+
+
 def _target_hint_label(target_hint: str) -> str:
     return target_hint or "[red]未指定[/red]"
 
@@ -285,6 +322,9 @@ def _launch_recommendations(
     url: str,
     goal: str,
     target_hint: str,
+    use_case: str,
+    authorization_status: str,
+    replay_mode: str,
     known_endpoint: str,
     requires_login: bool | None,
     mode: str,
@@ -296,7 +336,14 @@ def _launch_recommendations(
         recommendations.append(url_note)
     if not target_hint:
         recommendations.append("目标对象未指定。建议补商品 URL、搜索词、SKU 或类目锚点，避免系统抓到偏题接口。")
-    recommendations.append("当前默认是合规发现模式（pending + discover_only），不会直接做 live replay。")
+    if authorization_status == "authorized" and replay_mode == "authorized_replay":
+        recommendations.append("当前已开启受控授权回放，系统可以继续 codegen 和 live verification。")
+    elif replay_mode == "authorized_replay":
+        recommendations.append("你选了 authorized_replay，但授权状态不是已授权，本次仍会退回发现模式。")
+    elif replay_mode == "official_api_only":
+        recommendations.append("当前是 official_api_only，系统会优先输出官方或授权通道建议，不做站点回放。")
+    else:
+        recommendations.append("当前是合规发现模式，不会直接做 live replay。")
     if not known_endpoint:
         recommendations.append("如果你已经知道接口片段，补一个路径关键词会显著加快定位。")
     if ("商品" in goal or "价格" in goal) and _target_url_note(url):
@@ -305,6 +352,10 @@ def _launch_recommendations(
         recommendations.append("登录状态未知时，系统会先按匿名接口尝试；失败后再升级复杂度。")
     if mode == "auto" and budget <= 1:
         recommendations.append("低预算 + auto 更适合探测，不适合一开始就冲复杂站点。")
+    if mode == "auto" and replay_mode != "authorized_replay":
+        recommendations.append("auto 只会自动推进当前合规路径，不代表一定会生成 crawler 或执行回放。")
+    if use_case == "research" and authorization_status == "authorized":
+        recommendations.append("请确认研究用途下的授权上下文已可审计，避免后续混淆用途边界。")
     if not recommendations:
         recommendations.append("当前配置比较均衡，可以直接启动。")
     return recommendations[:4]
@@ -401,15 +452,37 @@ def _ask_crawl_rate() -> str:
     return _CRAWL_RATE_OPTIONS[idx - 1][0]
 
 
+def _ask_compliance() -> tuple[str, str, str]:
+    _show_step(9, "用途与授权", "这些设置会直接决定是否允许 codegen 和 live replay。")
+
+    console.print("  [bold white]用途说明[/bold white]")
+    use_case_idx = _choose([label for _, label in _USE_CASE_OPTIONS], default=1)
+    use_case = _USE_CASE_OPTIONS[use_case_idx - 1][0]
+
+    console.print("  [bold white]授权状态[/bold white]")
+    authorization_idx = _choose([label for _, label in _AUTHORIZATION_OPTIONS], default=2)
+    authorization_status = _AUTHORIZATION_OPTIONS[authorization_idx - 1][0]
+
+    console.print("  [bold white]回放模式[/bold white]")
+    replay_default = 2 if authorization_status == "authorized" else 1
+    replay_idx = _choose([label for _, label in _REPLAY_OPTIONS], default=replay_default)
+    replay_mode = _REPLAY_OPTIONS[replay_idx - 1][0]
+
+    if replay_mode == "authorized_replay" and authorization_status != "authorized":
+        console.print("  [yellow]提示：当前授权状态不是已授权，运行时仍会退回 discover_only。[/yellow]")
+
+    return use_case, authorization_status, replay_mode
+
+
 def _ask_mode() -> str:
-    _show_step(9, "运行模式", "目标不够具体时，优先用 interactive；目标明确后再切 auto。")
+    _show_step(10, "运行模式", "目标不够具体时，优先用 interactive；目标明确后再切 auto。")
     labels = [f"[green]{name}[/green]  -  {desc}" for name, desc in _MODES]
     idx = _choose(labels, default=1)
     return _MODES[idx - 1][0]
 
 
 def _ask_budget() -> float:
-    _show_step(10, "AI 费用预算上限", "预算越高，系统越敢走更重的 AI 分析路径。")
+    _show_step(11, "AI 费用预算上限", "预算越高，系统越敢走更重的 AI 分析路径。")
     idx = _choose([label for _, label in _BUDGETS], default=2)
     value, _ = _BUDGETS[idx - 1]
     if value is None:
@@ -446,9 +519,9 @@ def _show_summary(
     config_table.add_row("目标 URL", f"[yellow]{url}[/yellow]")
     config_table.add_row("逆向目标", goal)
     config_table.add_row("目标对象", _target_hint_label(target_hint))
-    config_table.add_row("用途说明", use_case)
-    config_table.add_row("授权状态", authorization_status)
-    config_table.add_row("回放模式", replay_mode)
+    config_table.add_row("用途说明", _use_case_label(use_case))
+    config_table.add_row("授权状态", _authorization_label(authorization_status))
+    config_table.add_row("回放模式", _replay_mode_label(replay_mode))
     config_table.add_row("接口线索", _endpoint_label(known_endpoint))
     config_table.add_row("反爬类型", _antibot_label(antibot_type))
     config_table.add_row("登录需求", _login_label(requires_login))
@@ -462,6 +535,9 @@ def _show_summary(
         url=url,
         goal=goal,
         target_hint=target_hint,
+        use_case=use_case,
+        authorization_status=authorization_status,
+        replay_mode=replay_mode,
         known_endpoint=known_endpoint,
         requires_login=requires_login,
         mode=mode,
@@ -614,13 +690,30 @@ def _load_verify_report_text(session_dir: Path) -> str:
         return ""
 
 
+def _select_insight_checkpoint(result, checkpoints: list[dict]) -> dict:
+    failed_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.get("status") == "failed"]
+    if failed_checkpoints:
+        return failed_checkpoints[-1]
+
+    if verification_was_skipped(result):
+        for stage_name in ("s8_verify", "s7_codegen", "planning"):
+            stage_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.get("stage_name") == stage_name]
+            if stage_checkpoints:
+                return stage_checkpoints[-1]
+
+    skipped_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.get("status") == "skipped"]
+    if skipped_checkpoints:
+        return skipped_checkpoints[-1]
+
+    return checkpoints[-1] if checkpoints else {}
+
+
 def _failure_insight(result, session_dir: Path) -> dict[str, object]:
     trace_data = _safe_load_json(session_dir / "workflow_trace.json")
     run_report = _safe_load_json(session_dir / "run_report.json")
     verify_text = _load_verify_report_text(session_dir)
     checkpoints = trace_data.get("checkpoints") or []
-    failed_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.get("status") == "failed"]
-    chosen_checkpoint = failed_checkpoints[-1] if failed_checkpoints else (checkpoints[-1] if checkpoints else {})
+    chosen_checkpoint = _select_insight_checkpoint(result, checkpoints)
     latest_stage = chosen_checkpoint.get("stage_name", "unknown")
     latest_summary = chosen_checkpoint.get("summary", "")
 
@@ -636,13 +729,19 @@ def _failure_insight(result, session_dir: Path) -> dict[str, object]:
         "优先检查 session 目录里的 run_report.json、workflow_trace.json 和 verify_report.txt。",
     ]
 
-    if "getaddrinfo failed" in signal_text:
+    if verification_was_skipped(result):
+        cause = "当前执行计划按合规策略关闭了 codegen 或 live verification，这次运行完成的是发现 / 静态分析，不是验证失败。"
+        actions = [
+            "如果你当前只需要 bundle、目标请求和接口线索，这次输出已经可以继续使用。",
+            "如果你需要生成 crawler 并做受控回放，请把授权状态设为已授权，并把回放模式切到 authorized_replay 后重跑。",
+        ]
+    elif "getaddrinfo failed" in signal_text:
         cause = "生成代码中的 API 主机不可解析，通常是把站点域名或移动端 API host 猜错了。"
         actions = [
             "优先检查观测到的 target requests 是否已经被正确锚定到生成代码常量。",
             "如果入口页过泛，请改用商品页、搜索页或补充更明确的目标对象提示。",
         ]
-    elif "x5secdata" in signal_text or "/_____tmd_____/punish" in signal_text or "rgv587_error" in signal_text or "fail_sys_user_validate" in signal_text:
+    elif _RISK_CONTROL.detect_text(signal_text):
         cause = "回放请求已经命中了站点的风控挑战页，当前失败不是 DNS 或脚本崩溃，而是服务端把这次请求判成了挑战流量。"
         actions = [
             "停止自动重试，先把这次失败归档为风控命中，不要继续堆请求。",
@@ -699,7 +798,11 @@ def _failure_insight(result, session_dir: Path) -> dict[str, object]:
         ]
 
     return {
-        "title": "验证未通过摘要" if result.completed else "失败摘要",
+        "title": (
+            "验证已跳过摘要"
+            if verification_was_skipped(result)
+            else ("验证未通过摘要" if result.completed else "失败摘要")
+        ),
         "stage": latest_stage,
         "summary": latest_summary or (result.error or "未提供摘要"),
         "cause": cause,
@@ -791,11 +894,9 @@ def main() -> None:
     requires_login = _ask_login()
     output_format = _ask_output_format()
     crawl_rate = _ask_crawl_rate()
+    use_case, authorization_status, replay_mode = _ask_compliance()
     mode = _ask_mode()
     budget = _ask_budget()
-    use_case = "research"
-    authorization_status = "pending"
-    replay_mode = "discover_only"
 
     _show_summary(
         url=url,
@@ -852,7 +953,7 @@ def main() -> None:
         Panel(
             f"[white]会话:[/white] [cyan]{session_id}[/cyan]\n"
             f"[white]目标对象:[/white] {target_hint or '未指定'}\n"
-            f"[white]授权/回放:[/white] {authorization_status} / {replay_mode}\n"
+            f"[white]授权/回放:[/white] {_authorization_label(authorization_status)} / {_replay_mode_label(replay_mode)}\n"
             f"[white]成本策略:[/white] balanced\n"
             f"[white]日志:[/white] {log_path}",
             title="[bold cyan]已启动[/bold cyan]",
@@ -871,6 +972,9 @@ def main() -> None:
 
     if result.completed and result.verified:
         console.print(f"\n[bold green]✓ 逆向完成[/bold green]  会话: [cyan]{result.session_id}[/cyan]")
+    elif result.completed and verification_was_skipped(result):
+        console.print(f"\n[bold cyan]✓ 流程完成，验证已跳过[/bold cyan]  会话: [cyan]{result.session_id}[/cyan]")
+        console.print(_render_failure_summary(result, session_dir))
     elif result.completed:
         console.print(f"\n[bold yellow]! 流程完成，但验证未通过[/bold yellow]  会话: [cyan]{result.session_id}[/cyan]")
         console.print(_render_failure_summary(result, session_dir))
@@ -881,7 +985,7 @@ def main() -> None:
     if result.difficulty:
         console.print(
             f"  难度: [yellow]{result.difficulty.level}[/yellow]  "
-            f"验证: {'[green]通过[/green]' if result.verified else '[red]未通过[/red]'}"
+            f"验证: {verification_status_markup(result)}"
         )
     if result.execution_plan:
         console.print(
