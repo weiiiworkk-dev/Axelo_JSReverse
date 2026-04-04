@@ -122,6 +122,7 @@ class MasterOrchestrator:
         requires_login: bool | None = None,
         output_format: str = "print",
         crawl_rate: str = "standard",
+        browser_profile: BrowserProfile | None = None,
     ) -> MasterResult:
         ctx = await self._initialize_run_context(
             url=url,
@@ -139,6 +140,7 @@ class MasterOrchestrator:
             requires_login=requires_login,
             output_format=output_format,
             crawl_rate=crawl_rate,
+            browser_profile=browser_profile,
         )
 
         short_circuit = await self._maybe_short_circuit(ctx)
@@ -193,6 +195,7 @@ class MasterOrchestrator:
         requires_login: bool | None,
         output_format: str,
         crawl_rate: str,
+        browser_profile: BrowserProfile | None,
     ) -> MasterRunContext:
         sid = session_id or str(uuid.uuid4())[:8]
         mode = create_mode(mode_name)
@@ -225,7 +228,7 @@ class MasterOrchestrator:
             use_case=use_case,
             authorization_status=authorization_status,
             replay_mode=replay_mode,
-            browser_profile=BrowserProfile(),
+            browser_profile=browser_profile.model_copy(deep=True) if browser_profile else BrowserProfile(),
             known_endpoint=known_endpoint,
             antibot_type=antibot_type,
             requires_login=requires_login,

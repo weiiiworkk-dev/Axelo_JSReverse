@@ -108,10 +108,33 @@ def run(
         "--crawl-rate",
         help="频率偏好: conservative/standard/aggressive",
     ),
+    profile: str = typer.Option(
+        "default",
+        "--profile",
+        help="浏览器环境模拟 profile 名称",
+    ),
+    seed: Optional[int] = typer.Option(
+        None,
+        "--seed",
+        help="覆盖 interaction simulation 的 pointer default seed",
+    ),
     log_level: str = typer.Option("info", "--log-level", "-l", help="日志级别"),
 ) -> None:
     """启动 JS 逆向流水线。"""
     _setup_logging(log_level)
+    from axelo.browser.profiles import PROFILES
+
+    if profile not in PROFILES:
+        choices = ", ".join(sorted(PROFILES.keys()))
+        console.print(
+            f"[bold red]无效的 profile[/bold red]: {profile}\n"
+            f"[dim]可选值: {choices}[/dim]"
+        )
+        raise typer.Exit(code=2)
+
+    selected_profile = PROFILES[profile].model_copy(deep=True)
+    if seed is not None:
+        selected_profile.interaction_simulation.pointer.default_seed = seed
 
     try:
         run_cfg = RunConfig(
@@ -133,6 +156,7 @@ def run(
         console.print(f"[bold red]参数校验失败[/bold red]\n{exc}")
         raise typer.Exit(code=2)
 
+    effective_seed = selected_profile.interaction_simulation.pointer.default_seed
     console.print(
         Panel(
             f"[white]目标 URL:[/white] [yellow]{run_cfg.url}[/yellow]\n"
@@ -141,7 +165,8 @@ def run(
             f"[white]逆向任务:[/white] {run_cfg.goal}\n"
             f"[white]目标对象:[/white] {run_cfg.target_hint or '未指定'}\n"
             f"[white]用途/授权:[/white] {run_cfg.use_case.value} / {run_cfg.authorization_status.value}\n"
-            f"[white]回放模式:[/white] {run_cfg.replay_mode.value}",
+            f"[white]回放模式:[/white] {run_cfg.replay_mode.value}\n"
+            f"[white]Profile / Seed:[/white] {profile} / {effective_seed}",
             title="[bold cyan]Axelo JSReverse[/bold cyan]",
             border_style="cyan",
         )
@@ -151,6 +176,7 @@ def run(
     kwargs = run_cfg.orchestrator_kwargs()
     kwargs["session_id"] = session_id
     kwargs["resume"] = resume
+    kwargs["browser_profile"] = selected_profile
     result = asyncio.run(orchestrator.run(**kwargs))
 
     if result.completed:
