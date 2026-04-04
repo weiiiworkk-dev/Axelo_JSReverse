@@ -49,17 +49,24 @@ class RequestReplayer:
         script_path: Path,
         target: TargetSite,
         timeout: float | None = None,
+        crawl_kwargs: dict[str, Any] | None = None,
+        init_kwargs: dict[str, Any] | None = None,
+        output_dir: Path | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> CrawlExecutionResult:
         if not script_path.exists():
             return CrawlExecutionResult(error="generated crawler file is missing")
 
         timeout = timeout or settings.verification_subprocess_timeout_sec
-        runtime_root = settings.session_dir(target.session_id) / "verification_runtime"
+        runtime_root = (output_dir or settings.session_dir(target.session_id) / "verification_runtime")
         runtime_root.mkdir(parents=True, exist_ok=True)
 
         payload = {
             "session_id": target.session_id,
             "output_format": target.output_format,
+            "crawl_kwargs": crawl_kwargs or {},
+            "init_kwargs": init_kwargs or {},
+            "output_dir": str(output_dir) if output_dir else "",
         }
 
         with tempfile.TemporaryDirectory(prefix="verify-", dir=runtime_root) as temp_dir_name:
@@ -82,7 +89,7 @@ class RequestReplayer:
                 str(payload_path),
                 str(result_path),
                 cwd=str(temp_dir),
-                env=_verification_env(),
+                env=_verification_env(extra_env),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -117,8 +124,20 @@ class RequestReplayer:
         script_path: Path,
         target: TargetSite,
         timeout: float = 15.0,
+        crawl_kwargs: dict[str, Any] | None = None,
+        init_kwargs: dict[str, Any] | None = None,
+        output_dir: Path | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> tuple[dict[str, str], "ReplayResult"]:
-        execution = await self.execute_crawl_subprocess(script_path, target, timeout=timeout)
+        execution = await self.execute_crawl_subprocess(
+            script_path,
+            target,
+            timeout=timeout,
+            crawl_kwargs=crawl_kwargs,
+            init_kwargs=init_kwargs,
+            output_dir=output_dir,
+            extra_env=extra_env,
+        )
         if execution.error:
             return {}, ReplayResult(ok=False, error=execution.error, status_code=0)
 
@@ -196,7 +215,7 @@ class ReplayResult:
         return f"{icon} HTTP {self.status_code} | preview={self.response_body[:200]}{output_note}"
 
 
-def _verification_env() -> dict[str, str]:
+def _verification_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     env: dict[str, str] = {
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
@@ -205,4 +224,6 @@ def _verification_env() -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
+    if extra_env:
+        env.update(extra_env)
     return env

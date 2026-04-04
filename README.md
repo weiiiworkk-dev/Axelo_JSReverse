@@ -2,6 +2,15 @@
 
 Axelo JSReverse is an AI-assisted reverse-engineering pipeline for web request signing, token generation, and obfuscated JavaScript analysis. It captures browser traffic and bundles, performs static and dynamic analysis, builds a structured signature model, generates runnable crawler code, and verifies the result before storing reusable knowledge.
 
+The repository now also includes a platform layer for cluster-oriented operation:
+
+- control-plane job submission
+- URL frontier seeding and scheduling
+- adapter version registry
+- account/proxy lease management
+- worker-based execution for reverse / crawl / bridge / session refresh
+- local event bus, object store, and warehouse sinks that mirror the future Redis/Kafka/S3/ClickHouse split
+
 ## What Is Implemented
 
 - Unified input contract through `RunConfig`
@@ -40,6 +49,29 @@ Primary runtime path:
 Facade path:
 
 - `axelo/session.py` remains available as a thin facade over the same runtime, not as a separate architecture
+
+## Platform Architecture
+
+The new platform layer lives under `axelo/platform/` and adds:
+
+- `PlatformRuntime`
+  - boots the platform metadata store, event bus, object store, and warehouse sink
+- `ControlPlaneService`
+  - accepts reverse, crawl, bridge, and session-refresh jobs
+- `FrontierService`
+  - deduplicates and persists frontier URLs before dispatch
+- `SchedulerService`
+  - turns ready frontier items into crawl jobs and requests reverse jobs when adapters are missing
+- `ResourceManager`
+  - manages account/proxy inventory and lease allocation
+- `ReverseWorker`
+  - wraps `MasterOrchestrator` and registers versioned adapters after verification
+- `CrawlWorker`
+  - executes verified `python_reconstruct` adapters directly
+- `BridgeWorker`
+  - handles `js_bridge` adapters as dedicated browser-bound jobs
+- `SessionRefreshWorker`
+  - refreshes browser session state and writes it back to account inventory
 
 ## Key Modules
 
@@ -118,6 +150,14 @@ Each run may produce:
 - adapter-registry entries under `workspace/adapter_registry/`
 - workflow checkpoint files under the workflow store
 
+Platform-mode outputs additionally include:
+
+- `workspace/platform/metadata.db`
+- `workspace/platform/events/*.jsonl`
+- `workspace/platform/object_store/**`
+- `workspace/platform/warehouse/**`
+- versioned adapter artifacts under the local object-store mirror
+
 ## Execution Tiers
 
 - `adapter_reuse`
@@ -151,6 +191,16 @@ python -c "from axelo.orchestrator.master import MasterOrchestrator; print('ok')
 pytest
 ```
 
+Platform smoke examples:
+
+```bash
+axelo submit reverse https://example.com --goal "分析签名"
+axelo frontier seed https://example.com/item/1 https://example.com/item/2
+axelo serve scheduler --once
+axelo worker run --type reverse-worker --once
+axelo worker run --type crawl-worker --once
+```
+
 ## Requirements
 
 - Python 3.11+
@@ -171,6 +221,13 @@ Common configuration lives in `.env` and uses the `AXELO_` prefix:
 - `AXELO_MAX_DYNAMIC_RETRIES`
 - `AXELO_VERIFICATION_SUBPROCESS_TIMEOUT_SEC`
 - `AXELO_BUNDLE_DOWNLOAD_BYTE_CAP_KB`
+- `AXELO_PLATFORM_MODE`
+- `AXELO_PLATFORM_DATABASE_URL`
+- `AXELO_PLATFORM_ENVIRONMENT`
+- `AXELO_PLATFORM_REGION`
+- `AXELO_CONTROL_API_HOST`
+- `AXELO_CONTROL_API_PORT`
+- `AXELO_PLATFORM_POLL_INTERVAL_SEC`
 
 ## Notes
 

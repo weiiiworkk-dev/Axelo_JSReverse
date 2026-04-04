@@ -4,6 +4,8 @@
 
 Axelo JSReverse is a staged reverse-engineering system for browser-driven request discovery, JavaScript analysis, signature reconstruction, crawler generation, and result verification.
 
+The repository now also includes a platform layer that can wrap the canonical reverse-engineering runtime inside a control plane, a frontier scheduler, resource management services, and worker-based execution. The local implementation uses file/object-store mirrors and SQLModel-backed metadata so the same contracts can later move to Redis/Kafka/S3/ClickHouse style infrastructure.
+
 The current implementation is organized around a single primary orchestration path:
 
 - `axelo/orchestrator/master.py`
@@ -191,6 +193,36 @@ Important characteristics:
 - workflow status serialization
 - risk-control evidence and authorization context preserved in report payloads
 
+## Platform Plane
+
+Purpose:
+
+- submit and persist distributed jobs
+- deduplicate and schedule large URL frontiers
+- manage adapter versions, accounts, proxies, and leases
+- separate reverse, crawl, bridge, and session-refresh execution into workers
+- ingest normalized results into warehouse-ready sinks
+
+Main components:
+
+- `axelo/platform/runtime.py`
+- `axelo/platform/services.py`
+- `axelo/platform/storage.py`
+- `axelo/platform/workers.py`
+- `axelo/platform/control_api.py`
+
+Important characteristics:
+
+- `PlatformRuntime` boots the platform metadata store, event bus, object store, and warehouse sink
+- `ControlPlaneService` submits `reverse`, `crawl`, `bridge`, and `session_refresh` jobs
+- `FrontierService` is the only URL entrypoint and performs canonicalization plus deduplication
+- `SchedulerService` creates reverse jobs when adapters are missing and crawl jobs when verified adapters exist
+- `ReverseWorker` wraps `MasterOrchestrator` rather than replacing it
+- `CrawlWorker` executes verified standalone adapters directly
+- `BridgeWorker` isolates browser-bound adapters into a separate execution pool
+- `SessionRefreshWorker` updates cookies and Playwright storage state for account inventory
+- local file-backed implementations exist for events, artifacts, and warehouse sinks so the platform layer can be exercised without cluster infrastructure
+
 ## End-to-End Flow
 
 1. Input is collected through CLI or wizard into `RunConfig`
@@ -205,6 +237,7 @@ Important characteristics:
 10. Verified outputs are eligible for adapter-registry persistence
 11. Memory write-back stores reusable knowledge
 12. The orchestrator finalizes the run report and latest workflow checkpoint
+13. In platform mode, verified outputs can be registered as `AdapterVersion` records and then consumed by crawl workers through the frontier scheduler
 
 ## Main Runtime Models
 

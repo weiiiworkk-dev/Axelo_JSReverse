@@ -35,6 +35,9 @@ def main() -> int:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
+        init_kwargs = payload.get("init_kwargs") or {}
+        crawl_kwargs = payload.get("crawl_kwargs") or {}
+
         crawler_class = next(
             (
                 value
@@ -43,20 +46,28 @@ def main() -> int:
             ),
             None,
         )
-        if crawler_class is None:
-            raise RuntimeError("No class exposing crawl() was found")
+        instance = None
+        crawl_callable = None
+        if crawler_class is not None:
+            instance = crawler_class(**init_kwargs)
+            crawl_callable = instance.crawl
+        elif callable(getattr(module, "crawl", None)):
+            crawl_callable = getattr(module, "crawl")
+        else:
+            raise RuntimeError("No class or function exposing crawl() was found")
 
-        instance = crawler_class()
-        crawl_data = instance.crawl()
-        result["headers"] = getattr(instance, "_last_headers", {}) or {}
+        crawl_data = crawl_callable(**crawl_kwargs)
+        result["headers"] = getattr(instance, "_last_headers", {}) if instance is not None else {}
         result["crawl_data"] = _json_safe(crawl_data)
 
         output_path = save_output(
             crawl_data,
             payload["output_format"],
-            settings.session_dir(payload["session_id"]) / "output",
+            Path(payload.get("output_dir") or (settings.session_dir(payload["session_id"]) / "output")),
         )
         result["output_path"] = str(output_path) if output_path else None
+        if instance is not None and hasattr(instance, "close"):
+            instance.close()
     except Exception as exc:
         result["error"] = str(exc)
 
