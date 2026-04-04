@@ -45,6 +45,8 @@ def write_run_report(
             "requires_login": target.requires_login,
             "output_format": target.output_format,
             "crawl_rate": target.crawl_rate,
+            "crawl_item_limit": target.crawl_item_limit,
+            "crawl_page_limit": target.crawl_page_limit,
         },
         "site_profile": target.site_profile.model_dump(mode="json"),
         "compliance": target.compliance.model_dump(mode="json"),

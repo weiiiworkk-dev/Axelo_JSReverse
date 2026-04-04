@@ -167,3 +167,5 @@ class TargetSite(BaseModel):
     requires_login: bool | None = None
     output_format: str = "print"
     crawl_rate: str = "standard"
+    crawl_item_limit: int = 100
+    crawl_page_limit: int | None = None

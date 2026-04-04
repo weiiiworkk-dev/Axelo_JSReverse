@@ -68,6 +68,8 @@ class RunConfig(BaseModel):
     requires_login: bool | None = None
     output_format: OutputFormat = OutputFormat.PRINT
     crawl_rate: CrawlRate = CrawlRate.STANDARD
+    crawl_item_limit: int = 100
+    crawl_page_limit: int | None = None
 
     @field_validator("url")
     @classmethod
@@ -109,6 +111,20 @@ class RunConfig(BaseModel):
             raise ValueError("budget_usd must be > 0")
         return float(value)
 
+    @field_validator("crawl_item_limit")
+    @classmethod
+    def _validate_crawl_item_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("crawl_item_limit must be > 0")
+        return int(value)
+
+    @field_validator("crawl_page_limit")
+    @classmethod
+    def _validate_crawl_page_limit(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("crawl_page_limit must be > 0 when provided")
+        return int(value) if value is not None else None
+
     def orchestrator_kwargs(self) -> dict:
         return {
             "url": self.url,
@@ -124,4 +140,6 @@ class RunConfig(BaseModel):
             "requires_login": self.requires_login,
             "output_format": self.output_format.value,
             "crawl_rate": self.crawl_rate.value,
+            "crawl_item_limit": self.crawl_item_limit,
+            "crawl_page_limit": self.crawl_page_limit,
         }

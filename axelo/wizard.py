@@ -118,6 +118,18 @@ _CRAWL_RATE_OPTIONS = [
     ("aggressive", "激进：最快速度，不添加延迟"),
 ]
 
+_CRAWL_VOLUME_OPTIONS = [
+    (20, "先验证链路（约 20 条）"),
+    (100, "小批量（约 100 条）"),
+    (500, "中批量（约 500 条）"),
+    (1000, "大批量（约 1000 条）"),
+    (None, "自定义数量"),
+]
+
+_DEFAULT_WIZARD_USE_CASE = "internal"
+_DEFAULT_WIZARD_AUTHORIZATION = "authorized"
+_DEFAULT_WIZARD_REPLAY_MODE = "authorized_replay"
+
 _PIPELINE_STAGE_ORDER = [
     ("planning", "任务规划"),
     ("s1_crawl", "页面爬取"),
@@ -239,9 +251,19 @@ def _specificity_label(url: str, known_endpoint: str, target_hint: str) -> str:
     return "[cyan]中[/cyan]"
 
 
-def _runtime_label(url: str, goal: str, mode: str, known_endpoint: str, target_hint: str) -> str:
+def _runtime_label(
+    url: str,
+    goal: str,
+    mode: str,
+    known_endpoint: str,
+    target_hint: str,
+    crawl_item_limit: int,
+    crawl_page_limit: int | None,
+) -> str:
     if mode == "manual":
         return "手动推进，耗时取决于审批频率"
+    if crawl_item_limit >= 1000 or (crawl_page_limit is not None and crawl_page_limit >= 20):
+        return "约 6-12 分钟，且更依赖分页与风控稳定性"
     if known_endpoint and target_hint:
         return "约 2-5 分钟"
     if _target_hint_required(url, goal) and not target_hint:
@@ -299,6 +321,22 @@ def _crawl_rate_label(crawl_rate: str) -> str:
     return mapping.get(crawl_rate, crawl_rate)
 
 
+def _crawl_item_limit_label(crawl_item_limit: int) -> str:
+    if crawl_item_limit >= 1000:
+        return f"大批量（约 {crawl_item_limit} 条）"
+    if crawl_item_limit >= 500:
+        return f"中批量（约 {crawl_item_limit} 条）"
+    if crawl_item_limit >= 100:
+        return f"小批量（约 {crawl_item_limit} 条）"
+    return f"链路验证 / 抽样（约 {crawl_item_limit} 条）"
+
+
+def _crawl_page_limit_label(crawl_page_limit: int | None) -> str:
+    if crawl_page_limit is None:
+        return "自动判断"
+    return f"最多 {crawl_page_limit} 页"
+
+
 def _use_case_label(use_case: str) -> str:
     mapping = {value: label for value, label in _USE_CASE_OPTIONS}
     return mapping.get(use_case, use_case)
@@ -322,13 +360,12 @@ def _launch_recommendations(
     url: str,
     goal: str,
     target_hint: str,
-    use_case: str,
-    authorization_status: str,
-    replay_mode: str,
     known_endpoint: str,
     requires_login: bool | None,
     mode: str,
     budget: float,
+    crawl_item_limit: int,
+    crawl_page_limit: int | None,
 ) -> list[str]:
     recommendations: list[str] = []
     url_note = _target_url_note(url)
@@ -336,26 +373,19 @@ def _launch_recommendations(
         recommendations.append(url_note)
     if not target_hint:
         recommendations.append("目标对象未指定。建议补商品 URL、搜索词、SKU 或类目锚点，避免系统抓到偏题接口。")
-    if authorization_status == "authorized" and replay_mode == "authorized_replay":
-        recommendations.append("当前已开启受控授权回放，系统可以继续 codegen 和 live verification。")
-    elif replay_mode == "authorized_replay":
-        recommendations.append("你选了 authorized_replay，但授权状态不是已授权，本次仍会退回发现模式。")
-    elif replay_mode == "official_api_only":
-        recommendations.append("当前是 official_api_only，系统会优先输出官方或授权通道建议，不做站点回放。")
-    else:
-        recommendations.append("当前是合规发现模式，不会直接做 live replay。")
+    recommendations.append("当前导览默认按受控回放路径启动；如需只做发现或只走官方接口，可改用 CLI 参数覆盖。")
     if not known_endpoint:
         recommendations.append("如果你已经知道接口片段，补一个路径关键词会显著加快定位。")
+    if crawl_item_limit >= 500:
+        recommendations.append("这次抓取规模偏大，建议优先锚定搜索页、类目页或稳定接口，再放量抓取。")
+    if crawl_page_limit is None:
+        recommendations.append("翻页上限当前交给系统自动判断；如果站点分页很多，建议后续显式限制页数。")
     if ("商品" in goal or "价格" in goal) and _target_url_note(url):
         recommendations.append("商品和价格任务优先用商品详情页、搜索结果页或类目页，命中率通常更高。")
     if requires_login is None:
         recommendations.append("登录状态未知时，系统会先按匿名接口尝试；失败后再升级复杂度。")
     if mode == "auto" and budget <= 1:
         recommendations.append("低预算 + auto 更适合探测，不适合一开始就冲复杂站点。")
-    if mode == "auto" and replay_mode != "authorized_replay":
-        recommendations.append("auto 只会自动推进当前合规路径，不代表一定会生成 crawler 或执行回放。")
-    if use_case == "research" and authorization_status == "authorized":
-        recommendations.append("请确认研究用途下的授权上下文已可审计，避免后续混淆用途边界。")
     if not recommendations:
         recommendations.append("当前配置比较均衡，可以直接启动。")
     return recommendations[:4]
@@ -452,26 +482,30 @@ def _ask_crawl_rate() -> str:
     return _CRAWL_RATE_OPTIONS[idx - 1][0]
 
 
-def _ask_compliance() -> tuple[str, str, str]:
-    _show_step(9, "用途与授权", "这些设置会直接决定是否允许 codegen 和 live replay。")
+def _ask_crawl_scope() -> tuple[int, int | None]:
+    _show_step(9, "抓取规模", "告诉系统这次更像链路验证、小批量抓取，还是要做较大规模分页采集。")
 
-    console.print("  [bold white]用途说明[/bold white]")
-    use_case_idx = _choose([label for _, label in _USE_CASE_OPTIONS], default=1)
-    use_case = _USE_CASE_OPTIONS[use_case_idx - 1][0]
+    idx = _choose([label for _, label in _CRAWL_VOLUME_OPTIONS], default=2)
+    crawl_item_limit, _ = _CRAWL_VOLUME_OPTIONS[idx - 1]
+    if crawl_item_limit is None:
+        while True:
+            raw = input("  目标抓取数量（条）: ").strip()
+            if raw.isdigit() and int(raw) > 0:
+                crawl_item_limit = int(raw)
+                break
+            console.print("  [red]请输入大于 0 的整数。[/red]")
 
-    console.print("  [bold white]授权状态[/bold white]")
-    authorization_idx = _choose([label for _, label in _AUTHORIZATION_OPTIONS], default=2)
-    authorization_status = _AUTHORIZATION_OPTIONS[authorization_idx - 1][0]
+    while True:
+        raw_page_limit = input("  翻页上限（直接回车表示自动判断）: ").strip()
+        if raw_page_limit == "":
+            crawl_page_limit = None
+            break
+        if raw_page_limit.isdigit() and int(raw_page_limit) > 0:
+            crawl_page_limit = int(raw_page_limit)
+            break
+        console.print("  [red]请输入大于 0 的整数，或直接回车交给系统自动判断。[/red]")
 
-    console.print("  [bold white]回放模式[/bold white]")
-    replay_default = 2 if authorization_status == "authorized" else 1
-    replay_idx = _choose([label for _, label in _REPLAY_OPTIONS], default=replay_default)
-    replay_mode = _REPLAY_OPTIONS[replay_idx - 1][0]
-
-    if replay_mode == "authorized_replay" and authorization_status != "authorized":
-        console.print("  [yellow]提示：当前授权状态不是已授权，运行时仍会退回 discover_only。[/yellow]")
-
-    return use_case, authorization_status, replay_mode
+    return crawl_item_limit, crawl_page_limit
 
 
 def _ask_mode() -> str:
@@ -502,14 +536,13 @@ def _show_summary(
     url: str,
     goal: str,
     target_hint: str,
-    use_case: str,
-    authorization_status: str,
-    replay_mode: str,
     known_endpoint: str,
     antibot_type: str,
     requires_login: bool | None,
     output_format: str,
     crawl_rate: str,
+    crawl_item_limit: int,
+    crawl_page_limit: int | None,
     mode: str,
     budget: float,
 ) -> None:
@@ -519,14 +552,14 @@ def _show_summary(
     config_table.add_row("目标 URL", f"[yellow]{url}[/yellow]")
     config_table.add_row("逆向目标", goal)
     config_table.add_row("目标对象", _target_hint_label(target_hint))
-    config_table.add_row("用途说明", _use_case_label(use_case))
-    config_table.add_row("授权状态", _authorization_label(authorization_status))
-    config_table.add_row("回放模式", _replay_mode_label(replay_mode))
     config_table.add_row("接口线索", _endpoint_label(known_endpoint))
     config_table.add_row("反爬类型", _antibot_label(antibot_type))
     config_table.add_row("登录需求", _login_label(requires_login))
     config_table.add_row("输出格式", _output_label(output_format))
     config_table.add_row("爬取频率", _crawl_rate_label(crawl_rate))
+    config_table.add_row("抓取规模", _crawl_item_limit_label(crawl_item_limit))
+    config_table.add_row("翻页上限", _crawl_page_limit_label(crawl_page_limit))
+    config_table.add_row("执行策略", "默认受控回放")
     config_table.add_row("运行模式", f"[green]{_mode_label(mode)}[/green]")
     config_table.add_row("费用预算", f"[cyan]${budget:.1f}[/cyan]")
     config_table.add_row("成本策略", "balanced")
@@ -535,18 +568,17 @@ def _show_summary(
         url=url,
         goal=goal,
         target_hint=target_hint,
-        use_case=use_case,
-        authorization_status=authorization_status,
-        replay_mode=replay_mode,
         known_endpoint=known_endpoint,
         requires_login=requires_login,
         mode=mode,
         budget=budget,
+        crawl_item_limit=crawl_item_limit,
+        crawl_page_limit=crawl_page_limit,
     )
     insight_lines = [
         f"目标精确度: {_specificity_label(url, known_endpoint, target_hint)}",
         f"风险等级: {_risk_label(url, antibot_type, requires_login, target_hint)}",
-        f"预估耗时: {_runtime_label(url, goal, mode, known_endpoint, target_hint)}",
+        f"预估耗时: {_runtime_label(url, goal, mode, known_endpoint, target_hint, crawl_item_limit, crawl_page_limit)}",
         "",
         "[bold white]启动建议[/bold white]",
         *[f"- {item}" for item in recommendations],
@@ -894,7 +926,10 @@ def main() -> None:
     requires_login = _ask_login()
     output_format = _ask_output_format()
     crawl_rate = _ask_crawl_rate()
-    use_case, authorization_status, replay_mode = _ask_compliance()
+    crawl_item_limit, crawl_page_limit = _ask_crawl_scope()
+    use_case = _DEFAULT_WIZARD_USE_CASE
+    authorization_status = _DEFAULT_WIZARD_AUTHORIZATION
+    replay_mode = _DEFAULT_WIZARD_REPLAY_MODE
     mode = _ask_mode()
     budget = _ask_budget()
 
@@ -902,14 +937,13 @@ def main() -> None:
         url=url,
         goal=goal,
         target_hint=target_hint,
-        use_case=use_case,
-        authorization_status=authorization_status,
-        replay_mode=replay_mode,
         known_endpoint=known_endpoint,
         antibot_type=antibot_type,
         requires_login=requires_login,
         output_format=output_format,
         crawl_rate=crawl_rate,
+        crawl_item_limit=crawl_item_limit,
+        crawl_page_limit=crawl_page_limit,
         mode=mode,
         budget=budget,
     )
@@ -935,6 +969,8 @@ def main() -> None:
             requires_login=requires_login,
             output_format=output_format,
             crawl_rate=crawl_rate,
+            crawl_item_limit=crawl_item_limit,
+            crawl_page_limit=crawl_page_limit,
         )
     except ValidationError as exc:
         console.print(f"[red]参数校验失败[/red]\n{exc}")
@@ -953,7 +989,8 @@ def main() -> None:
         Panel(
             f"[white]会话:[/white] [cyan]{session_id}[/cyan]\n"
             f"[white]目标对象:[/white] {target_hint or '未指定'}\n"
-            f"[white]授权/回放:[/white] {_authorization_label(authorization_status)} / {_replay_mode_label(replay_mode)}\n"
+            f"[white]抓取规模:[/white] {_crawl_item_limit_label(crawl_item_limit)} / {_crawl_page_limit_label(crawl_page_limit)}\n"
+            f"[white]执行策略:[/white] 默认受控回放\n"
             f"[white]成本策略:[/white] balanced\n"
             f"[white]日志:[/white] {log_path}",
             title="[bold cyan]已启动[/bold cyan]",

@@ -23,6 +23,8 @@ def test_run_config_valid():
         requires_login=True,
         output_format="json_file",
         crawl_rate="conservative",
+        crawl_item_limit=300,
+        crawl_page_limit=12,
     )
     kwargs = cfg.orchestrator_kwargs()
     assert kwargs["target_hint"] == "iphone 15"
@@ -34,6 +36,8 @@ def test_run_config_valid():
     assert kwargs["requires_login"] is True
     assert kwargs["output_format"] == "json_file"
     assert kwargs["crawl_rate"] == "conservative"
+    assert kwargs["crawl_item_limit"] == 300
+    assert kwargs["crawl_page_limit"] == 12
 
 
 def test_run_config_invalid_url():
@@ -61,3 +65,19 @@ def test_runtime_policy_cloudflare_conservative():
     profile = policy.apply_to_profile(target.browser_profile)
     assert profile is not target.browser_profile
     assert profile.environment_simulation.profile_name == "desktop"
+
+
+def test_run_config_rejects_invalid_crawl_limits():
+    with pytest.raises(ValidationError):
+        RunConfig(
+            url="https://example.com",
+            goal="reverse signature",
+            crawl_item_limit=0,
+        )
+
+    with pytest.raises(ValidationError):
+        RunConfig(
+            url="https://example.com",
+            goal="reverse signature",
+            crawl_page_limit=0,
+        )

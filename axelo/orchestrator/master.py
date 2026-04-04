@@ -29,6 +29,7 @@ from axelo.modes.registry import create_mode
 from axelo.orchestrator.runtime import MasterResult, MasterRunContext
 from axelo.orchestrator.workflow_runtime import WorkflowRuntime
 from axelo.patterns.common import match_profile
+from axelo.planner import Planner
 from axelo.policies import resolve_runtime_policy
 from axelo.storage import AdapterRegistry, AnalysisCache, SessionStore, WorkflowStore
 from axelo.telemetry import write_run_report
@@ -50,7 +51,7 @@ class MasterOrchestrator:
         self._retriever = MemoryRetriever(self._db, self._vs)
         self._mem_writer = MemoryWriter(self._db, self._vs)
 
-        self._planning = PlanningService(self._adapter_registry)
+        self._planning = PlanningService(Planner(self._adapter_registry))
         self._analysis_routing = AnalysisRoutingService()
         self._verification_policy = VerificationPolicyService()
 
@@ -97,6 +98,8 @@ class MasterOrchestrator:
         requires_login: bool | None = None,
         output_format: str = "print",
         crawl_rate: str = "standard",
+        crawl_item_limit: int = 100,
+        crawl_page_limit: int | None = None,
         browser_profile: BrowserProfile | None = None,
     ) -> MasterResult:
         ctx = await self._initialize_run_context(
@@ -115,6 +118,8 @@ class MasterOrchestrator:
             requires_login=requires_login,
             output_format=output_format,
             crawl_rate=crawl_rate,
+            crawl_item_limit=crawl_item_limit,
+            crawl_page_limit=crawl_page_limit,
             browser_profile=browser_profile,
         )
 
@@ -179,6 +184,8 @@ class MasterOrchestrator:
         requires_login: bool | None,
         output_format: str,
         crawl_rate: str,
+        crawl_item_limit: int,
+        crawl_page_limit: int | None,
         browser_profile: BrowserProfile | None,
     ) -> MasterRunContext:
         sid = session_id or str(uuid.uuid4())[:8]
@@ -218,6 +225,8 @@ class MasterOrchestrator:
             requires_login=requires_login,
             output_format=output_format,
             crawl_rate=crawl_rate,
+            crawl_item_limit=crawl_item_limit,
+            crawl_page_limit=crawl_page_limit,
             trace=trace,
         )
         runtime_policy = resolve_runtime_policy(target)
@@ -349,6 +358,8 @@ def _build_enriched_goal(target: TargetSite, goal: str, runtime_policy, known_si
         f"login: {login_context}",
         f"output format: {target.output_format}",
         f"crawl rate: {target.crawl_rate}",
+        f"crawl item limit: {target.crawl_item_limit}",
+        f"crawl page limit: {target.crawl_page_limit if target.crawl_page_limit is not None else 'auto'}",
         f"runtime wait: {runtime_policy.goto_wait_until}/{runtime_policy.post_navigation_wait_ms}ms",
     ]
     enriched = f"{normalized_goal}\n\n[user context] " + " | ".join(context_parts)
