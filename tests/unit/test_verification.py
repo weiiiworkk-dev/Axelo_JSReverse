@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from pathlib import Path
 
 import pytest
@@ -206,3 +207,27 @@ async def test_replayer_times_out_subprocess_execution(tmp_path, monkeypatch):
 
     assert result.error is not None
     assert "timed out" in result.error
+
+
+def test_replayer_cleanup_runtime_dir_retries_permission_error(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "verification_runtime" / "verify-test"
+    temp_dir.mkdir(parents=True)
+    (temp_dir / "result.json").write_text("{}", encoding="utf-8")
+
+    attempts = {"count": 0}
+    original_rmtree = shutil.rmtree
+
+    def flaky_rmtree(path, *args, **kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise PermissionError("file is being used by another process")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("axelo.verification.replayer.shutil.rmtree", flaky_rmtree)
+    monkeypatch.setattr("axelo.verification.replayer.time.sleep", lambda _seconds: None)
+
+    replayer = RequestReplayer()
+    replayer._cleanup_runtime_dir(temp_dir)
+
+    assert attempts["count"] >= 2
+    assert not temp_dir.exists()

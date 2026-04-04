@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -68,9 +69,10 @@ class RequestReplayer:
             "init_kwargs": init_kwargs or {},
             "output_dir": str(output_dir) if output_dir else "",
         }
-
-        with tempfile.TemporaryDirectory(prefix="verify-", dir=runtime_root) as temp_dir_name:
-            temp_dir = Path(temp_dir_name)
+        temp_dir = Path(tempfile.mkdtemp(prefix="verify-", dir=runtime_root))
+        result: dict[str, Any] | None = None
+        execution_error: str | None = None
+        try:
             copied_script = temp_dir / script_path.name
             shutil.copy2(script_path, copied_script)
 
@@ -99,24 +101,52 @@ class RequestReplayer:
             except asyncio.TimeoutError:
                 process.kill()
                 await process.communicate()
-                return CrawlExecutionResult(error=f"script execution timed out after {timeout:.1f}s")
+                execution_error = f"script execution timed out after {timeout:.1f}s"
+            else:
+                if not result_path.exists():
+                    stderr_text = stderr.decode("utf-8", errors="replace").strip()
+                    stdout_text = stdout.decode("utf-8", errors="replace").strip()
+                    details = stderr_text or stdout_text or f"worker exited with code {process.returncode}"
+                    execution_error = f"script execution failed: {details[:500]}"
+                else:
+                    try:
+                        result = json.loads(result_path.read_text(encoding="utf-8"))
+                    except (json.JSONDecodeError, OSError) as exc:
+                        execution_error = f"script execution produced invalid output: {exc}"
+        finally:
+            self._cleanup_runtime_dir(temp_dir)
 
-            if not result_path.exists():
-                stderr_text = stderr.decode("utf-8", errors="replace").strip()
-                stdout_text = stdout.decode("utf-8", errors="replace").strip()
-                details = stderr_text or stdout_text or f"worker exited with code {process.returncode}"
-                return CrawlExecutionResult(error=f"script execution failed: {details[:500]}")
-
-            try:
-                result = json.loads(result_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as exc:
-                return CrawlExecutionResult(error=f"script execution produced invalid output: {exc}")
-
+        if execution_error:
+            return CrawlExecutionResult(error=execution_error)
+        if result is None:
+            return CrawlExecutionResult(error="script execution produced no result")
         return CrawlExecutionResult(
             headers=result.get("headers") or {},
             crawl_data=result.get("crawl_data"),
             output_path=result.get("output_path"),
             error=result.get("error"),
+        )
+
+    def _cleanup_runtime_dir(self, temp_dir: Path, *, retries: int = 6, base_delay_sec: float = 0.25) -> None:
+        if not temp_dir.exists():
+            return
+        last_error: Exception | None = None
+        for attempt in range(retries):
+            try:
+                shutil.rmtree(temp_dir)
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(base_delay_sec * (attempt + 1))
+            except OSError as exc:
+                last_error = exc
+                break
+        log.warning(
+            "verify_runtime_cleanup_deferred",
+            path=str(temp_dir),
+            error=str(last_error) if last_error else "unknown cleanup error",
         )
 
     async def replay_with_script(

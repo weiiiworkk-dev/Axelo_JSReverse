@@ -27,6 +27,7 @@ def main() -> int:
         "error": None,
     }
 
+    instance = None
     try:
         spec = importlib.util.spec_from_file_location("axelo_gen", script_path)
         if spec is None or spec.loader is None:
@@ -46,7 +47,6 @@ def main() -> int:
             ),
             None,
         )
-        instance = None
         crawl_callable = None
         if crawler_class is not None:
             instance = crawler_class(**init_kwargs)
@@ -66,10 +66,14 @@ def main() -> int:
             Path(payload.get("output_dir") or (settings.session_dir(payload["session_id"]) / "output")),
         )
         result["output_path"] = str(output_path) if output_path else None
-        if instance is not None and hasattr(instance, "close"):
-            instance.close()
     except Exception as exc:
         result["error"] = str(exc)
+    finally:
+        if instance is not None and hasattr(instance, "close"):
+            try:
+                instance.close()
+            except Exception:
+                pass
 
     result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if result["error"] is None else 1
