@@ -14,6 +14,9 @@ Axelo JSReverse is an AI-assisted reverse-engineering pipeline for web request s
 - `CostGovernor` for budget-aware degradation and lighter verification modes
 - Explicit manual review gate for `extreme` targets
 - Structured `SignatureSpec` generation in addition to natural-language hypotheses
+- Real Anthropic usage accounting wired into runtime cost records
+- Verification replay executed in a dedicated subprocess instead of in-process imports
+- Streaming JavaScript bundle downloads with early size guardrails
 - Verification extended with header comparison, data-quality checks, and stability checks
 - Workflow checkpoints, recovery metadata, and structured run reporting
 
@@ -31,12 +34,12 @@ Primary runtime path:
 8. `axelo/pipeline/stages/s5_dynamic.py` validates runtime behavior when the plan and budget still allow it
 9. `axelo/pipeline/stages/s6_ai_analyze.py` produces AI hypotheses and a structured `SignatureSpec`
 10. `axelo/pipeline/stages/s7_codegen.py` generates Python crawler code or a JS bridge plus a crawler manifest
-11. `axelo/verification/engine.py` replays the generated code and evaluates correctness, data quality, and stability according to the verification mode
+11. `axelo/pipeline/stages/s8_verify.py` runs the canonical verification flow and persists the latest verification report
 12. `axelo/memory` stores reusable patterns
 
-Compatibility path:
+Facade path:
 
-- `axelo/session.py` remains available, but it now delegates to `MasterOrchestrator`
+- `axelo/session.py` remains available as a thin facade over the same runtime, not as a separate architecture
 
 ## Key Modules
 
@@ -142,6 +145,7 @@ Verification now checks:
 ## Validation Commands
 
 ```bash
+cd axelo/js_tools/scripts && npm ci
 python -c "from axelo.models.target import TargetSite; print('ok')"
 python -c "from axelo.orchestrator.master import MasterOrchestrator; print('ok')"
 pytest
@@ -149,13 +153,28 @@ pytest
 
 ## Requirements
 
-- Python 3.14+
+- Python 3.11+
 - Node.js
 - Playwright
 - Anthropic API key
 
+## Environment
+
+Common configuration lives in `.env` and uses the `AXELO_` prefix:
+
+- `AXELO_MODEL`
+- `AXELO_WORKSPACE`
+- `AXELO_NODE_BIN`
+- `AXELO_BROWSER`
+- `AXELO_HEADLESS`
+- `AXELO_LOG_LEVEL`
+- `AXELO_MAX_DYNAMIC_RETRIES`
+- `AXELO_VERIFICATION_SUBPROCESS_TIMEOUT_SEC`
+- `AXELO_BUNDLE_DOWNLOAD_BYTE_CAP_KB`
+
 ## Notes
 
 - New work should target `MasterOrchestrator`
-- `axelo/session.py` should be treated as a compatibility wrapper
+- `axelo/session.py` should be treated as a thin facade over the canonical runtime
 - Workflow checkpoints and session artifacts are intended to support pause, recovery, and human-in-the-loop review
+- `axelo/js_tools/scripts/node_modules/` is intentionally not vendored; install it with `npm ci`

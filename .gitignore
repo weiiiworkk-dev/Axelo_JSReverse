@@ -9,3 +9,6 @@ build/
 *.pkl
 workspace/
 .pytest_cache/
+axelo/js_tools/scripts/node_modules/
+.tmp_pytest/
+axelo_test_*/

@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import structlog
+from pydantic import ValidationError
+
 from axelo.models.session_state import SessionState
+
+log = structlog.get_logger()
 
 
 class SessionStateStore:
@@ -29,7 +34,8 @@ class SessionStateStore:
             return None
         try:
             return SessionState.model_validate_json(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (ValidationError, OSError, ValueError) as exc:
+            log.exception("session_state_load_failed", session_id=session_id, error=str(exc))
             return None
 
     def save_browser_storage(self, session_id: str, payload: dict) -> Path:

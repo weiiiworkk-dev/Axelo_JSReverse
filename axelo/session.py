@@ -7,7 +7,7 @@ from axelo.config import settings
 
 
 class EngineSession:
-    """Compatibility wrapper that delegates execution to MasterOrchestrator."""
+    """Thin facade over the canonical MasterOrchestrator runtime."""
 
     def __init__(self) -> None:
         self._store = SessionStore(settings.sessions_dir)

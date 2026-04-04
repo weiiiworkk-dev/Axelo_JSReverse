@@ -1,28 +1,34 @@
 from __future__ import annotations
+
 import json
-from axelo.models.pipeline import PipelineState, StageResult, Decision, DecisionType
-from axelo.models.target import TargetSite
-from axelo.models.analysis import StaticAnalysis, DynamicAnalysis
-from axelo.modes.base import ModeController
-from axelo.browser.driver import BrowserDriver
-from axelo.browser.interceptor import NetworkInterceptor
-from axelo.browser.hooks import JSHookInjector
+from pathlib import Path
+
+import structlog
+
+from axelo.analysis.dynamic.crypto_detector import detect_algorithm
 from axelo.analysis.dynamic.hook_analyzer import HookAnalyzer
 from axelo.analysis.dynamic.trace_builder import TraceBuilder
-from axelo.analysis.dynamic.crypto_detector import detect_algorithm
-from axelo.pipeline.base import PipelineStage
+from axelo.browser.driver import BrowserDriver
+from axelo.browser.hooks import JSHookInjector
+from axelo.browser.interceptor import NetworkInterceptor
 from axelo.config import settings
-import structlog
+from axelo.models.analysis import DynamicAnalysis, StaticAnalysis
+from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult
+from axelo.models.target import TargetSite
+from axelo.modes.base import ModeController
+from axelo.pipeline.base import PipelineStage
 
 log = structlog.get_logger()
 
 
 class DynamicAnalysisStage(PipelineStage):
     name = "s5_dynamic"
-    description = "动态执行分析：注入Hook，重跑目标请求，记录加密API调用轨迹"
+    description = "Run browser hooks and capture dynamic crypto behavior."
 
     async def run(
-        self, state: PipelineState, mode: ModeController,
+        self,
+        state: PipelineState,
+        mode: ModeController,
         target: TargetSite,
         static_results: dict[str, StaticAnalysis],
         **_,
@@ -31,6 +37,89 @@ class DynamicAnalysisStage(PipelineStage):
         traces_dir = session_dir / "traces"
         traces_dir.mkdir(parents=True, exist_ok=True)
 
+        max_attempts = max(1, settings.max_dynamic_retries + 1)
+        decisions: list[Decision] = []
+        latest_trace_path: Path | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            dynamic, hook_analysis, algo_info, intercepts, trace_path = await self._collect_attempt(
+                traces_dir=traces_dir,
+                attempt=attempt,
+                target=target,
+                static_results=static_results,
+            )
+            latest_trace_path = trace_path
+
+            summary = hook_analysis.get("summary", "No hook activity")
+            if algo_info:
+                algo_str = ", ".join(f"{item['algorithm']}({item['api']})" for item in algo_info[:3])
+                summary += f"\nDetected crypto algorithms: {algo_str}"
+            summary += f"\nAttempt {attempt}/{max_attempts}"
+
+            options = ["accept", "retry", "skip"]
+            decision = Decision(
+                stage=self.name,
+                decision_type=DecisionType.APPROVE_STAGE,
+                prompt="Dynamic hook analysis completed. Confirm how to proceed:",
+                options=options,
+                artifact_path=trace_path,
+                context_summary=summary,
+                default="accept",
+            )
+            decisions.append(decision)
+
+            outcome = await mode.gate(decision, state)
+            if outcome == "skip":
+                return StageResult(
+                    stage_name=self.name,
+                    success=True,
+                    artifacts={"hook_trace": trace_path},
+                    decisions=decisions,
+                    summary=f"Dynamic analysis skipped after {attempt} attempt(s)",
+                    next_input={"dynamic": None, "static_results": static_results, "target": target},
+                )
+
+            if outcome != "retry":
+                return StageResult(
+                    stage_name=self.name,
+                    success=True,
+                    artifacts={"hook_trace": trace_path},
+                    decisions=decisions,
+                    summary=(
+                        f"Hook intercepts={len(intercepts)}, crypto_primitives={len(dynamic.crypto_primitives)}, "
+                        f"attempts={attempt}"
+                    ),
+                    next_input={"dynamic": dynamic, "static_results": static_results, "target": target},
+                )
+
+            if attempt == max_attempts:
+                return StageResult(
+                    stage_name=self.name,
+                    success=False,
+                    artifacts={"hook_trace": trace_path},
+                    decisions=decisions,
+                    error=f"dynamic retry exhausted after {max_attempts} attempts",
+                    summary=f"Dynamic retry exhausted after {max_attempts} attempts",
+                )
+
+            log.info("dynamic_retry_requested", attempt=attempt)
+
+        return StageResult(
+            stage_name=self.name,
+            success=False,
+            artifacts={"hook_trace": latest_trace_path} if latest_trace_path else {},
+            decisions=decisions,
+            error="dynamic analysis ended unexpectedly",
+        )
+
+    async def _collect_attempt(
+        self,
+        *,
+        traces_dir: Path,
+        attempt: int,
+        target: TargetSite,
+        static_results: dict[str, StaticAnalysis],
+    ) -> tuple[DynamicAnalysis, dict, list[dict], list, Path]:
         driver = BrowserDriver(settings.browser, settings.headless)
         interceptor = NetworkInterceptor()
         hook_injector = JSHookInjector()
@@ -40,77 +129,38 @@ class DynamicAnalysisStage(PipelineStage):
             interceptor.attach(page)
             await hook_injector.inject(page)
 
-            log.info("dynamic_navigate", url=target.url)
+            log.info("dynamic_navigate", url=target.url, attempt=attempt)
             try:
                 await page.goto(target.url, wait_until="networkidle", timeout=30_000)
-            except Exception as e:
-                log.warning("dynamic_nav_timeout", error=str(e))
+            except Exception as exc:
+                log.warning("dynamic_nav_timeout", error=str(exc), attempt=attempt)
 
             await page.wait_for_timeout(3000)
-            # 异步安全：drain response queue
             await interceptor.drain()
 
         intercepts = hook_injector.get_intercepts()
-        api_calls = interceptor.get_api_calls()
-
-        # Hook 分析
         hook_analyzer = HookAnalyzer()
-        # 取第一个 bundle 的静态结果做关联
         first_static = next(iter(static_results.values()), None)
         hook_analysis = hook_analyzer.analyze(intercepts, first_static)
 
-        # 轨迹构建
         trace_builder = TraceBuilder()
         bundle_id = next(iter(static_results), "unknown")
         dynamic = trace_builder.build(bundle_id, intercepts, target.target_requests, hook_analysis)
-
-        # 加密算法检测
         algo_info = detect_algorithm(intercepts)
 
-        # 保存轨迹
-        trace_path = traces_dir / "hook_trace.json"
+        trace_path = traces_dir / f"hook_trace_attempt_{attempt}.json"
         trace_path.write_text(
-            json.dumps({
-                "intercepts": [ic.model_dump(mode="json") for ic in intercepts],
-                "hook_analysis": hook_analysis,
-                "algo_info": algo_info,
-                "dynamic": dynamic.model_dump(mode="json"),
-            }, ensure_ascii=False, indent=2),
+            json.dumps(
+                {
+                    "attempt": attempt,
+                    "intercepts": [intercept.model_dump(mode="json") for intercept in intercepts],
+                    "hook_analysis": hook_analysis,
+                    "algo_info": algo_info,
+                    "dynamic": dynamic.model_dump(mode="json"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
-
-        # 构建决策摘要
-        summary = hook_analysis.get("summary", "无Hook触发")
-        if algo_info:
-            algo_str = ", ".join(f"{a['algorithm']}({a['api']})" for a in algo_info[:3])
-            summary += f"\n检测到加密算法: {algo_str}"
-
-        options = ["确认轨迹，继续AI分析", "重新执行Hook（再来一次）", "跳过动态分析"]
-
-        decision = Decision(
-            stage=self.name,
-            decision_type=DecisionType.APPROVE_STAGE,
-            prompt="动态Hook分析完成，请确认执行轨迹：",
-            options=options,
-            artifact_path=trace_path,
-            context_summary=summary,
-            default="确认轨迹，继续AI分析",
-        )
-
-        outcome = await mode.gate(decision, state)
-
-        if outcome == options[1]:
-            # 简单重试：重新运行此阶段逻辑（递归调用）
-            log.info("dynamic_retry")
-            return await self.run(state, mode, target=target, static_results=static_results)
-
-        dynamic_used = None if outcome == options[2] else dynamic
-
-        return StageResult(
-            stage_name=self.name,
-            success=True,
-            artifacts={"hook_trace": trace_path},
-            decisions=[decision],
-            summary=f"Hook拦截 {len(intercepts)} 次，{len(dynamic.crypto_primitives)} 种加密原语",
-            next_input={"dynamic": dynamic_used, "static_results": static_results, "target": target},
-        )
+        return dynamic, hook_analysis, algo_info, intercepts, trace_path

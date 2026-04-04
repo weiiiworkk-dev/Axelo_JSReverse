@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
+import asyncio
+import json
+import os
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -9,9 +14,10 @@ import structlog
 
 from axelo.config import settings
 from axelo.models.target import RequestCapture, TargetSite
-from axelo.output import save_output
 
 log = structlog.get_logger()
+
+WORKER_SCRIPT = Path(__file__).with_name("subprocess_worker.py")
 
 
 class CrawlExecutionResult:
@@ -29,46 +35,82 @@ class CrawlExecutionResult:
 
 
 class RequestReplayer:
-    """Load generated crawler code, execute crawl(), then optionally replay one target request."""
+    """Execute generated crawler code in a subprocess, then optionally replay one target request."""
 
     async def execute_crawl(
         self,
         script_path: Path,
         target: TargetSite,
     ) -> CrawlExecutionResult:
-        try:
-            spec = importlib.util.spec_from_file_location("axelo_gen", script_path)
-            if spec is None or spec.loader is None:
-                return CrawlExecutionResult(error="Unable to load generated crawler module")
+        return await self.execute_crawl_subprocess(script_path, target)
 
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+    async def execute_crawl_subprocess(
+        self,
+        script_path: Path,
+        target: TargetSite,
+        timeout: float | None = None,
+    ) -> CrawlExecutionResult:
+        if not script_path.exists():
+            return CrawlExecutionResult(error="generated crawler file is missing")
 
-            crawler_class = None
-            for name in dir(mod):
-                obj = getattr(mod, name)
-                if isinstance(obj, type) and hasattr(obj, "crawl"):
-                    crawler_class = obj
-                    break
+        timeout = timeout or settings.verification_subprocess_timeout_sec
+        runtime_root = settings.session_dir(target.session_id) / "verification_runtime"
+        runtime_root.mkdir(parents=True, exist_ok=True)
 
-            if crawler_class is None:
-                return CrawlExecutionResult(error="No class exposing crawl() was found")
+        payload = {
+            "session_id": target.session_id,
+            "output_format": target.output_format,
+        }
 
-            instance = crawler_class()
-            crawl_data = instance.crawl()
-            gen_headers = getattr(instance, "_last_headers", {}) or {}
-            output_path = save_output(
-                crawl_data,
-                target.output_format,
-                settings.session_dir(target.session_id) / "output",
+        with tempfile.TemporaryDirectory(prefix="verify-", dir=runtime_root) as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            copied_script = temp_dir / script_path.name
+            shutil.copy2(script_path, copied_script)
+
+            sibling_bridge = script_path.parent / "bridge_server.js"
+            if sibling_bridge.exists():
+                shutil.copy2(sibling_bridge, temp_dir / sibling_bridge.name)
+
+            payload_path = temp_dir / "payload.json"
+            result_path = temp_dir / "result.json"
+            payload_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(WORKER_SCRIPT),
+                str(copied_script),
+                str(payload_path),
+                str(result_path),
+                cwd=str(temp_dir),
+                env=_verification_env(),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            return CrawlExecutionResult(
-                headers=gen_headers,
-                crawl_data=crawl_data,
-                output_path=str(output_path) if output_path else None,
-            )
-        except Exception as exc:
-            return CrawlExecutionResult(error=f"script execution failed: {exc}")
+
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.communicate()
+                return CrawlExecutionResult(error=f"script execution timed out after {timeout:.1f}s")
+
+            if not result_path.exists():
+                stderr_text = stderr.decode("utf-8", errors="replace").strip()
+                stdout_text = stdout.decode("utf-8", errors="replace").strip()
+                details = stderr_text or stdout_text or f"worker exited with code {process.returncode}"
+                return CrawlExecutionResult(error=f"script execution failed: {details[:500]}")
+
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                return CrawlExecutionResult(error=f"script execution produced invalid output: {exc}")
+
+        return CrawlExecutionResult(
+            headers=result.get("headers") or {},
+            crawl_data=result.get("crawl_data"),
+            output_path=result.get("output_path"),
+            error=result.get("error"),
+        )
 
     async def replay_with_script(
         self,
@@ -76,7 +118,7 @@ class RequestReplayer:
         target: TargetSite,
         timeout: float = 15.0,
     ) -> tuple[dict[str, str], "ReplayResult"]:
-        execution = await self.execute_crawl(script_path, target)
+        execution = await self.execute_crawl_subprocess(script_path, target, timeout=timeout)
         if execution.error:
             return {}, ReplayResult(ok=False, error=execution.error, status_code=0)
 
@@ -152,3 +194,15 @@ class ReplayResult:
         icon = "ok" if self.ok else "fail"
         output_note = f" | output={self.output_path}" if self.output_path else ""
         return f"{icon} HTTP {self.status_code} | preview={self.response_body[:200]}{output_note}"
+
+
+def _verification_env() -> dict[str, str]:
+    env: dict[str, str] = {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
+    for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    return env

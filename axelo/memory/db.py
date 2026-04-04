@@ -110,6 +110,31 @@ class MemoryDB:
                 q = q.where(ReverseSession.algorithm_type == algorithm_type)
             return list(s.exec(q.limit(5)).all())
 
+    def list_verified_sessions(
+        self,
+        domain: str | None = None,
+        limit: int | None = None,
+    ) -> list[ReverseSession]:
+        with Session(self._engine) as s:
+            q = select(ReverseSession).where(ReverseSession.verified == True)
+            if domain:
+                q = q.where(ReverseSession.domain == domain)
+            q = q.order_by(ReverseSession.created_at.desc())
+            if limit is not None:
+                q = q.limit(limit)
+            return list(s.exec(q).all())
+
+    def get_sessions_by_ids(self, session_ids: list[str]) -> list[ReverseSession]:
+        if not session_ids:
+            return []
+        with Session(self._engine) as s:
+            rows = list(
+                s.exec(select(ReverseSession).where(ReverseSession.session_id.in_(session_ids))).all()
+            )
+        rank = {session_id: index for index, session_id in enumerate(session_ids)}
+        rows.sort(key=lambda row: rank.get(row.session_id, len(rank)))
+        return rows
+
     # ── 种子数据 ─────────────────────────────────────────────────
 
     def _seed_templates(self) -> None:

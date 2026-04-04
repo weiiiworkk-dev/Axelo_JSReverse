@@ -8,10 +8,11 @@ The current implementation is organized around a single primary orchestration pa
 
 - `axelo/orchestrator/master.py`
 
-Legacy compatibility remains available through:
+An optional facade remains available through:
 
 - `axelo/session.py`
 
+This facade delegates to the same runtime and should not be treated as a second architecture.
 All new features should target the master orchestrator path.
 
 ## Control Plane
@@ -124,6 +125,8 @@ Main components:
 - `axelo/pipeline/stages/s4_static.py`
 - `axelo/pipeline/stages/s5_dynamic.py`
 - `axelo/pipeline/stages/s6_ai_analyze.py`
+- `axelo/agents/scanner.py`
+- `axelo/agents/hypothesis.py`
 - `axelo/classifier/rules.py`
 - `axelo/analysis/signature_spec_builder.py`
 - `axelo/models/signature.py`
@@ -146,7 +149,9 @@ Purpose:
 Main components:
 
 - `axelo/pipeline/stages/s7_codegen.py`
+- `axelo/pipeline/stages/s8_verify.py`
 - `axelo/agents/codegen_agent.py`
+- `axelo/agents/verifier_agent.py`
 - `axelo/verification/replayer.py`
 - `axelo/verification/engine.py`
 - `axelo/verification/data_quality.py`
@@ -157,6 +162,7 @@ Important characteristics:
 
 - Python crawler or JS bridge generation
 - crawler manifest generation
+- generated crawler replay executed in a dedicated subprocess
 - data-quality scoring
 - repeated-run stability validation
 - verification mode control through the execution plan
@@ -228,6 +234,7 @@ Important characteristics:
 The system is designed for staged automation with auditability and human control, not for opaque single-shot generation. The most important design choices in the current architecture are:
 
 - a single primary orchestration path
+- orchestration split into initialization, discovery, analysis, codegen/verify, and finalization helpers under the same master runtime
 - adapter-first planning before expensive execution
 - budget-aware execution degradation
 - structured runtime models instead of ad-hoc dictionaries

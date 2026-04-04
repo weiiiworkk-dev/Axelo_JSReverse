@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     browser: str = "chromium"
     headless: bool = True
     log_level: str = "info"
+    max_dynamic_retries: int = 2
+    verification_subprocess_timeout_sec: float = 15.0
+    bundle_download_byte_cap_kb: int = 1024
 
     @property
     def sessions_dir(self) -> Path:

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import re
 import uuid
 from datetime import datetime, timedelta
-import json
-from pathlib import Path
 from urllib.parse import urlparse
 
+import structlog
+from pydantic import ValidationError
+
 from axelo.models.session_state import SessionState
+
+log = structlog.get_logger()
 
 
 def _slugify(domain: str) -> str:
@@ -29,7 +34,8 @@ class SessionPool:
         try:
             payload = path.read_text(encoding="utf-8")
             return [SessionState.model_validate(item) for item in json.loads(payload)]
-        except Exception:
+        except (json.JSONDecodeError, ValidationError, OSError) as exc:
+            log.exception("session_pool_load_failed", domain=domain, error=str(exc))
             return []
 
     def _save_pool(self, domain: str, sessions: list[SessionState]) -> None:

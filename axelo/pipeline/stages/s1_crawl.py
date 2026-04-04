@@ -101,12 +101,13 @@ class CrawlStage(PipelineStage):
             all_captures = interceptor.captures
             api_calls = interceptor.get_api_calls()
             js_urls = interceptor.js_urls
-            dominant_status = max((capture.response_status for capture in all_captures if capture.response_status), default=200)
+            session_status = _select_session_status(api_calls, all_captures)
+            session_success = _session_attempt_succeeded(api_calls, session_status)
             target.session_state = session_pool.release(
                 target.url,
                 target.session_state,
-                success=bool(api_calls),
-                status_code=dominant_status,
+                success=session_success,
+                status_code=session_status,
                 error="" if api_calls else "no_api_calls_captured",
             )
             session_store.save(state.session_id, target.session_state)
@@ -174,3 +175,28 @@ class CrawlStage(PipelineStage):
             ),
             next_input={"target": target},
         )
+
+
+def _select_session_status(api_calls, all_captures) -> int | None:
+    preferred = [capture.response_status for capture in api_calls if capture.response_status]
+    fallback = [capture.response_status for capture in all_captures if capture.response_status]
+    statuses = preferred or fallback
+    if not statuses:
+        return None
+
+    for blocked_status in (429, 403, 401):
+        if blocked_status in statuses:
+            return blocked_status
+
+    counts: dict[int, int] = {}
+    for status in statuses:
+        counts[status] = counts.get(status, 0) + 1
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+
+
+def _session_attempt_succeeded(api_calls, session_status: int | None) -> bool:
+    if not api_calls:
+        return False
+    if session_status is None:
+        return True
+    return 200 <= session_status < 400

@@ -1,22 +1,25 @@
 from __future__ import annotations
+
 import hashlib
+import json
 import re
 from pathlib import Path
+
 import httpx
-from axelo.models.pipeline import PipelineState, StageResult, Decision, DecisionType
+import structlog
+
+from axelo.config import settings
+from axelo.models.bundle import BundleType, JSBundle
+from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult
 from axelo.models.target import TargetSite
-from axelo.models.bundle import JSBundle, BundleType
 from axelo.modes.base import ModeController
 from axelo.pipeline.base import PipelineStage
-from axelo.config import settings
-import structlog
 
 log = structlog.get_logger()
 
-# webpack runtime 特征
-WEBPACK_PATTERN = re.compile(r'__webpack_require__|webpackChunk|webpack_modules', re.S)
-VITE_PATTERN = re.compile(r'import\.meta\.env|vitePreloadCSS|__VITE_', re.S)
-ROLLUP_PATTERN = re.compile(r'define\(\[', re.S)
+WEBPACK_PATTERN = re.compile(r"__webpack_require__|webpackChunk|webpack_modules", re.S)
+VITE_PATTERN = re.compile(r"import\.meta\.env|vitePreloadCSS|__VITE_", re.S)
+ROLLUP_PATTERN = re.compile(r"define\(\[", re.S)
 
 
 def detect_bundle_type(code: str) -> BundleType:
@@ -31,41 +34,57 @@ def detect_bundle_type(code: str) -> BundleType:
 
 class FetchStage(PipelineStage):
     name = "s2_fetch"
-    description = "下载JS Bundle，检测类型，准备去混淆"
+    description = "Download JS bundles with early size guardrails."
 
-    async def run(self, state: PipelineState, mode: ModeController, target: TargetSite, **_) -> StageResult:
+    async def run(
+        self,
+        state: PipelineState,
+        mode: ModeController,
+        target: TargetSite,
+        **_,
+    ) -> StageResult:
         session_dir = settings.session_dir(state.session_id)
         bundles_dir = session_dir / "bundles"
         bundles_dir.mkdir(parents=True, exist_ok=True)
         cache_dir = settings.cache_dir
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # 仅下载前10个JS文件（优先级：bundle大小，主文件优先）
         max_bundles = target.execution_plan.max_bundles if target.execution_plan else 10
         js_urls = target.js_urls[: max(1, max_bundles * 2)]
         if not js_urls:
             return StageResult(
-                stage_name=self.name, success=False,
-                error="未发现任何JS资源URL，请检查爬取阶段",
+                stage_name=self.name,
+                success=False,
+                error="No JS resource URL was discovered during crawl",
             )
 
         bundles: list[JSBundle] = []
+        downloaded_total_bytes = 0
+        single_limit = _single_bundle_cap_bytes(target)
+        total_limit = _total_bundle_cap_bytes(target)
+
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             for url in js_urls:
-                try:
-                    resp = await client.get(url, headers={"Referer": target.url})
-                    if resp.status_code != 200:
-                        log.warning("bundle_fetch_failed", url=url, status=resp.status_code)
-                        continue
-                    code = resp.text
-                except Exception as e:
-                    log.warning("bundle_fetch_error", url=url, error=str(e))
+                remaining_total = None if total_limit is None else max(0, total_limit - downloaded_total_bytes)
+                if remaining_total == 0:
+                    log.info("bundle_total_cap_reached", downloaded_total_bytes=downloaded_total_bytes)
+                    break
+
+                effective_limit = single_limit if remaining_total is None else min(single_limit, remaining_total)
+                raw_bytes = await _download_bundle_bytes(
+                    client,
+                    url,
+                    referer=target.url,
+                    byte_limit=effective_limit,
+                )
+                if raw_bytes is None:
                     continue
 
-                content_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
+                downloaded_total_bytes += len(raw_bytes)
+                code = raw_bytes.decode("utf-8", errors="replace")
+                content_hash = hashlib.sha256(raw_bytes).hexdigest()[:16]
                 bundle_id = content_hash
 
-                # 检查缓存
                 cache_path = cache_dir / f"{bundle_id}.js"
                 if cache_path.exists():
                     raw_path = cache_path
@@ -76,60 +95,59 @@ class FetchStage(PipelineStage):
                     cache_path.write_text(code, encoding="utf-8")
 
                 bundle_type = detect_bundle_type(code)
-                bundles.append(JSBundle(
-                    bundle_id=bundle_id,
-                    source_url=url,
-                    raw_path=raw_path,
-                    size_bytes=len(code),
-                    content_hash=content_hash,
-                    bundle_type=bundle_type,
-                ))
-                log.info("bundle_fetched", bundle_id=bundle_id, type=bundle_type, size=len(code))
+                bundles.append(
+                    JSBundle(
+                        bundle_id=bundle_id,
+                        source_url=url,
+                        raw_path=raw_path,
+                        size_bytes=len(raw_bytes),
+                        content_hash=content_hash,
+                        bundle_type=bundle_type,
+                    )
+                )
+                log.info("bundle_fetched", bundle_id=bundle_id, type=bundle_type, size=len(raw_bytes))
 
         if not bundles:
-            return StageResult(stage_name=self.name, success=False, error="所有JS文件下载失败")
+            return StageResult(stage_name=self.name, success=False, error="All JS bundle downloads were skipped or failed")
 
-        # 决策：优先分析哪些 bundle
         bundles = _prioritize_bundles(bundles)
 
         options = [
-            f"{b.bundle_id} | {b.bundle_type} | {b.size_bytes//1024}KB | {b.source_url[-60:]}"
-            for b in bundles
+            f"{bundle.bundle_id} | {bundle.bundle_type} | {bundle.size_bytes // 1024}KB | {bundle.source_url[-60:]}"
+            for bundle in bundles
         ]
-        options.append("全部分析")
+        options.append("analyze all")
 
         decision = Decision(
             stage=self.name,
             decision_type=DecisionType.SELECT_OPTION,
-            prompt=f"下载了 {len(bundles)} 个JS文件，选择优先深度分析的bundle（webpack bundle 通常是主要目标）：",
+            prompt=(
+                f"Downloaded {len(bundles)} JS bundles. "
+                "Choose which bundle to prioritize for deeper analysis:"
+            ),
             options=options,
-            default="全部分析",
-            context_summary=f"总计 {sum(b.size_bytes for b in bundles)//1024}KB JS代码",
+            default="analyze all",
+            context_summary=f"Downloaded {sum(bundle.size_bytes for bundle in bundles) // 1024}KB of JS",
         )
 
         outcome = await mode.gate(decision, state)
-
-        # 根据选择过滤 bundle
-        if outcome == "全部分析" or outcome == "skip":
+        if outcome in {"analyze all", "skip"}:
             selected = bundles
         else:
             try:
-                idx = options.index(outcome)
-                selected = [bundles[idx]] if idx < len(bundles) else bundles
+                index = options.index(outcome)
+                selected = [bundles[index]] if index < len(bundles) else bundles
             except ValueError:
                 selected = bundles
 
         selected, cap_note = _apply_bundle_caps(selected, target)
-        summary = f"下载 {len(bundles)} 个bundle，选择分析 {len(selected)} 个"
+        summary = f"Downloaded {len(bundles)} bundles, selected {len(selected)} for analysis"
         if cap_note:
-            summary += f"（{cap_note}）"
+            summary += f" ({cap_note})"
 
-        # 序列化 bundles 元数据
-        meta_path = session_dir / "bundles" / "meta.json"
+        meta_path = bundles_dir / "meta.json"
         meta_path.write_text(
-            __import__("json").dumps(
-                [b.model_dump(mode="json") for b in selected], ensure_ascii=False, indent=2
-            ),
+            json.dumps([bundle.model_dump(mode="json") for bundle in selected], ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
@@ -181,3 +199,53 @@ def _apply_bundle_caps(bundles: list[JSBundle], target: TargetSite) -> tuple[lis
         return capped, note
 
     return bundles[: min(len(bundles), plan.max_bundles)], "bundle guardrail fallback applied"
+
+
+def _single_bundle_cap_bytes(target: TargetSite) -> int:
+    plan_limit = (target.execution_plan.max_bundle_size_kb * 1024) if target.execution_plan else None
+    config_limit = settings.bundle_download_byte_cap_kb * 1024
+    if plan_limit is None:
+        return config_limit
+    return min(plan_limit, config_limit)
+
+
+def _total_bundle_cap_bytes(target: TargetSite) -> int | None:
+    if target.execution_plan is None:
+        return None
+    return target.execution_plan.max_total_bundle_kb * 1024
+
+
+async def _download_bundle_bytes(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    referer: str,
+    byte_limit: int,
+) -> bytes | None:
+    try:
+        async with client.stream("GET", url, headers={"Referer": referer}) as response:
+            if response.status_code != 200:
+                log.warning("bundle_fetch_failed", url=url, status=response.status_code)
+                return None
+
+            content_length = response.headers.get("Content-Length")
+            try:
+                declared_size = int(content_length) if content_length else None
+            except ValueError:
+                declared_size = None
+            if declared_size is not None and declared_size > byte_limit:
+                log.info("bundle_skipped_content_length", url=url, content_length=declared_size, byte_limit=byte_limit)
+                return None
+
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > byte_limit:
+                    log.info("bundle_skipped_stream_limit", url=url, downloaded_bytes=total, byte_limit=byte_limit)
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
+    except Exception as exc:
+        log.warning("bundle_fetch_error", url=url, error=str(exc))
+        return None

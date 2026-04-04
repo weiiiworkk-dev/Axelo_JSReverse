@@ -1,8 +1,12 @@
 from __future__ import annotations
+
 import json
 from pathlib import Path
-from axelo.models.pipeline import PipelineState
+
 import structlog
+from pydantic import ValidationError
+
+from axelo.models.pipeline import PipelineState
 
 log = structlog.get_logger()
 
@@ -33,8 +37,8 @@ class SessionStore:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             return PipelineState.model_validate(data)
-        except Exception as e:
-            log.warning("session_load_failed", session_id=session_id, error=str(e))
+        except (json.JSONDecodeError, ValidationError, OSError) as exc:
+            log.exception("session_load_failed", session_id=session_id, error=str(exc))
             return None
 
     def list_sessions(self) -> list[str]:

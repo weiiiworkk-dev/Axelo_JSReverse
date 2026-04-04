@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import structlog
+from pydantic import ValidationError
+
 from axelo.models.trace import TraceArtifact
+
+log = structlog.get_logger()
 
 
 class WorkflowStore:
@@ -19,7 +24,8 @@ class WorkflowStore:
             return None
         try:
             return TraceArtifact.model_validate_json(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (ValidationError, OSError, ValueError) as exc:
+            log.exception("workflow_trace_load_failed", session_id=session_id, error=str(exc))
             return None
 
     def save(self, session_id: str, trace: TraceArtifact) -> Path:

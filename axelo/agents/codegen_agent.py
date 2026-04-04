@@ -8,9 +8,9 @@ from jinja2 import Environment, FileSystemLoader
 
 from axelo.agents.base import BaseAgent
 from axelo.ai.hypothesis import CodeGenOutput
+from axelo.memory.retriever import MemoryRetriever
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
 from axelo.models.target import TargetSite
-from axelo.memory.retriever import MemoryRetriever
 
 log = structlog.get_logger()
 
@@ -18,7 +18,7 @@ PROMPTS_DIR = Path(__file__).parent.parent / "ai" / "prompts"
 
 CODEGEN_SYSTEM = """You are a crawler code generation agent.
 
-Transform the reverse-engineering result into a runnable Python crawler file.
+Transform the reverse-engineering result into runnable crawler artifacts.
 Always emit complete files, runnable imports, and deterministic helper methods.
 """
 
@@ -61,7 +61,10 @@ class CodeGenAgent(BaseAgent):
                 target=target,
             )
         else:
-            first_bundle = next((str(output_dir.parent / "bundles" / f"{bundle_id}.raw.js") for bundle_id in static_results), "")
+            first_bundle = next(
+                (str(output_dir.parent / "bundles" / f"{bundle_id}.raw.js") for bundle_id in static_results),
+                "",
+            )
             template = self._jinja.get_template("generate_bridge.j2")
             user_msg = template.render(
                 hypothesis=hypothesis,
@@ -71,18 +74,19 @@ class CodeGenAgent(BaseAgent):
             )
 
         client = self._build_client()
-        output: CodeGenOutput = await client.analyze(
+        response = await client.analyze(
             system_prompt=system_prompt,
             user_message=user_msg,
             output_schema=CodeGenOutput,
             tool_name="codegen",
             max_tokens=8192,
         )
+        output = response.data
 
         self._cost.add_ai_call(
-            model=self._select_model(),
-            input_tok=len(user_msg) // 4,
-            output_tok=800,
+            model=response.model,
+            input_tok=response.input_tokens,
+            output_tok=response.output_tokens,
             stage="codegen",
         )
 

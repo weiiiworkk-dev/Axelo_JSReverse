@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
+from axelo.config import settings
 from axelo.models.codegen import GeneratedCode
 from axelo.models.target import RequestCapture, TargetSite
 from axelo.verification.comparator import TokenComparator
 from axelo.verification.data_quality import evaluate_data_quality
 from axelo.verification.engine import VerificationEngine
-from axelo.verification.replayer import ReplayResult
+from axelo.verification.replayer import ReplayResult, RequestReplayer
 from axelo.verification.stability import evaluate_stability
 
 
@@ -99,3 +102,60 @@ class TestVerificationEngine:
         assert result.attempts >= 1
         assert result.data_quality is not None
         assert result.stability is not None
+
+
+@pytest.mark.asyncio
+async def test_replayer_executes_generated_code_in_isolated_workdir(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "workspace", tmp_path)
+    script = tmp_path / "crawler.py"
+    script.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "Path('owned.txt').write_text('child-only', encoding='utf-8')",
+                "",
+                "class GeneratedCrawler:",
+                "    def __init__(self):",
+                "        self._last_headers = {'X-Sign': 'ok'}",
+                "",
+                "    def crawl(self):",
+                "        return {'ok': True}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    replayer = RequestReplayer()
+    target = TargetSite(url="https://example.com", session_id="iso01", interaction_goal="demo")
+    result = await replayer.execute_crawl_subprocess(script, target, timeout=5.0)
+
+    assert result.error is None
+    assert result.headers == {"X-Sign": "ok"}
+    assert result.crawl_data == {"ok": True}
+    assert not (tmp_path / "owned.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_replayer_times_out_subprocess_execution(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "workspace", tmp_path)
+    script = tmp_path / "crawler.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import time",
+                "time.sleep(5)",
+                "",
+                "class SlowCrawler:",
+                "    def crawl(self):",
+                "        return {'ok': True}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    replayer = RequestReplayer()
+    target = TargetSite(url="https://example.com", session_id="iso02", interaction_goal="demo")
+    result = await replayer.execute_crawl_subprocess(script, target, timeout=0.2)
+
+    assert result.error is not None
+    assert "timed out" in result.error

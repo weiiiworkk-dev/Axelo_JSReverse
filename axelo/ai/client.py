@@ -1,21 +1,33 @@
 from __future__ import annotations
+
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar, Type
+from typing import Generic, Type, TypeVar
+
 import anthropic
-from pydantic import BaseModel
+import anyio
 import structlog
+from pydantic import BaseModel
 
 log = structlog.get_logger()
 
 T = TypeVar("T", bound=BaseModel)
 
 
+@dataclass(frozen=True)
+class AIResponse(Generic[T]):
+    data: T
+    model: str
+    input_tokens: int
+    output_tokens: int
+    response_id: str = ""
+
+
 class AIClient:
     """
-    Anthropic SDK 封装。
-    使用 tool_use（函数调用）获取结构化输出，避免 JSON 解析脆弱性。
+    Anthropic SDK wrapper that returns typed tool outputs and real usage metadata.
     """
 
     def __init__(self, api_key: str, model: str = "claude-opus-4-6") -> None:
@@ -30,20 +42,19 @@ class AIClient:
         tool_name: str = "output",
         max_tokens: int = 8192,
         log_dir: Path | None = None,
-    ) -> T:
-        """
-        发送分析请求，通过 tool_use 获取类型安全的结构化输出。
-        """
+    ) -> AIResponse[T]:
         tool_schema = _pydantic_to_tool_schema(output_schema, tool_name)
 
         t0 = time.monotonic()
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-            tools=[tool_schema],
-            tool_choice={"type": "tool", "name": tool_name},
+        response = await anyio.to_thread.run_sync(
+            lambda: self._client.messages.create(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                tools=[tool_schema],
+                tool_choice={"type": "tool", "name": tool_name},
+            )
         )
         duration = time.monotonic() - t0
 
@@ -55,40 +66,48 @@ class AIClient:
             duration=f"{duration:.1f}s",
         )
 
-        # 提取 tool_use 块
-        tool_block = next(
-            (b for b in response.content if b.type == "tool_use"),
-            None,
-        )
+        tool_block = next((block for block in response.content if block.type == "tool_use"), None)
         if tool_block is None:
-            raise ValueError("AI 响应中未找到 tool_use 块")
+            raise ValueError("AI response did not contain a tool_use block")
 
         result = output_schema.model_validate(tool_block.input)
+        payload = AIResponse(
+            data=result,
+            model=self._model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            response_id=getattr(response, "id", ""),
+        )
 
-        # 可选：记录原始请求/响应到文件
         if log_dir:
             log_dir.mkdir(parents=True, exist_ok=True)
             ts = int(time.time())
             (log_dir / f"{tool_name}_{ts}.json").write_text(
-                json.dumps({
-                    "system": system_prompt[:500],
-                    "user": user_message[:500],
-                    "result": result.model_dump(),
-                    "usage": {"input": response.usage.input_tokens, "output": response.usage.output_tokens},
-                }, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {
+                        "system": system_prompt[:500],
+                        "user": user_message[:500],
+                        "result": result.model_dump(),
+                        "usage": {
+                            "input": payload.input_tokens,
+                            "output": payload.output_tokens,
+                            "response_id": payload.response_id,
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
 
-        return result
+        return payload
 
 
 def _pydantic_to_tool_schema(model: Type[BaseModel], name: str) -> dict:
-    """将 Pydantic 模型转换为 Anthropic tool 定义"""
     schema = model.model_json_schema()
-    # 移除 Anthropic 不需要的字段
     schema.pop("title", None)
     return {
         "name": name,
-        "description": f"输出 {model.__name__} 结构",
+        "description": f"Structured {model.__name__} output",
         "input_schema": schema,
     }
