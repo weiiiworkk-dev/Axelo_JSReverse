@@ -5,15 +5,17 @@
   "private": true,
   "description": "Axelo JSReverse Node.js tool scripts",
   "scripts": {
-    "install-tools": "npm install"
+    "install-tools": "npm install",
+    "check-bridge-env": "node check_bridge_env.cjs"
   },
   "dependencies": {
-    "webcrack": "^1.11.0",
+    "@babel/generator": "^7.26.0",
     "@babel/parser": "^7.26.0",
     "@babel/traverse": "^7.26.0",
-    "@babel/generator": "^7.26.0",
     "@babel/types": "^7.26.0",
+    "acorn": "^8.14.0",
+    "playwright": "^1.59.1",
     "prettier": "^3.4.0",
-    "acorn": "^8.14.0"
+    "webcrack": "^1.11.0"
   }
 }

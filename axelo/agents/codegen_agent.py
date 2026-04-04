@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import structlog
 from jinja2 import Environment, FileSystemLoader
@@ -17,6 +17,8 @@ from axelo.models.target import TargetSite
 log = structlog.get_logger()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "ai" / "prompts"
+BASE_BRIDGE_TEMPLATE = PROMPTS_DIR / "base_bridge_template.js"
+BASE_CRAWLER_TEMPLATE = PROMPTS_DIR / "base_crawler_template.py"
 
 CODEGEN_SYSTEM = """You are a crawler code generation agent.
 
@@ -54,15 +56,14 @@ class CodeGenAgent(BaseAgent):
 
         observed_context = _observed_request_context(target)
         grounding_rules = _render_grounding_rules(observed_context)
-        system_prompt = (
-            CODEGEN_SYSTEM
-            + f"\n\nReference template:\n{template_code or '(none)'}"
-            + f"\n\nHost grounding rules:\n{grounding_rules}"
-        )
-        source_snippets = _collect_snippets(hypothesis, static_results)
-        hook_data = _collect_hook_data(dynamic)
-
         if hypothesis.codegen_strategy == "python_reconstruct":
+            system_prompt = (
+                CODEGEN_SYSTEM
+                + f"\n\nReference template:\n{template_code or '(none)'}"
+                + f"\n\nHost grounding rules:\n{grounding_rules}"
+            )
+            source_snippets = _collect_snippets(hypothesis, static_results)
+            hook_data = _collect_hook_data(dynamic)
             template = self._jinja.get_template("generate_python.j2")
             user_msg = template.render(
                 hypothesis=hypothesis,
@@ -70,40 +71,34 @@ class CodeGenAgent(BaseAgent):
                 hook_data=hook_data,
                 target=target,
             )
+            user_msg = (
+                _render_observed_request_context(observed_context)
+                + "\n\n"
+                + user_msg
+            )
+            client = self._build_client()
+            response = await client.analyze(
+                system_prompt=system_prompt,
+                user_message=user_msg,
+                output_schema=CodeGenOutput,
+                tool_name="codegen",
+                max_tokens=8192,
+            )
+            output = response.data
+
+            self._cost.add_ai_call(
+                model=response.model,
+                input_tok=response.input_tokens,
+                output_tok=response.output_tokens,
+                stage="codegen",
+            )
         else:
-            first_bundle = next(
-                (str(output_dir.parent / "bundles" / f"{bundle_id}.raw.js") for bundle_id in static_results),
-                "",
+            output = CodeGenOutput(
+                crawler_code=_render_base_crawler_template(target, bridge_port=8721),
+                dependencies=["httpx>=0.27.0"],
+                bridge_server_code="",
+                notes=_render_js_bridge_notes(target, hypothesis, bridge_port=8721),
             )
-            template = self._jinja.get_template("generate_bridge.j2")
-            user_msg = template.render(
-                hypothesis=hypothesis,
-                bundle_path=first_bundle,
-                bridge_port=8721,
-                target=target,
-            )
-        user_msg = (
-            _render_observed_request_context(observed_context)
-            + "\n\n"
-            + user_msg
-        )
-
-        client = self._build_client()
-        response = await client.analyze(
-            system_prompt=system_prompt,
-            user_message=user_msg,
-            output_schema=CodeGenOutput,
-            tool_name="codegen",
-            max_tokens=8192,
-        )
-        output = response.data
-
-        self._cost.add_ai_call(
-            model=response.model,
-            input_tok=response.input_tokens,
-            output_tok=response.output_tokens,
-            stage="codegen",
-        )
 
         artifacts: dict[str, Path] = {}
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +108,11 @@ class CodeGenAgent(BaseAgent):
             path = output_dir / "crawler.py"
             path.write_text(output.crawler_code, encoding="utf-8")
             artifacts["crawler_script"] = path
-        if output.bridge_server_code:
+        if hypothesis.codegen_strategy == "js_bridge":
+            path = output_dir / "bridge_server.js"
+            path.write_text(_render_base_bridge_template(target, bridge_port=8721), encoding="utf-8")
+            artifacts["bridge_server"] = path
+        elif output.bridge_server_code:
             path = output_dir / "bridge_server.js"
             path.write_text(output.bridge_server_code, encoding="utf-8")
             artifacts["bridge_server"] = path
@@ -277,3 +276,200 @@ def _repair_generated_code_for_target(code: str, target: TargetSite) -> str:
             code,
         )
     return code
+
+
+def _render_base_bridge_template(target: TargetSite, bridge_port: int) -> str:
+    raw = BASE_BRIDGE_TEMPLATE.read_text(encoding="utf-8")
+    storage_state_path = (
+        str(Path(target.session_state.storage_state_path).resolve())
+        if target.session_state.storage_state_path
+        else ""
+    )
+    replacements = {
+        "__AXELO_BRIDGE_PORT__": str(bridge_port),
+        "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
+        "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
+        "__AXELO_DEFAULT_APP_KEY__": json.dumps(_default_app_key(target), ensure_ascii=False),
+    }
+    for placeholder, value in replacements.items():
+        raw = raw.replace(placeholder, value)
+    return raw
+
+
+def _render_base_crawler_template(target: TargetSite, bridge_port: int) -> str:
+    raw = BASE_CRAWLER_TEMPLATE.read_text(encoding="utf-8")
+    storage_state_path = (
+        str(Path(target.session_state.storage_state_path).resolve())
+        if target.session_state.storage_state_path
+        else ""
+    )
+    replacements = {
+        "__AXELO_CRAWLER_CLASS__": _crawler_class_name(target.url),
+        "__AXELO_BRIDGE_PORT__": str(bridge_port),
+        "__AXELO_PAGE_ORIGIN__": json.dumps(_page_origin(target.url), ensure_ascii=False),
+        "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
+        "__AXELO_KNOWN_ENDPOINT__": json.dumps(target.known_endpoint or "", ensure_ascii=False),
+        "__AXELO_PREFERRED_API_BASE__": json.dumps(_preferred_api_base(target), ensure_ascii=False),
+        "__AXELO_BRIDGE_LOCALE__": json.dumps(target.browser_profile.locale or "en-US", ensure_ascii=False),
+        "__AXELO_BRIDGE_TIMEZONE__": json.dumps(target.browser_profile.timezone or "UTC", ensure_ascii=False),
+        "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
+        "__AXELO_DEFAULT_HEADERS__": json.dumps(_safe_default_headers(target), ensure_ascii=False, indent=4),
+        "__AXELO_OBSERVED_TARGETS__": json.dumps(_observed_targets_payload(target), ensure_ascii=False, indent=4),
+    }
+    for placeholder, value in replacements.items():
+        raw = raw.replace(placeholder, value)
+    return raw
+
+
+def _default_app_key(target: TargetSite) -> str:
+    for request in target.target_requests:
+        parsed = urlsplit(request.url)
+        query = parse_qs(parsed.query)
+        for key in ("appKey", "appkey", "app_key"):
+            values = query.get(key)
+            if values and values[0]:
+                return values[0]
+    return ""
+
+
+def _crawler_class_name(url: str) -> str:
+    host = urlsplit(url).hostname or "generated"
+    parts = []
+    for chunk in host.split("."):
+        cleaned = re.sub(r"[^A-Za-z0-9]+", " ", chunk).strip()
+        if not cleaned or cleaned.lower() in {"www", "com", "net", "org"}:
+            continue
+        parts.append("".join(piece.capitalize() for piece in cleaned.split()))
+    return "".join(parts or ["Generated", "Bridge"]) + "Crawler"
+
+
+def _safe_default_headers(target: TargetSite) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for request in target.target_requests:
+        headers.update(_filter_default_headers(request.request_headers))
+
+    observed_user_agent = headers.get("User-Agent") or headers.get("user-agent") or ""
+    user_agent = _canonical_user_agent(target.browser_profile.user_agent or observed_user_agent) or (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
+    locale = target.browser_profile.locale or "en-US"
+    page_origin = _page_origin(target.url)
+
+    normalized = {
+        "User-Agent": user_agent,
+        "Accept": headers.get("Accept") or "application/json, text/plain, */*",
+        "Accept-Language": headers.get("Accept-Language") or locale,
+        "Referer": headers.get("Referer") or (f"{target.url}" if target.url else ""),
+        "Origin": headers.get("Origin") or page_origin,
+    }
+    if headers.get("Content-Type"):
+        normalized["Content-Type"] = headers["Content-Type"]
+    if headers.get("X-Requested-With"):
+        normalized["X-Requested-With"] = headers["X-Requested-With"]
+    for key, value in headers.items():
+        lowered = key.lower()
+        if lowered.startswith("x-csrf") and value:
+            normalized[key] = value
+    return {key: value for key, value in normalized.items() if value}
+
+
+def _filter_default_headers(headers: dict[str, str]) -> dict[str, str]:
+    allowed = {
+        "accept",
+        "accept-language",
+        "content-type",
+        "origin",
+        "referer",
+        "user-agent",
+        "x-requested-with",
+    }
+    filtered: dict[str, str] = {}
+    for key, value in headers.items():
+        lowered = key.lower()
+        if not value:
+            continue
+        if lowered in {"cookie", "content-length", "host", "connection"}:
+            continue
+        if lowered.startswith("sec-"):
+            continue
+        if lowered in allowed or lowered.startswith("x-csrf"):
+            filtered[key] = value
+    return filtered
+
+
+def _filter_observed_target_headers(headers: dict[str, str]) -> dict[str, str]:
+    filtered: dict[str, str] = {}
+    for key, value in headers.items():
+        lowered = key.lower()
+        if not value:
+            continue
+        if lowered in {"content-type", "accept", "x-requested-with"} or lowered.startswith("x-csrf"):
+            filtered[key] = value
+    return filtered
+
+
+def _canonical_user_agent(user_agent: str) -> str:
+    if not user_agent:
+        return ""
+    return user_agent.replace("HeadlessChrome/", "Chrome/")
+
+
+def _observed_targets_payload(target: TargetSite) -> list[dict[str, object]]:
+    observed: list[dict[str, object]] = []
+    source_requests = target.target_requests or target.captured_requests
+    for index, request in enumerate(source_requests[:5]):
+        body_text = _request_body_to_text(request.request_body)
+        observed.append(
+            {
+                "name": _observed_target_name(request.url, index),
+                "url": request.url,
+                "method": request.method or "GET",
+                "headers": _filter_observed_target_headers(request.request_headers),
+                "body": body_text,
+            }
+        )
+    return observed
+
+
+def _observed_target_name(url: str, index: int) -> str:
+    parsed = urlsplit(url)
+    tail = parsed.path.rstrip("/").split("/")[-1] if parsed.path else ""
+    if tail:
+        cleaned = re.sub(r"[^A-Za-z0-9]+", "_", tail).strip("_")
+        if cleaned:
+            return cleaned.lower()
+    return f"target_{index + 1}"
+
+
+def _request_body_to_text(body: bytes | None) -> str:
+    if not body:
+        return ""
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("utf-8", errors="replace")
+
+
+def _render_js_bridge_notes(target: TargetSite, hypothesis: AIHypothesis, bridge_port: int) -> str:
+    return (
+        "## Implementation Notes\n\n"
+        "### Architecture\n"
+        "- `bridge_server.js` is rendered from `axelo/ai/prompts/base_bridge_template.js`.\n"
+        "- `crawler.py` is rendered from `axelo/ai/prompts/base_crawler_template.py`.\n"
+        "- Both files use the fixed Playwright-backed bridge protocol instead of model-generated custom implementations.\n\n"
+        "### Runtime Requirements\n"
+        "- Python dependency: `httpx>=0.27.0`\n"
+        "- Node dependency: `playwright`\n"
+        "- Browser install step: `npx playwright install chromium`\n\n"
+        "### Safety / Scope\n"
+        "- This implementation depends on a real browser context.\n"
+        "- It does not include webdriver spoofing, stealth plugins, or CDP-hiding logic.\n"
+        "- Challenge and crash states are surfaced back to Python rather than bypassed.\n\n"
+        "### Current Session Defaults\n"
+        f"- Start URL: `{target.url}`\n"
+        f"- Storage state: `{target.session_state.storage_state_path or '(none)'}`\n"
+        f"- Bridge port: `{bridge_port}`\n"
+        f"- Strategy: `{hypothesis.codegen_strategy}`"
+    )

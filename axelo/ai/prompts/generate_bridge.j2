@@ -1,100 +1,165 @@
-你是一位 Node.js 和 Python 工程师，擅长将依赖浏览器环境的 JS 签名逻辑封装为爬虫服务。
+你是一位 Node.js 和 Python 工程师，负责把“必须在真实浏览器上下文中执行”的签名逻辑包装成可运行、可观测的桥接产物。
 
 ## 背景
 
-目标 JS 算法依赖浏览器特定 API，无法直接用 Python 重写。
-需要生成两部分：
-1. **Node.js Bridge Server**（`bridge_server.js`）：在 Node.js 环境中执行原始 JS 签名逻辑，暴露 HTTP 接口
-2. **Python 爬虫文件**（`crawler.py`）：通过调用 Bridge 获取签名头，再发送真实请求并返回数据
+目标算法依赖真实页面运行时，不能假设可以在 Node.js 里通过手写 `window/document/navigator` 成功复刻。
+因此 `js_bridge` 策略下，优先生成：
 
-## 签名信息
+1. `bridge_server.js`
+   - 系统会使用固定的 `base_bridge_template.js` 渲染出 bridge 文件
+   - 该 bridge 基于 Playwright 维护一个长生命周期 Chromium 实例
+   - 通过 HTTP 接口供 Python 调用
+   - 在真实页面上下文中注册和调用原有加密函数
+   - 暴露健康状态、事件流、重连和 challenge 检测
+2. `crawler.py`
+   - 系统会使用固定的 `base_crawler_template.py` 渲染出 crawler 文件
+   - 调用 bridge 进行初始化、注册、签名和状态检查
+   - 在 bridge 返回 crash / challenge / disconnected 时中止或降级
 
-**目标函数**: {{ hypothesis.generator_func_ids | join(', ') }}
+## 已知签名信息
 
-**算法描述**: {{ hypothesis.algorithm_description }}
-
-**签名输入**: {{ hypothesis.inputs | join(', ') }}
-
-**签名输出字段**: {{ hypothesis.outputs.keys() | join(', ') }}
-
-**原始 JS bundle 路径**: {{ bundle_path }}
+- 目标函数: {{ hypothesis.generator_func_ids | join(', ') }}
+- 算法描述: {{ hypothesis.algorithm_description }}
+- 签名输入: {{ hypothesis.inputs | join(', ') }}
+- 签名输出字段: {{ hypothesis.outputs.keys() | join(', ') }}
+- 原始 JS bundle 路径: {{ bundle_path }}
 
 ## 生成要求
 
-### 1. Node.js Bridge Server（`bridge_server_code` 字段）
+### 1. `bridge_server_code`
 
-```javascript
-// bridge_server.js
-const express = require('express');
-const app = express();
-app.use(express.json());
+请按固定 bridge 协议生成与之配套的实现说明。系统会提供确定性的 bridge 模板，因此不要再自由发明另一套接口。
+如需填写 `bridge_server_code`，其内容必须与下面的固定协议兼容。
 
-// 加载原始 JS bundle，调用签名函数
-// POST /sign 接受 {url, method, body}，返回 {headers: {字段: 值}}
-app.post('/sign', (req, res) => { ... });
+固定 bridge 模板要求如下：
 
-app.listen({{ bridge_port }});
-```
+- 使用 Node 内置 `http` 模块实现 HTTP 服务，避免引入 `express`
+- 使用 `playwright`（或 `playwright-core`）启动 Chromium
+- 默认不要在进程启动时立即拉起浏览器，而是等 `POST /init` 时初始化
+- 使用真实浏览器上下文，不要通过手工 mock DOM/BOM 来执行签名 bundle
+- 使用 `browser.newContext({ storageState })` 载入现有会话
+- 使用 `context.addInitScript(...)` 注入一个很薄的 bridge runtime
+- bridge runtime 至少提供：
+  - `register(name, fn, thisArg)`
+  - `registerGlobal(name, globalPath, ownerPath)`
+  - `call(name, args)`
+  - `list()`
+- bridge runtime 应挂在 `window.__AXELO_BRIDGE__` 上，并且通过 `Object.defineProperty(..., { enumerable: false })` 暴露，尽量减少与页面脚本冲突
+- 不要实现任何“抹除 CDP 特征”“webdriver 伪装”“绕过检测”“stealth 插件注入”逻辑
 
-要求：
-- 使用 Express（无 isolated-vm，直接 require 原始 bundle）
-- POST `/sign` 接口，接受 `{url, method, body}` JSON
-- 返回 `{headers: {"签名字段": "值", ...}}`
-- 错误时返回 `{error: "..."}`
-- 监听端口 {{ bridge_port }}
+#### `bridge_server.js` 必须包含的 HTTP 接口
 
-### 2. Python 完整爬虫（`crawler_code` 字段）
+- `GET /health`
+  - 返回运行时状态，至少包含：
+    - `status`
+    - `phase`
+    - `ready`
+    - `lastUrl`
+    - `lastTitle`
+    - `lastError`
+    - `lastChallenge`
+    - `dependency`
+- `GET /events?since=<id>`
+  - 返回事件列表和 `nextCursor`
+- `POST /init`
+  - 接收可选配置：
+    - `startUrl`
+    - `storageStatePath`
+    - `headless`
+    - `channel`
+    - `locale`
+    - `timezoneId`
+    - `viewport`
+    - `readinessSelector`
+    - `defaultSigner`
+  - 初始化或重建浏览器运行时
+- `POST /restart`
+  - 强制重启浏览器运行时
+- `POST /stop`
+  - 主动关闭浏览器运行时
+- `POST /navigate`
+  - 导航到指定 URL
+- `POST /set-cookies`
+  - 写入 cookie 到 context
+- `GET /bridge/list`
+  - 返回已注册 target
+- `POST /bridge/register`
+  - 支持两种模式：
+    - `{name, globalPath, ownerPath}`
+    - `{name, resolverSource, resolverArg}`
+- `POST /bridge/call`
+  - 接收 `{name, args}` 或 `{name, payload}`
+- `POST /sign`
+  - 保留兼容入口
+  - 接收 `{url, method, body, signer, signerArgs, cookies}`
+  - 返回 `{headers, meta}`
 
-```python
-"""
-自动生成的爬虫 - Axelo JSReverse (Bridge 模式)
-"""
-import subprocess, time, json
-import httpx
+#### `bridge_server.js` 的运行时行为
 
-class <站点名>Crawler:
+- 自动检测以下异常并写入事件流：
+  - 页面 crash
+  - browser disconnected
+  - 主页面关闭
+  - 主页面被重定向到 challenge / captcha / verify / punish
+- challenge 检测可以基于：
+  - URL 关键字
+  - title 关键字
+  - `document.body.innerText`
+- 当发生 crash / disconnected 时自动重连
+- 当发生 challenge 时：
+  - 将 phase 置为 `challenge`
+  - 返回给 Python 明确状态
+  - 不要尝试任何规避检测逻辑
+- 在可能的情况下保留最新 `storageState`
 
-    BRIDGE_PORT = {{ bridge_port }}
-    BRIDGE_PATH = "bridge_server.js"
+#### `bridge_server.js` 的实现风格
 
-    def __init__(self):
-        self._proc = None
-        self._start_bridge()
+- 输出必须是完整可运行文件
+- 要有清晰的辅助函数
+- 尽量少依赖第三方包
+- 如果缺少 `playwright`，`/health` 和 `/init` 要返回清楚的依赖错误信息
 
-    def _start_bridge(self):
-        """启动 Node.js bridge server 子进程"""
-        self._proc = subprocess.Popen(["node", self.BRIDGE_PATH])
-        time.sleep(1.5)  # 等待启动
+### 2. `crawler_code`
 
-    def _sign(self, url: str, method: str, body: str) -> dict[str, str]:
-        """通过 bridge server 获取签名头"""
-        resp = httpx.post(
-            f"http://localhost:{self.BRIDGE_PORT}/sign",
-            json={"url": url, "method": method, "body": body},
-            timeout=10.0,
-        )
-        return resp.json().get("headers", {})
+请生成与固定 crawler 模板兼容的实现说明，不要再自由发明另一套 bridge 客户端协议。系统会提供确定性的 crawler 模板。
 
-    def crawl(self, **kwargs) -> dict:
-        """执行爬取，返回结构化数据"""
-        url = "..."
-        headers = self._sign(url, "GET", "")
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(url, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+固定 crawler 模板要求如下：
 
-    def __del__(self):
-        if self._proc:
-            self._proc.terminate()
+- 使用 `httpx`
+- 启动 bridge 子进程后不要只靠 `sleep`，而是轮询 `/health`
+- 在首次使用前调用 `/init`
+- 如果已有 storage-state 文件，传给 `/init`
+- 如果需要浏览器里的原始函数，先调用 `/bridge/register`
+- 调用 `/sign` 或 `/bridge/call` 后再发真实请求
+- 在以下情况中止并返回明确错误：
+  - `/health` 显示 `phase=challenge`
+  - `/health` 显示 `phase=crashed`
+  - `/health` 显示 `phase=disconnected`
+  - bridge 返回 409 challenge
+- 增加一个事件轮询或事件拉取辅助方法，读取 `/events`
+- 在发送主请求前保存：
+  - `self._last_headers`
+  - `self._last_request_url`
 
-if __name__ == "__main__":
-    crawler = <站点名>Crawler()
-    result = crawler.crawl(...)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-```
+### 3. 依赖
 
-请通过工具调用返回：
-- `crawler_code`：完整 Python 爬虫文件
-- `bridge_server_code`：完整 Node.js bridge server 文件
-- `dependencies`：pip 依赖列表（至少包含 `httpx`）
+请返回：
+
+- `bridge_server_code`
+- `crawler_code`
+- `dependencies`
+- `notes`
+
+其中：
+
+- Python `dependencies` 至少包含 `httpx`
+- `notes` 里要明确写出：
+  - 需要额外安装 Node.js 的 `playwright`
+  - 本实现依赖真实浏览器上下文
+  - 本实现不会伪装 webdriver 或规避检测
+
+## 重要限制
+
+- 不要输出任何“隐藏自动化特征”“清理 CDP 痕迹”“stealth 绕过”代码
+- 不要再生成基于 `express + require(raw bundle) + 手工 mock window/document` 的旧方案
+- 生成代码时优先选择可维护、可观测、可恢复的实现，而不是最短实现
