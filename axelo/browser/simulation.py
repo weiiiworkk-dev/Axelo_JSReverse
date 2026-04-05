@@ -9,10 +9,17 @@ from axelo.models.target import BrowserProfile
 SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
 (() => {
   const root = window;
-  const envName = "__AXELO_ENV__";
-  const interactionName = "__AXELO_INTERACTION__";
-  const stateKey = Symbol.for("axelo.simulation.runtime");
-  if (root[stateKey] && root[envName] && root[interactionName]) return;
+  // Short, non-toolchain-branded names for the diagnostic API objects.
+  const envName = "__sim_env__";
+  const interactionName = "__sim_ia__";
+  // Use a plain non-enumerable property instead of a global Symbol registry
+  // entry so that named-symbol lookups reveal nothing about this script.
+  const _markProp = "_sp_v2_";
+  if (root[_markProp] === true && root[envName] && root[interactionName]) return;
+  Object.defineProperty(root, _markProp, {value: true, enumerable: false, configurable: false, writable: false});
+  // WeakSet used to track wrapped canvas prototypes without leaking a named
+  // symbol into the global Symbol registry.
+  const _wrapRegistry = new WeakSet();
 
   const config = __AXELO_SIMULATION_CONFIG__;
   const diagnostics = [];
@@ -258,6 +265,42 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
     });
   };
 
+  // A realistic subset of extensions a desktop Chrome WebGL context exposes.
+  const WEBGL_EXTENSIONS = [
+    "ANGLE_instanced_arrays",
+    "EXT_blend_minmax",
+    "EXT_color_buffer_half_float",
+    "EXT_frag_depth",
+    "EXT_shader_texture_lod",
+    "EXT_texture_compression_bptc",
+    "EXT_texture_compression_rgtc",
+    "EXT_texture_filter_anisotropic",
+    "WEBKIT_EXT_texture_filter_anisotropic",
+    "EXT_sRGB",
+    "KHR_parallel_shader_compile",
+    "OES_element_index_uint",
+    "OES_fbo_render_mipmap",
+    "OES_standard_derivatives",
+    "OES_texture_float",
+    "OES_texture_float_linear",
+    "OES_texture_half_float",
+    "OES_texture_half_float_linear",
+    "OES_vertex_array_object",
+    "WEBGL_color_buffer_float",
+    "WEBGL_compressed_texture_s3tc",
+    "WEBGL_compressed_texture_s3tc_srgb",
+    "WEBGL_debug_renderer_info",
+    "WEBGL_debug_shaders",
+    "WEBGL_depth_texture",
+    "WEBGL_draw_buffers",
+    "WEBGL_lose_context",
+    "WEBGL_multi_draw",
+  ];
+
+  // WEBGL_debug_renderer_info constants
+  const UNMASKED_VENDOR_WEBGL = 37445;
+  const UNMASKED_RENDERER_WEBGL = 37446;
+
   const createFallbackWebGLContext = (canvas) => {
     const context = {
       canvas,
@@ -278,13 +321,32 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
         };
       },
       getSupportedExtensions() {
-        return [];
+        return WEBGL_EXTENSIONS.slice();
       },
-      getExtension() {
+      getExtension(name) {
+        const n = String(name || "").trim();
+        if (n === "WEBGL_debug_renderer_info") {
+          return Object.freeze({
+            UNMASKED_VENDOR_WEBGL,
+            UNMASKED_RENDERER_WEBGL,
+          });
+        }
+        if (n === "WEBGL_lose_context") {
+          return Object.freeze({loseContext() {}, restoreContext() {}});
+        }
+        if (WEBGL_EXTENSIONS.indexOf(n) !== -1) {
+          return Object.freeze({});
+        }
         return null;
       },
       getParameter(parameter) {
         try {
+          if (parameter === UNMASKED_VENDOR_WEBGL) {
+            return String(webglConfig.vendor || "Google Inc. (Intel)");
+          }
+          if (parameter === UNMASKED_RENDERER_WEBGL) {
+            return String(webglConfig.renderer || "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)");
+          }
           if (own.call(minimumParameterMap, parameter)) return clone(minimumParameterMap[parameter]);
           return null;
         } catch (error) {
@@ -347,8 +409,7 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
 
   const wrapCanvasGetContext = (host) => {
     if (!host || typeof host.getContext !== "function") return;
-    const marker = Symbol.for("axelo.webgl.wrap");
-    if (host[marker]) return;
+    if (_wrapRegistry.has(host)) return;
     const original = host.getContext;
     safeDefine(host, "getContext", {
       value(type, ...args) {
@@ -372,7 +433,7 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
       },
       writable: false,
     });
-    safeDefine(host, marker, { value: true, writable: false });
+    _wrapRegistry.add(host);
   };
 
   const makeSeededRng = (seed) => {
@@ -549,6 +610,119 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
     };
   };
 
+  // ── Stealth fixes ──────────────────────────────────────────────────────────
+  // These patches suppress the most widely-probed automation signals.
+
+  const installStealthFixtures = () => {
+    // 1. navigator.webdriver
+    // Headless Chromium exposes navigator.webdriver=true by default.  Remove it
+    // so that the property evaluates to undefined rather than true.
+    try {
+      Object.defineProperty(navigator, "webdriver", {
+        get: () => undefined,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (_e) {
+      pushDiagnostic("stealth", "Could not redefine navigator.webdriver", {});
+    }
+
+    // 2. window.chrome stub
+    // Real Chrome exposes window.chrome; headless mode omits it entirely which
+    // is a trivially detectable signal.
+    if (!root.chrome) {
+      try {
+        const _chrome = {
+          app: {
+            isInstalled: false,
+            getDetails: function() { return null; },
+            runningState: function() { return "cannot_run"; },
+            InstallState: {DISABLED: "disabled", INSTALLED: "installed", NOT_INSTALLED: "not_installed"},
+          },
+          runtime: {
+            id: undefined,
+            connect: function() { return null; },
+            sendMessage: function() {},
+            onConnect: {addListener: function() {}, removeListener: function() {}, hasListener: function() { return false; }},
+            onMessage: {addListener: function() {}, removeListener: function() {}, hasListener: function() { return false; }},
+          },
+          loadTimes: function() { return {}; },
+          csi: function() { return {}; },
+        };
+        Object.defineProperty(root, "chrome", {
+          value: _chrome,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      } catch (_e) {
+        pushDiagnostic("stealth", "Could not define window.chrome", {});
+      }
+    }
+
+    // 3. navigator.plugins
+    // Headless Chrome returns an empty PluginArray which is a well-known signal.
+    // We inject a minimal set matching what a typical desktop Chrome exposes.
+    try {
+      if (!navigator.plugins || navigator.plugins.length === 0) {
+        const _pluginNames = [
+          "PDF Viewer",
+          "Chrome PDF Viewer",
+          "Chromium PDF Viewer",
+          "Microsoft Edge PDF Viewer",
+          "WebKit built-in PDF",
+        ];
+        // Build a plain array-like object that mimics PluginArray
+        const _plugins = Object.assign(Object.create(null), {
+          length: _pluginNames.length,
+          item: function(i) { return this[i] || null; },
+          namedItem: function(n) {
+            for (let k = 0; k < _pluginNames.length; k++) {
+              if (_pluginNames[k] === n) return this[k] || null;
+            }
+            return null;
+          },
+          refresh: function() {},
+        });
+        for (let _i = 0; _i < _pluginNames.length; _i++) {
+          const _p = Object.assign(Object.create(null), {
+            name: _pluginNames[_i],
+            filename: "internal-pdf-viewer",
+            description: "Portable Document Format",
+            length: 1,
+          });
+          _plugins[_i] = _p;
+        }
+        Object.defineProperty(navigator, "plugins", {
+          get: function() { return _plugins; },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    } catch (_e) {
+      pushDiagnostic("stealth", "Could not redefine navigator.plugins", {});
+    }
+
+    // 4. navigator.languages consistency
+    // Ensure navigator.languages is not empty; it should reflect the locale.
+    try {
+      if (!navigator.languages || navigator.languages.length === 0) {
+        const _locale = String(envConfig.profileName || "desktop");
+        const _lang = _locale === "mobile" ? ["zh-CN", "zh", "en"] : ["zh-CN", "zh", "en-US", "en"];
+        Object.defineProperty(navigator, "languages", {
+          get: function() { return _lang; },
+          configurable: true,
+          enumerable: true,
+        });
+      }
+    } catch (_e) {
+      pushDiagnostic("stealth", "Could not redefine navigator.languages", {});
+    }
+  };
+
+  // ── End stealth fixes ───────────────────────────────────────────────────────
+
+  installStealthFixtures();
   installMediaFixtures();
   installBatteryFixture();
   wrapCanvasGetContext(root.HTMLCanvasElement && root.HTMLCanvasElement.prototype);
@@ -605,17 +779,6 @@ SIMULATION_INIT_SCRIPT_TEMPLATE = r"""
     },
   });
 
-  Object.defineProperty(root, stateKey, {
-    value: {
-      envConfig,
-      interactionConfig,
-      diagnostics,
-      state,
-    },
-    enumerable: false,
-    configurable: false,
-    writable: false,
-  });
   Object.defineProperty(root, envName, {
     value: envApi,
     enumerable: false,

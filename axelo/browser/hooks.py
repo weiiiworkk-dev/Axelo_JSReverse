@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import time
 
 import structlog
@@ -48,11 +49,14 @@ class JSHookInjector:
         self.intercepts: list[HookIntercept] = []
         self.taint_events: list[TaintEvent] = []
         self._sequence = 0
+        # Randomise the Playwright binding name per injector instance so that
+        # anti-bot scripts cannot detect a fixed well-known name on window.
+        self._callback_name: str = "__cb_" + secrets.token_hex(6)
 
     async def inject(self, page: Page, targets: list[str] | None = None) -> None:
         targets = targets or DEFAULT_HOOK_TARGETS
         hook_js = self._build_hook_js(targets)
-        await page.expose_binding("__axelo_hook_cb", self._on_hook_fired, handle=False)
+        await page.expose_binding(self._callback_name, self._on_hook_fired, handle=False)
         await page.add_init_script(hook_js)
         log.info("hooks_injected", count=len(targets))
 
@@ -171,7 +175,7 @@ class JSHookInjector:
 
   function emit(eventType, payload) {
     try {
-      window.__axelo_hook_cb(eventType, JSON.stringify(Object.assign({
+      window[__HOOK_CB_NAME__](eventType, JSON.stringify(Object.assign({
         sequence: nextSequence(),
         timestamp: nowTs(),
       }, payload || {})));
@@ -518,7 +522,11 @@ class JSHookInjector:
   }
 })();
 """
-        return template.replace("__HOOK_TARGETS__", json.dumps(targets, ensure_ascii=False))
+        return (
+            template
+            .replace("__HOOK_TARGETS__", json.dumps(targets, ensure_ascii=False))
+            .replace("__HOOK_CB_NAME__", json.dumps(self._callback_name))
+        )
 
     def get_intercepts(self) -> list[HookIntercept]:
         return list(self.intercepts)

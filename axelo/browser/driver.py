@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
@@ -10,6 +11,17 @@ from axelo.models.session_state import SessionState
 from axelo.models.target import BrowserProfile
 
 log = structlog.get_logger()
+
+# Chromium launch flags that suppress automation-exposure signals.
+_STEALTH_ARGS: list[str] = [
+    "--no-sandbox",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-infobars",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--no-first-run",
+    "--no-default-browser-check",
+]
 
 
 class BrowserDriver:
@@ -34,10 +46,17 @@ class BrowserDriver:
         launcher = getattr(self._pw, self._browser_type)
         self._browser = await launcher.launch(
             headless=self._headless,
-            args=["--no-sandbox"],
+            args=_STEALTH_ARGS,
         )
 
-        context_kwargs = build_context_options(profile)
+        # Randomise pointer seed per session so mouse-path statistics differ
+        # across runs and cannot be matched to a fixed generator signature.
+        session_profile = profile.model_copy(deep=True)
+        session_profile.interaction_simulation.pointer.default_seed = (
+            secrets.randbelow(2**31 - 1) + 1
+        )
+
+        context_kwargs = build_context_options(session_profile)
         if session_state and session_state.storage_state_path and Path(session_state.storage_state_path).exists():
             context_kwargs["storage_state"] = session_state.storage_state_path
 
@@ -46,7 +65,7 @@ class BrowserDriver:
         if session_state and session_state.cookies and not context_kwargs.get("storage_state"):
             await self._context.add_cookies(session_state.cookies)
 
-        await self._context.add_init_script(render_simulation_init_script(profile))
+        await self._context.add_init_script(render_simulation_init_script(session_profile))
 
         self._trace_path = trace_path
         if self._trace_path:
@@ -72,11 +91,11 @@ class BrowserDriver:
             return {}
         return await self._page.evaluate(
             """(() => ({
-                environment: window.__AXELO_ENV__ && typeof window.__AXELO_ENV__.getStatus === 'function'
-                  ? window.__AXELO_ENV__.getStatus()
+                environment: window.__sim_env__ && typeof window.__sim_env__.getStatus === 'function'
+                  ? window.__sim_env__.getStatus()
                   : null,
-                interaction: window.__AXELO_INTERACTION__ && typeof window.__AXELO_INTERACTION__.getStatus === 'function'
-                  ? window.__AXELO_INTERACTION__.getStatus()
+                interaction: window.__sim_ia__ && typeof window.__sim_ia__.getStatus === 'function'
+                  ? window.__sim_ia__.getStatus()
                   : null,
             }))()"""
         )

@@ -28,13 +28,23 @@ def test_simulation_payload_uses_runtime_keys():
     assert "environmentSimulation" in payload
     assert payload["environmentSimulation"]["profileName"] == "desktop"
     assert payload["interactionSimulation"]["pointer"]["defaultSeed"] == 1337
+    # WebGL vendor/renderer fields must be present
+    assert "vendor" in payload["environmentSimulation"]["webgl"]
+    assert "renderer" in payload["environmentSimulation"]["webgl"]
 
 
 def test_render_simulation_init_script_embeds_globals():
     script = render_simulation_init_script(BrowserProfile())
-    assert "__AXELO_ENV__" in script
-    assert "__AXELO_INTERACTION__" in script
+    # Renamed to shorter, non-toolchain-branded identifiers
+    assert "__sim_env__" in script
+    assert "__sim_ia__" in script
+    # Config placeholder must have been replaced
     assert "__AXELO_SIMULATION_CONFIG__" not in script
+    # Stealth fixtures must be present
+    assert "webdriver" in script
+    assert "window.chrome" in script or "'chrome'" in script
+    # No global Symbol registry entries for Axelo
+    assert 'Symbol.for("axelo.' not in script
 
 
 def test_rendered_templates_include_simulation_interfaces():

@@ -8,6 +8,7 @@ import structlog
 from axelo.analysis.request_contracts import build_dataset_contract, build_request_contract, derive_capability_profile
 from axelo.browser import ActionRunner, BrowserDriver, BrowserStateStore, NetworkInterceptor, SessionPool
 from axelo.config import settings
+from axelo.domain.services.risk_control_service import RiskControlService
 from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult
 from axelo.models.target import TargetSite
 from axelo.modes.base import ModeController
@@ -16,6 +17,8 @@ from axelo.policies import resolve_runtime_policy
 from axelo.storage import SessionStateStore
 
 log = structlog.get_logger()
+
+_risk_control = RiskControlService()
 
 
 class CrawlStage(PipelineStage):
@@ -57,6 +60,20 @@ class CrawlStage(PipelineStage):
 
             driver = BrowserDriver(settings.browser, settings.headless)
             interceptor = NetworkInterceptor()
+            # Accumulate risk-control signals detected during real-time navigation.
+            _rc_signals: list[str] = []
+
+            def _on_response_rc(response) -> None:  # type: ignore[no-untyped-def]
+                """Sync Playwright event handler — detects risk-control responses early."""
+                try:
+                    url = response.url or ""
+                    status = response.status or 0
+                    rc = _risk_control.detect_text(url, str(status))
+                    if rc:
+                        _rc_signals.append(rc)
+                        log.warning("risk_control_signal_detected", signal=rc, url=url[:80])
+                except Exception:
+                    pass
 
             try:
                 async with driver:
@@ -66,6 +83,7 @@ class CrawlStage(PipelineStage):
                         trace_path=trace_path if policy.enable_trace_capture and attempt == 1 else None,
                     )
                     interceptor.attach(page)
+                    page.on("response", _on_response_rc)
 
                     try:
                         action_result = await action_runner.run(page, target, policy)
@@ -113,6 +131,22 @@ class CrawlStage(PipelineStage):
                 error="" if api_calls else "no_api_calls_captured",
             )
             session_store.save(state.session_id, target.session_state)
+
+            # Stop retrying immediately on confirmed risk-control interception.
+            if _rc_signals:
+                rc_reason = _rc_signals[0]
+                log.warning(
+                    "crawl_aborted_risk_control",
+                    reason=rc_reason,
+                    attempt=attempt,
+                )
+                return StageResult(
+                    stage_name=self.name,
+                    success=False,
+                    error=rc_reason,
+                    summary=f"Risk-control interception detected on attempt {attempt}: {rc_reason}",
+                )
+
             if api_calls:
                 break
 

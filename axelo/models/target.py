@@ -82,6 +82,11 @@ class MediaSimulation(BaseModel):
 
 class WebGLSimulation(BaseModel):
     enabled: bool = True
+    # Strings returned by WEBGL_debug_renderer_info; kept generic but plausible.
+    vendor: str = "Google Inc. (Intel)"
+    renderer: str = (
+        "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+    )
     minimum_parameters: dict[str, int | float | list[int] | list[float]] = Field(
         default_factory=lambda: {
             "ALIASED_LINE_WIDTH_RANGE": [1, 1],
