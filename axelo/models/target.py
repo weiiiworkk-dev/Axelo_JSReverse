@@ -86,16 +86,16 @@ class WebGLSimulation(BaseModel):
         default_factory=lambda: {
             "ALIASED_LINE_WIDTH_RANGE": [1, 1],
             "ALIASED_POINT_SIZE_RANGE": [1, 1],
-            "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 8,
-            "MAX_CUBE_MAP_TEXTURE_SIZE": 1024,
-            "MAX_FRAGMENT_UNIFORM_VECTORS": 16,
-            "MAX_RENDERBUFFER_SIZE": 1024,
-            "MAX_TEXTURE_IMAGE_UNITS": 8,
-            "MAX_TEXTURE_SIZE": 2048,
-            "MAX_VARYING_VECTORS": 8,
-            "MAX_VERTEX_ATTRIBS": 8,
-            "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 0,
-            "MAX_VERTEX_UNIFORM_VECTORS": 128,
+            "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
+            "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
+            "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+            "MAX_RENDERBUFFER_SIZE": 16384,
+            "MAX_TEXTURE_IMAGE_UNITS": 16,
+            "MAX_TEXTURE_SIZE": 16384,
+            "MAX_VARYING_VECTORS": 30,
+            "MAX_VERTEX_ATTRIBS": 16,
+            "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+            "MAX_VERTEX_UNIFORM_VECTORS": 4096,
         }
     )
 
@@ -114,7 +114,10 @@ class EnvironmentSimulation(BaseModel):
 
 
 class PointerPathSimulation(BaseModel):
-    default_seed: int = Field(default=1337, ge=1)
+    default_seed: int = Field(
+        default_factory=lambda: int.from_bytes(__import__("secrets").token_bytes(4), "big") or 1,
+        ge=1,
+    )
     sample_rate_hz: int = Field(default=60, ge=1)
     duration_ms: int = Field(default=1200, ge=16)
     jitter_px: float = Field(default=1.25, ge=0.0)

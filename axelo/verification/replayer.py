@@ -19,6 +19,15 @@ from axelo.models.target import RequestCapture, TargetSite
 log = structlog.get_logger()
 
 WORKER_SCRIPT = Path(__file__).with_name("subprocess_worker.py")
+_REPLAY_HEADER_BLACKLIST = {
+    "content-length",
+    "transfer-encoding",
+    "host",
+    "cookie",            # managed separately via session state
+    "authorization",     # prevent credential leakage across sessions
+    "if-none-match",     # ETag replay causes spurious 304
+    "if-modified-since", # same
+}
 
 
 class CrawlExecutionResult:
@@ -76,9 +85,17 @@ class RequestReplayer:
             copied_script = temp_dir / script_path.name
             shutil.copy2(script_path, copied_script)
 
+            # Locate the bridge server — it may be plain "bridge_server.js" or
+            # prefixed with the run-id (e.g. "run_0004_bridge_server.js").
+            # Always copy it into temp_dir as "bridge_server.js" so the
+            # crawler template's hardcoded BRIDGE_PATH = "bridge_server.js" resolves.
             sibling_bridge = script_path.parent / "bridge_server.js"
+            if not sibling_bridge.exists():
+                candidates = sorted(script_path.parent.glob("*_bridge_server.js"))
+                if candidates:
+                    sibling_bridge = candidates[0]
             if sibling_bridge.exists():
-                shutil.copy2(sibling_bridge, temp_dir / sibling_bridge.name)
+                shutil.copy2(sibling_bridge, temp_dir / "bridge_server.js")
 
             payload_path = temp_dir / "payload.json"
             result_path = temp_dir / "result.json"
@@ -194,8 +211,12 @@ class RequestReplayer:
     ) -> "ReplayResult":
         merged_headers = dict(req.request_headers)
         merged_headers.update(extra_headers)
-        for header in ("content-length", "transfer-encoding", "host"):
-            merged_headers.pop(header, None)
+        merged_headers = {
+            key: value
+            for key, value in merged_headers.items()
+            if str(key).lower() not in _REPLAY_HEADER_BLACKLIST
+        }
+        merged_headers = _sanitize_sec_fetch_headers(merged_headers, req.url)
 
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -211,11 +232,53 @@ class RequestReplayer:
                 ok=ok,
                 status_code=response.status_code,
                 response_body=response.text[:2000],
+                response_headers=dict(getattr(response, "headers", {}) or {}),
                 headers=extra_headers,
             )
         except Exception as exc:
             log.warning("replay_failed", error=str(exc))
             return ReplayResult(ok=False, error=str(exc), status_code=0)
+
+
+def _sanitize_sec_fetch_headers(headers: dict[str, str], target_url: str) -> dict[str, str]:
+    """Remove or correct sec-fetch-* headers whose values contradict the replay context.
+
+    A wrong sec-fetch-* header is worse than an absent one — remove rather than
+    emit a semantically impossible combination that modern WAFs detect.
+    """
+    result = dict(headers)
+    lowered = {k.lower(): k for k in result}
+
+    sec_mode_key = lowered.get("sec-fetch-mode")
+    sec_site_key = lowered.get("sec-fetch-site")
+    sec_dest_key = lowered.get("sec-fetch-dest")
+    origin_key = lowered.get("origin")
+
+    sec_mode = result.get(sec_mode_key, "").lower() if sec_mode_key else ""
+    sec_site = result.get(sec_site_key, "").lower() if sec_site_key else ""
+    sec_dest = result.get(sec_dest_key, "").lower() if sec_dest_key else ""
+
+    # navigate mode must pair with document destination
+    if sec_mode == "navigate" and sec_dest and sec_dest not in ("document", "iframe", "frame", "embed", "object"):
+        result.pop(sec_dest_key, None)
+
+    # cors mode without Origin header is semantically invalid — drop sec-fetch-mode
+    if sec_mode == "cors" and not origin_key:
+        result.pop(sec_mode_key, None)
+        result.pop(sec_site_key, None)
+
+    # sec-fetch-site: same-origin with a cross-origin URL is a strong automation signal
+    if sec_site == "same-origin" and sec_mode_key:
+        try:
+            from urllib.parse import urlparse
+            origin_val = result.get(origin_key, "") if origin_key else ""
+            target_origin = "{0.scheme}://{0.netloc}".format(urlparse(target_url))
+            if origin_val and not target_origin.startswith(origin_val.rstrip("/")):
+                result.pop(sec_site_key, None)
+        except Exception:
+            pass
+
+    return result
 
 
 class ReplayResult:
@@ -225,6 +288,7 @@ class ReplayResult:
         status_code: int = 0,
         response_body: str = "",
         headers: dict | None = None,
+        response_headers: dict | None = None,
         error: str | None = None,
         output_path: str | None = None,
         generated_data: Any = None,
@@ -233,6 +297,7 @@ class ReplayResult:
         self.status_code = status_code
         self.response_body = response_body
         self.headers = headers or {}
+        self.response_headers = response_headers or {}
         self.error = error
         self.output_path = output_path
         self.generated_data = generated_data
@@ -250,10 +315,21 @@ def _verification_env(extra_env: dict[str, str] | None = None) -> dict[str, str]
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
     }
-    for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC"):
+    for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "NODE_PATH"):
         value = os.environ.get(key)
         if value:
             env[key] = value
+    env["AXELO_NODE_BIN"] = os.environ.get("AXELO_NODE_BIN") or settings.node_bin
+
+    # Ensure Node.js can resolve 'playwright' when the bridge server runs from a temp dir.
+    # NODE_PATH tells Node.js to look in these directories for modules, just like node_modules
+    # at the project root would be found via require() traversal.
+    _project_node_modules = Path(__file__).resolve().parents[2] / "node_modules"
+    if _project_node_modules.exists():
+        existing_node_path = env.get("NODE_PATH", "")
+        sep = os.pathsep
+        env["NODE_PATH"] = str(_project_node_modules) + (sep + existing_node_path if existing_node_path else "")
+
     if extra_env:
         env.update(extra_env)
     return env

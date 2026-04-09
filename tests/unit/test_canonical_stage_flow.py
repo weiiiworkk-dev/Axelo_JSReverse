@@ -180,6 +180,50 @@ async def test_codegen_stage_uses_canonical_codegen_agent(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_codegen_stage_fails_fast_when_crawler_artifact_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "workspace", tmp_path)
+
+    class FakeCodeGenAgent:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def generate(self, target, hypothesis, static_results, dynamic, output_dir):
+            manifest = output_dir / "crawler_manifest.json"
+            manifest.write_text("{}", encoding="utf-8")
+            return {"manifest": manifest}
+
+    monkeypatch.setattr("axelo.pipeline.stages.s7_codegen.CodeGenAgent", FakeCodeGenAgent)
+
+    stage = CodeGenStage(
+        ai_client=MagicMock(),
+        cost=CostRecord(session_id="s02b"),
+        budget=CostBudget(max_usd=1.0),
+        retriever=MagicMock(),
+    )
+
+    result = await stage.execute(
+        PipelineState(session_id="s02b"),
+        DummyMode(),
+        hypothesis=AIHypothesis(
+            algorithm_description="Use HMAC",
+            generator_func_ids=["bundle_main:sign"],
+            steps=["sign request"],
+            inputs=["path"],
+            outputs={"X-Sign": "hex digest"},
+            codegen_strategy="python_reconstruct",
+            confidence=0.9,
+        ),
+        static_results=_static_results(),
+        target=_target("s02b"),
+    )
+
+    assert result.success is False
+    assert result.error is not None
+    assert "produced no crawler script" in result.error
+    assert "crawler_manifest.json" in result.error
+
+
+@pytest.mark.asyncio
 async def test_verify_stage_uses_canonical_verifier_agent(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "workspace", tmp_path)
     output_dir = tmp_path / "sessions" / "s03" / "output"

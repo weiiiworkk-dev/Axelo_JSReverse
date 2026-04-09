@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from axelo.analysis.request_contracts import derive_capability_profile
+from axelo.analysis.signature_heuristics import get_heuristics
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
 from axelo.models.signature import SignatureSpec
 from axelo.models.target import TargetSite
@@ -57,7 +58,12 @@ def build_signature_spec(
 
     inferred_algorithm_id = _infer_algorithm_id(target, hypothesis)
     algorithm_id = inferred_algorithm_id if inferred_algorithm_id != "unknown" else (token_types[0] if token_types else "unknown")
-    family_id = hypothesis.family_id or algorithm_id
+    
+    # === Enhanced: Use heuristics for family_id inference ===
+    inferred_family_id = _infer_family_id_enhanced(target, hypothesis, static_results, dynamic)
+    family_id = hypothesis.family_id or inferred_family_id or algorithm_id
+    # === End enhanced inference ===
+    
     replay_requirements = []
     if target.known_endpoint:
         replay_requirements.append(f"Known endpoint: {target.known_endpoint}")
@@ -67,10 +73,29 @@ def build_signature_spec(
         replay_requirements.append(f"Anti-bot context: {target.antibot_type}")
 
     codegen_strategy = hypothesis.codegen_strategy
-    if (browser_dependencies or preferred_bridge_target) and codegen_strategy == "python_reconstruct":
+    
+    # === Enhanced: Use heuristics to determine if Bridge is required ===
+    # Analyze headers for time sensitivity to override strategy
+    heuristics = get_heuristics()
+    header_strategy = _determine_strategy_from_headers(target, heuristics)
+    if header_strategy == "bridge":
         codegen_strategy = "js_bridge"
+    elif (browser_dependencies or preferred_bridge_target) and codegen_strategy == "python_reconstruct":
+        codegen_strategy = "js_bridge"
+    # === End enhanced strategy determination ===
+    
     capability_profile = derive_capability_profile(target, contract=target.selected_contract, codegen_strategy=codegen_strategy)
     selected_contract = target.selected_contract
+    
+    # === Enhanced: Add header expiry warnings to normalization rules ===
+    header_expiry_warnings = _get_header_warnings(target, heuristics)
+    normalization_rules = [
+        "Preserve header casing emitted by the generated crawler",
+        "Treat timestamp and nonce fields as temporal values unless static evidence proves otherwise",
+    ]
+    if header_expiry_warnings:
+        normalization_rules.extend(header_expiry_warnings)
+    # === End enhanced normalization rules ===
 
     return SignatureSpec(
         algorithm_id=algorithm_id,
@@ -82,10 +107,7 @@ def build_signature_spec(
         signing_outputs=output_fields,
         browser_dependencies=sorted(browser_dependencies),
         replay_requirements=replay_requirements,
-        normalization_rules=[
-            "Preserve header casing emitted by the generated crawler",
-            "Treat timestamp and nonce fields as temporal values unless static evidence proves otherwise",
-        ],
+        normalization_rules=normalization_rules,
         transport_profile={
             "method": selected_contract.method if selected_contract else "GET",
             "url_pattern": selected_contract.url_pattern if selected_contract else (target.known_endpoint or target.url),
@@ -127,3 +149,90 @@ def _infer_algorithm_id(target: TargetSite, hypothesis: AIHypothesis) -> str:
     if "fingerprint" in text or "canvas" in text:
         return "fingerprint"
     return "unknown"
+
+
+# === Enhanced heuristic functions ===
+
+def _infer_family_id_enhanced(
+    target: TargetSite,
+    hypothesis: AIHypothesis,
+    static_results: dict[str, StaticAnalysis],
+    dynamic: DynamicAnalysis | None,
+) -> str | None:
+    """
+    Enhanced family_id inference using heuristics.
+    
+    Uses multiple signals to determine the signature family:
+    - Static analysis token candidates
+    - Dynamic topology data
+    - Known endpoint patterns
+    """
+    signals: list[str] = []
+    
+    # Check token candidates from static analysis
+    for static in static_results.values():
+        if static and static.token_candidates:
+            for candidate in static.token_candidates[:5]:
+                if candidate.token_type:
+                    signals.append(candidate.token_type)
+    
+    # Check dynamic crypto primitives
+    if dynamic and dynamic.crypto_primitives:
+        signals.extend(dynamic.crypto_primitives[:3])
+    
+    # Check topology for signature-related steps
+    if dynamic and dynamic.topology_summary:
+        for summary in dynamic.topology_summary[:3]:
+            if any(kw in summary.lower() for kw in ["sign", "encrypt", "hmac", "md5", "sha"]):
+                signals.append(summary)
+    
+    # Simple frequency-based inference
+    if signals:
+        from collections import Counter
+        counts = Counter(signals)
+        most_common = counts.most_common(1)
+        if most_common and most_common[0][1] > 1:
+            return most_common[0][0]
+    
+    # Fall back to original inference
+    return None
+
+
+def _determine_strategy_from_headers(
+    target: TargetSite,
+    heuristics,
+) -> str:
+    """
+    Determine if Bridge mode is required based on header analysis.
+    
+    Analyzes captured request headers to detect time-sensitive
+    fields that require live browser generation.
+    """
+    # Get headers from target requests
+    headers = {}
+    for request in (target.target_requests or target.captured_requests or []):
+        if request.request_headers:
+            headers.update(request.request_headers)
+    
+    if not headers:
+        return "replay"
+    
+    return heuristics.get_required_strategy(headers)
+
+
+def _get_header_warnings(
+    target: TargetSite,
+    heuristics,
+) -> list[str]:
+    """
+    Generate warnings about potentially expiring headers.
+    """
+    headers = {}
+    for request in (target.target_requests or target.captured_requests or []):
+        if request.request_headers:
+            headers.update(request.request_headers)
+    
+    if not headers:
+        return []
+    
+    return heuristics.get_header_expiry_warnings(headers)

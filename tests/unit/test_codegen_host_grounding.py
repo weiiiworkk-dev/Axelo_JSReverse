@@ -6,6 +6,7 @@ from axelo.agents.codegen_agent import (
     _render_base_crawler_template,
 )
 from axelo.agents.codegen_services import _observed_targets_payload, _safe_default_headers
+from axelo.config import settings
 from axelo.models.analysis import AIHypothesis
 from axelo.models.target import RequestCapture, TargetSite
 
@@ -64,6 +65,25 @@ def test_render_base_crawler_template_uses_python_literals_for_runtime_dicts():
     assert "DEFAULT_ENVIRONMENT = {'enabled': True" in rendered
     assert "DEFAULT_INTERACTION = {'enabled': True" in rendered
     assert "'dischargingTime': None" in rendered
+
+
+def test_render_base_crawler_template_embeds_configured_node_binary(monkeypatch):
+    monkeypatch.setattr(settings, "node_bin", "C:/Tools/node.exe")
+    target = _make_target()
+
+    rendered = _render_base_crawler_template(
+        target,
+        hypothesis=AIHypothesis(
+            algorithm_description="Use bridge",
+            codegen_strategy="js_bridge",
+        ),
+        dynamic=None,
+        bridge_port=8721,
+    )
+
+    assert 'DEFAULT_NODE_BIN = "C:/Tools/node.exe"' in rendered
+    assert 'configured = os.environ.get("AXELO_NODE_BIN") or self.DEFAULT_NODE_BIN' in rendered
+    assert '[self._resolve_node_bin(), self.BRIDGE_PATH]' in rendered
 
 
 def test_safe_default_headers_only_include_origin_when_observed():

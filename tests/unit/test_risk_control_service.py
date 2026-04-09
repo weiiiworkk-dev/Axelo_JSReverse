@@ -21,3 +21,14 @@ def test_detect_replay_flags_validation_failures():
     )
 
     assert service.detect_replay(replay) == "risk-control validation rejected the replay request"
+
+
+def test_detect_response_flags_cloudflare_like_challenge():
+    service = RiskControlService()
+
+    assert service.detect_response(
+        url="https://example.com/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1",
+        status_code=403,
+        headers={"content-type": "text/html", "set-cookie": "cf_clearance=token; Path=/; Secure"},
+        body_text="<html><title>Just a moment...</title></html>",
+    ) == "risk-control challenge page detected"

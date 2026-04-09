@@ -42,15 +42,28 @@ class AIClient:
         tool_name: str = "output",
         max_tokens: int = 8192,
         log_dir: Path | None = None,
+        enable_cache: bool = True,
     ) -> AIResponse[T]:
         tool_schema = _pydantic_to_tool_schema(output_schema, tool_name)
+
+        # Cost-A: Anthropic prompt caching — mark static system prompt as ephemeral cache block.
+        # Cache hits are billed at 0.1× input price, saving ~45–65% on repeated calls with the same system prompt.
+        system_content: str | list = system_prompt
+        if enable_cache and system_prompt:
+            system_content = [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         t0 = time.monotonic()
         response = await anyio.to_thread.run_sync(
             lambda: self._client.messages.create(
                 model=self._model,
                 max_tokens=max_tokens,
-                system=system_prompt,
+                system=system_content,
                 messages=[{"role": "user", "content": user_message}],
                 tools=[tool_schema],
                 tool_choice={"type": "tool", "name": tool_name},
@@ -58,11 +71,15 @@ class AIClient:
         )
         duration = time.monotonic() - t0
 
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        cache_created = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
         log.info(
             "ai_call_done",
             model=self._model,
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
+            cache_read_tokens=cache_read,
+            cache_created_tokens=cache_created,
             duration=f"{duration:.1f}s",
         )
 

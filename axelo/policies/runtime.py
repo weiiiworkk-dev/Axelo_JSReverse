@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from axelo.domain.services.blueTeam_detector import BlueteamCapabilityProfile
+from axelo.config import settings
 from axelo.models.execution import ExecutionTier
 from axelo.models.target import BrowserProfile, TargetSite
 
@@ -42,19 +44,23 @@ class RuntimePolicy:
 def resolve_runtime_policy(target: TargetSite) -> RuntimePolicy:
     rate = target.crawl_rate
     request_interval = 1.0
-    post_wait_ms = 2000
+    # === 使用增强的等待配置 ===
+    post_wait_ms = settings.crawl_default_wait_ms  # 默认10秒
+    # === 结束增强配置 ===
     if rate == "conservative":
         request_interval = 3.0
-        post_wait_ms = 3500
+        post_wait_ms = max(post_wait_ms, 5000)  # 保守模式增加等待时间
     elif rate == "aggressive":
         request_interval = 0.0
         post_wait_ms = 800
 
     antibot = target.antibot_type
-    goto_wait_until = "networkidle"
+    # "networkidle" waits for zero in-flight requests for 500 ms — modern dynamic
+    # sites (Amazon, etc.) never reach that state and time out.  Default to "load"
+    # which fires as soon as the initial page load finishes.
+    goto_wait_until = "load"
     max_runtime_retries = 1
     if antibot in {"cloudflare", "datadome", "akamai"}:
-        goto_wait_until = "load"
         post_wait_ms = max(post_wait_ms, 3000)
         max_runtime_retries = 2
     elif antibot == "custom":
@@ -89,6 +95,22 @@ def resolve_runtime_policy(target: TargetSite) -> RuntimePolicy:
         max_runtime_retries = max(1, min(max_runtime_retries, plan.max_crawl_retries))
     else:
         enable_trace_capture = True
+
+    # Apply adaptive adjustments based on detected blue team capabilities.
+    blueteam_profile: BlueteamCapabilityProfile | None = getattr(target, "blueteam_profile", None)
+    if blueteam_profile is not None:
+        if blueteam_profile.uses_tls_fingerprinting:
+            # Back off faster when TLS fingerprinting is active — retrying the same
+            # fingerprint will always fail.  Reduce retries to avoid burning budget.
+            max_runtime_retries = min(max_runtime_retries, 1)
+        if blueteam_profile.uses_behavioral_ml:
+            # ML systems score request cadence — slow down significantly.
+            request_interval = max(request_interval, 4.0)
+            post_wait_ms = max(post_wait_ms, 4000)
+        if blueteam_profile.uses_dom_challenge:
+            # DOM challenges need headful resolution time.
+            post_wait_ms = max(post_wait_ms, 3000)
+            max_runtime_retries = max(max_runtime_retries, 2)
 
     return RuntimePolicy(
         antibot_type=antibot,

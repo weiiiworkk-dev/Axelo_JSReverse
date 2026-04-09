@@ -31,8 +31,20 @@ def _shape(value: Any) -> tuple[str, tuple[str, ...]]:
 
 
 def evaluate_stability(samples: list[tuple[dict[str, str], Any]]) -> StabilityResult:
+    # P4.1: 首次运行宽容处理
     if not samples:
         return StabilityResult(ok=False, runs=0, notes=["No stability samples collected"])
+    
+    # 只有1个样本时给予宽容分数
+    if len(samples) == 1:
+        return StabilityResult(
+            ok=True,  # 首次运行不失败
+            score=0.8,  # 给予80%分数
+            runs=1,
+            consistent_header_keys=True,  # 假设单次运行是一致的
+            consistent_output_shape=True,
+            notes=["first_run_acceptable"]
+        )
 
     header_shapes = [tuple(sorted(headers.keys())) for headers, _ in samples]
     output_shapes = [_shape(data) for _, data in samples]

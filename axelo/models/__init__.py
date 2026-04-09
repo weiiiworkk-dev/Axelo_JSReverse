@@ -43,8 +43,11 @@ from .target import (
     WebGLSimulation,
 )
 from .trace import TraceArtifact, WorkflowCheckpoint
+# Memory exports (consolidated)
+from axelo.memory import MemoryDB, VectorStore, MemoryRetriever, MemoryWriter
 
 __all__ = [
+    # Original models
     "AIHypothesis",
     "AnalysisResult",
     "AntiBotType",
@@ -99,4 +102,9 @@ __all__ = [
     "WebGLSimulation",
     "WorkflowCheckpoint",
     "AdapterPackage",
+    # Memory exports
+    "MemoryDB",
+    "VectorStore",
+    "MemoryRetriever",
+    "MemoryWriter",
 ]

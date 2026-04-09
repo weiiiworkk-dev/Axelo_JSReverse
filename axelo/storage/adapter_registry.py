@@ -38,12 +38,14 @@ class AdapterRecord(BaseModel):
     target_hint_digest: str = ""
     intent_fingerprint: str = ""
     family_id: str = "unknown"
+    resource_kind: str = ""
     request_contract_hash: str = ""
     known_endpoint: str = ""
     preferred_api_base: str = ""
     output_format: str = "print"
     profile_name: str = "desktop"
     verified: bool = False
+    verification_score: float = 0.0  # GENERIC: Score 0-1, only reuse if >= 0.8
     output_mode: str = "standalone"
     crawler_script_path: str = ""
     bridge_server_path: str = ""
@@ -113,8 +115,18 @@ class AdapterRegistry:
         best_score = -1
         best: AdapterRecord | None = None
 
+        target_resource_kind = target.intent.resource_kind if target.intent else ""
+
         for record in candidates:
             if not record.verified:
+                continue
+            # GENERIC: Only reuse adapters with high verification score (>= 0.8)
+            # This prevents reusing failed adapters
+            if record.verification_score < 0.8:
+                continue
+            # Skip adapters whose resource_kind conflicts with the target — prevents a
+            # /suggestions adapter from being reused for a product_listing target.
+            if target_resource_kind and record.resource_kind and record.resource_kind != target_resource_kind:
                 continue
             score = 0
             if intent_fingerprint and record.intent_fingerprint == intent_fingerprint:
@@ -191,6 +203,7 @@ class AdapterRegistry:
             goal_digest="",
             intent_fingerprint=package.intent_fingerprint,
             family_id=package.family_id,
+            resource_kind=package.resource_kind,
             request_contract_hash=package.request_contract_hash,
             known_endpoint=package.request_contract.url_pattern,
             preferred_api_base=package.request_contract.url_pattern,
@@ -223,6 +236,7 @@ class AdapterRegistry:
         generated: GeneratedCode,
         analysis: AnalysisResult | None,
         verified: bool,
+        verification_score: float = 0.0,
     ) -> AdapterRecord | None:
         domain = urlparse(target.url).netloc
         if not domain or generated.crawler_script_path is None or not generated.crawler_script_path.exists():
@@ -241,6 +255,8 @@ class AdapterRegistry:
         record.output_format = target.output_format
         record.profile_name = target.browser_profile.environment_simulation.profile_name
         record.session_state_path = str(generated.session_state_path) if generated.session_state_path else ""
+        # GENERIC: Set verification score for reuse decisions
+        record.verification_score = verification_score
         records = [item for item in self._load(domain) if item.registry_key != record.registry_key]
         records.append(record)
         self._save(domain, records[-40:])
@@ -304,6 +320,7 @@ def _package_from_target(
         site_key=urlparse(target.url).netloc.lower(),
         intent_fingerprint=target.intent.fingerprint if target.intent else "",
         family_id=analysis.signature_family if analysis else "unknown",
+        resource_kind=target.intent.resource_kind if target.intent else "",
         request_contract_hash=request_contract.contract_hash,
         manifest=manifest,
         request_contract=request_contract,

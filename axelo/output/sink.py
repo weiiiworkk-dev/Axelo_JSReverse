@@ -6,16 +6,17 @@ from pathlib import Path
 from typing import Any
 
 
-def save_output(data: Any, output_format: str, output_dir: Path) -> Path | None:
+def save_output(data: Any, output_format: str, output_dir: Path, run_id: str = "") -> Path | None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"{run_id}_" if run_id else ""
 
     if output_format == "json_file":
-        out = output_dir / "crawler_output.json"
+        out = output_dir / f"{prefix}results.json"
         out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return out
 
     if output_format == "csv":
-        out = output_dir / "crawler_output.csv"
+        out = output_dir / f"{prefix}results.csv"
         rows: list[dict[str, Any]]
         if isinstance(data, list):
             rows = [r for r in data if isinstance(r, dict)]

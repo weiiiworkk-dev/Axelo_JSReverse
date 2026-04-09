@@ -178,6 +178,14 @@ def test_bridge_client_uses_executor_endpoints():
             return {"result": {"headers": {"x-sign": "abc"}}}
         if path == "/bridge/register":
             return {"ok": True}
+        if path == "/wasm/modules":
+            return {"modules": [{"moduleId": "wasm-module-1"}]}
+        if path.startswith("/wasm/report"):
+            return {"moduleId": "wasm-module-1", "artifactPaths": {"report": "module.report.json"}}
+        if path.startswith("/wasm/snapshots"):
+            return {"snapshots": [{"snapshotId": 3, "instanceId": "wasm-instance-1"}]}
+        if path == "/wasm/invoke":
+            return {"moduleId": "wasm-module-1", "result": {"ok": True}}
         return {}
 
     client.request = fake_request  # type: ignore[method-assign]
@@ -185,6 +193,15 @@ def test_bridge_client_uses_executor_endpoints():
     assert client.discover_functions(min_score=0.8) == [{"name": "signPayload"}]
     assert client.invoke_function("signPayload", [{"body": "1"}]) == {"headers": {"x-sign": "abc"}}
     register = client.register_function("signPayload", global_path="security.signPayload")
+    assert client.list_wasm_modules() == [{"moduleId": "wasm-module-1"}]
+    assert client.get_wasm_report("wasm-module-1") == {"moduleId": "wasm-module-1", "artifactPaths": {"report": "module.report.json"}}
+    assert client.get_wasm_snapshots(instance_id="wasm-instance-1", since=2) == [{"snapshotId": 3, "instanceId": "wasm-instance-1"}]
+    assert client.invoke_wasm_export(
+        export_name="sign",
+        module_id="wasm-module-1",
+        args=[1, 2],
+        buffer_descriptors=[{"name": "input", "role": "input", "ptrArgIndex": 0, "lenArgIndex": 1}],
+    ) == {"moduleId": "wasm-module-1", "result": {"ok": True}}
 
     assert register == {"ok": True}
     assert calls[0][1].startswith("/executor/discover")
@@ -202,6 +219,22 @@ def test_bridge_client_uses_executor_endpoints():
             "ownerPath": None,
             "resolverSource": None,
             "resolverArg": None,
+        },
+    )
+    assert calls[3] == ("GET", "/wasm/modules", None)
+    assert calls[4] == ("GET", "/wasm/report?moduleId=wasm-module-1", None)
+    assert calls[5] == ("GET", "/wasm/snapshots?since=2&instanceId=wasm-instance-1", None)
+    assert calls[6] == (
+        "POST",
+        "/wasm/invoke",
+        {
+            "moduleId": "wasm-module-1",
+            "instanceId": None,
+            "exportName": "sign",
+            "args": [1, 2],
+            "bufferDescriptors": [{"name": "input", "role": "input", "ptrArgIndex": 0, "lenArgIndex": 1}],
+            "captureMemory": True,
+            "snapshotMode": None,
         },
     )
 

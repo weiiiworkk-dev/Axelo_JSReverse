@@ -114,6 +114,37 @@ class ReuseFlow:
             except Exception:
                 pass
 
+        # Pre-flight: reject adapters whose stored contract is clearly mismatched
+        # with the current intent's resource_kind before spending time on live
+        # verification.  This is a generic heuristic — no site-specific rules.
+        if target.selected_contract and target.intent:
+            mismatch_reason = _contract_resource_kind_mismatch(
+                target.selected_contract.url_pattern or "",
+                target.intent.resource_kind or "",
+            )
+            if mismatch_reason:
+                import structlog as _sl
+                _sl.get_logger().warning(
+                    "adapter_reuse_contract_mismatch",
+                    url_pattern=target.selected_contract.url_pattern,
+                    resource_kind=target.intent.resource_kind,
+                    reason=mismatch_reason,
+                )
+                return (
+                    GeneratedCode(
+                        session_id=sid,
+                        output_mode=adapter.output_mode,
+                        crawler_script_path=materialized.crawler_script_path,
+                        bridge_server_path=materialized.bridge_server_path,
+                        manifest_path=materialized.manifest_path,
+                        adapter_package_path=materialized.adapter_package_path,
+                        session_state_path=materialized.session_state_path,
+                        verified=False,
+                        verification_notes=f"adapter contract mismatch: {mismatch_reason}",
+                    ),
+                    False,
+                )
+
         generated = GeneratedCode(
             session_id=sid,
             output_mode=adapter.output_mode,
@@ -156,3 +187,35 @@ def _escalate_execution_plan(plan: ExecutionPlan, reason: str) -> ExecutionPlan:
     escalated.verification_mode = VerificationMode.STANDARD
     escalated.reasons.append(reason)
     return escalated
+
+
+# URL path segments that indicate autocomplete / suggestion endpoints — these
+# are structurally incompatible with product_listing / search_results intents.
+_SUGGESTION_PATH_TOKENS = frozenset({
+    "/suggest", "/suggestions", "/autocomplete", "/typeahead",
+    "/completion", "/search_suggest", "/autosuggest", "/query_suggest",
+})
+
+# Resource kinds that require actual data records, not auxiliary query helpers.
+_DATA_RESOURCE_KINDS = frozenset({
+    "product_listing", "search_results", "reviews", "content_listing",
+})
+
+
+def _contract_resource_kind_mismatch(url_pattern: str, resource_kind: str) -> str:
+    """Return a non-empty reason string if the stored contract's URL pattern is
+    structurally incompatible with the requested resource_kind.
+
+    This is a pure heuristic with no site-specific logic — only URL path
+    semantics are inspected.
+    """
+    if resource_kind not in _DATA_RESOURCE_KINDS:
+        return ""
+    url_lower = url_pattern.lower()
+    for token in _SUGGESTION_PATH_TOKENS:
+        if token in url_lower:
+            return (
+                f"contract URL '{url_pattern}' is a suggestion/autocomplete endpoint "
+                f"but resource_kind='{resource_kind}' requires structured data records"
+            )
+    return ""

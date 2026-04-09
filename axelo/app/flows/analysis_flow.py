@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import structlog
+
 from axelo.ai.client import AIClient
 from axelo.analysis.request_contracts import derive_capability_profile
 from axelo.analysis import build_signature_spec
@@ -13,6 +15,8 @@ from axelo.models.pipeline import Decision, DecisionType
 from axelo.pipeline.stages import AIAnalysisStage, DynamicAnalysisStage
 
 from ._common import artifact_map, execute_stage_with_metrics
+
+log = structlog.get_logger()
 
 
 class AnalysisFlow:
@@ -300,7 +304,37 @@ class AnalysisFlow:
                 scan_report=ctx.scan_report,
             )
 
-        ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
+        # 优先使用 DeepSeek V3，如果失败则 fallback 到 Claude
+        # 检查 DeepSeek API key 是否可用
+        from axelo.ai.dual_model_client import DualModelOrchestrator
+        
+        orchestrator = None
+        if settings.deepseek_api_key:
+            try:
+                orchestrator = DualModelOrchestrator(
+                    deepseek_key=settings.deepseek_api_key,
+                    anthropic_key=settings.anthropic_api_key,
+                    enable_fallback=True
+                )
+                log.info("using_deepseek_v3_primary")
+            except Exception as e:
+                log.warning("deepseek_init_failed_using_claude", error=str(e))
+                orchestrator = None
+        
+        # 如果没有 DeepSeek，回退到纯 Claude
+        if orchestrator is None:
+            log.info("using_claude_direct")
+        
+        # 创建 AI Client (优先 DeepSeek)
+        if orchestrator and orchestrator._deepseek_v3:
+            # 使用 DualModelOrchestrator 作为 AI 客户端
+            ctx.ai_client = orchestrator
+            ctx.ai_client_name = "deepseek-v3"
+        else:
+            # 回退到 Claude
+            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
+            ctx.ai_client_name = "claude"
+        
         ai_stage = AIAnalysisStage(ctx.ai_client, ctx.cost, ctx.budget, self._retriever)
 
         ctx.target.trace = ctx.workflow.checkpoint(ctx.sid, ctx.target.trace, "s6_ai_analyze", "running")

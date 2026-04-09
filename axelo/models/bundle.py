@@ -19,6 +19,8 @@ class JSBundle(BaseModel):
     content_hash: str = ""               # SHA256，用于跨session缓存
     bundle_type: BundleType = "unknown"
     modules: list[str] = []             # webpack模块ID列表
+    vm_detection: dict | None = None    # VMDetectionResult.model_dump() if a VM was detected
+    api_correlation_score: float = 0.0  # 0.0–1.0；由 s2_fetch 在 api_only_mode 时设置
 
     model_config = {"arbitrary_types_allowed": True}
 

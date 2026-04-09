@@ -83,17 +83,43 @@ class MemoryWriter:
         # 更新站点模式统计
         self._db.update_pattern_stats(domain, verified)
 
+        # === Enhanced: Capture more pattern details ===
+        signature_headers_list = _extract_signature_headers(target, hypothesis, analysis)
+        antibot_codes = _extract_antibot_codes(analysis)
+        requires_bridge = hypothesis.codegen_strategy == "js_bridge" if hypothesis else False
+        # ===
+
         # 如果是新站点，自动创建/更新站点模式记录
-        if verified and hypothesis and not self._db.get_site_pattern(domain):
-            pattern = SitePattern(
-                domain=domain,
-                algorithm_type=_infer_algo_type(hypothesis),
-                difficulty=_estimate_difficulty(hypothesis, analysis),
-                verified=verified,
-                success_count=1 if verified else 0,
-                notes=hypothesis.notes[:200] if hypothesis.notes else "",
-            )
-            self._db.save_site_pattern(pattern)
+        if verified and hypothesis:
+            existing_pattern = self._db.get_site_pattern(domain)
+            if existing_pattern:
+                # Update existing pattern with new learnings
+                existing_pattern.success_count += 1
+                if signature_headers_list:
+                    existing_pattern.signature_headers = json.dumps(
+                        json.loads(existing_pattern.signature_headers or "[]") + signature_headers_list,
+                        ensure_ascii=False
+                    )
+                if antibot_codes:
+                    existing_pattern.antibot_error_codes = json.dumps(
+                        json.loads(existing_pattern.antibot_error_codes or "[]") + antibot_codes,
+                        ensure_ascii=False
+                    )
+                existing_pattern.requires_bridge = requires_bridge
+                self._db.save_site_pattern(existing_pattern)
+            else:
+                pattern = SitePattern(
+                    domain=domain,
+                    algorithm_type=_infer_algo_type(hypothesis),
+                    difficulty=_estimate_difficulty(hypothesis, analysis),
+                    verified=verified,
+                    success_count=1 if verified else 0,
+                    notes=hypothesis.notes[:200] if hypothesis.notes else "",
+                    signature_headers=json.dumps(signature_headers_list, ensure_ascii=False),
+                    antibot_error_codes=json.dumps(antibot_codes, ensure_ascii=False),
+                    requires_bridge=requires_bridge,
+                )
+                self._db.save_site_pattern(pattern)
 
     def write_bundle_cache(
         self,
@@ -146,3 +172,48 @@ def _format_hook_summary(analysis: AnalysisResult) -> str:
         return ""
     parts = analysis.dynamic.crypto_primitives[:5]
     return ", ".join(parts)
+
+
+# === Enhanced helper functions ===
+
+def _extract_signature_headers(
+    target: TargetSite,
+    hypothesis: AIHypothesis | None,
+    analysis: AnalysisResult,
+) -> list[str]:
+    """Extract known signature headers from the analysis."""
+    headers = set()
+    
+    # From hypothesis outputs
+    if hypothesis and hypothesis.outputs:
+        for key in hypothesis.outputs.keys():
+            if key.lower() not in ("url", "method", "body"):
+                headers.add(key)
+    
+    # From target requests
+    for request in (target.target_requests or target.captured_requests or []):
+        if request.request_headers:
+            for key in request.request_headers.keys():
+                key_lower = str(key).lower()
+                if any(s in key_lower for s in ("sign", "token", "csrftoken", "x-", "af-", "sap")):
+                    headers.add(str(key))
+    
+    return list(headers)
+
+
+def _extract_antibot_codes(analysis: AnalysisResult) -> list[str]:
+    """Extract known anti-bot error codes from the analysis."""
+    codes = set()
+    
+    # From static analysis error patterns
+    for static in (analysis.static or {}).values():
+        if static.error_messages:
+            for msg in static.error_messages:
+                # Extract numeric codes like 90309999, 403, etc
+                import re
+                matches = re.findall(r'\b[89]\d{7,}\b', str(msg))
+                codes.update(matches)
+                matches = re.findall(r'\b[45]\d{2,3}\b', str(msg))
+                codes.update(matches)
+    
+    return list(codes)

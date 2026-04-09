@@ -83,7 +83,7 @@ class PipelineState(BaseModel):
 class StageResult(BaseModel):
     stage_name: str
     success: bool
-    artifacts: dict[str, Path] = Field(default_factory=dict)
+    artifacts: dict[str, Path | None] = Field(default_factory=dict)
     decisions: list[Decision] = Field(default_factory=list)
     summary: str = ""
     error: str | None = None

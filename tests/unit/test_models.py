@@ -93,7 +93,7 @@ class TestBrowserProfile:
         profile = BrowserProfile()
         assert profile.environment_simulation.profile_name == "desktop"
         assert profile.interaction_simulation.mode == "playwright_mouse"
-        assert profile.environment_simulation.webgl.minimum_parameters["MAX_TEXTURE_SIZE"] == 2048
+        assert profile.environment_simulation.webgl.minimum_parameters["MAX_TEXTURE_SIZE"] == 16384
 
     def test_mobile_profile_uses_mobile_simulation(self):
         profile = PROFILES["mobile"]

@@ -8,6 +8,7 @@ class AIHypothesisOutput(BaseModel):
     字段名和描述会成为 tool schema，影响 AI 输出质量。
     """
     algorithm_description: str = Field(
+        default="",
         description="用自然语言详细描述签名/Token 的生成算法，包括数据来源、处理步骤和最终格式"
     )
     generator_func_ids: list[str] = Field(

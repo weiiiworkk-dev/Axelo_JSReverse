@@ -65,7 +65,7 @@ class HypothesisAgent(BaseAgent):
             ),
             output_schema=AIHypothesisOutput,
             tool_name="hypothesis",
-            max_tokens=3072,
+            max_tokens=2048,   # Cost-E: average actual output ~1200 tokens
         )
         output = response.data
 

@@ -50,3 +50,17 @@ def extract_site_domain(url_or_host: str) -> str:
     if suffix in _MULTI_LABEL_SUFFIXES and len(parts) >= 3:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
+
+
+def extract_domain(url_or_host: str) -> str:
+    """Alias for extract_site_domain"""
+    return extract_site_domain(url_or_host)
+
+
+def normalize_url(url: str) -> str:
+    """Normalize URL to standard format"""
+    if not url:
+        return ""
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    return url

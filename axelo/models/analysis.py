@@ -34,6 +34,15 @@ TokenType = Literal[
     "fingerprint",
     "base64",
     "custom",
+    "rsa",
+    "ecdsa",
+    "sha1",
+    "sha512",
+    "hmac_sha256",
+    "aes_gcm",
+    "aes_cbc",
+    "des",
+    "rc4",
     "unknown",
 ]
 
@@ -60,6 +69,7 @@ class StaticAnalysis(BaseModel):
     env_access: list[str] = Field(default_factory=list)
     string_constants: list[str] = Field(default_factory=list)
     call_graph_path: str | None = None
+    error_messages: list[str] = Field(default_factory=list)
 
 
 class HookIntercept(BaseModel):

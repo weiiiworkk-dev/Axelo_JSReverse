@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import structlog
 from pydantic import ValidationError
 
+from axelo.config import settings
 from axelo.models.session_state import SessionState
 
 log = structlog.get_logger()
@@ -88,5 +89,6 @@ class SessionPool:
         sessions = self._load_pool(domain)
         remaining = [item for item in sessions if item.session_key != session.session_key]
         remaining.append(session)
-        self._save_pool(domain, remaining[-10:])
+        max_sessions = max(10, int(getattr(settings, "max_sessions_per_domain", 50)))
+        self._save_pool(domain, remaining[-max_sessions:])
         return session

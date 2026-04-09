@@ -9,6 +9,7 @@ from axelo.models.analysis import AnalysisResult
 from axelo.models.codegen import GeneratedCode
 from axelo.orchestrator.runtime import MasterResult
 from axelo.platform.models import (
+    AccountRecord,
     AdapterVersion,
     CrawlJobSpec,
     FrontierSeedRequest,
@@ -16,9 +17,10 @@ from axelo.platform.models import (
     ProxyRecord,
     ProxyStatus,
     ReverseJobSpec,
+    SessionRefreshJobSpec,
 )
 from axelo.platform.runtime import PlatformRuntime
-from axelo.platform.workers import CrawlWorker, ReverseWorker
+from axelo.platform.workers import CrawlWorker, ReverseWorker, SessionRefreshWorker
 
 
 def _write_demo_crawler(path: Path, *, bridge: bool = False) -> None:
@@ -180,12 +182,14 @@ async def test_reverse_worker_registers_adapter_version(tmp_path):
     crawler = generated_dir / "crawler.py"
     manifest = generated_dir / "crawler_manifest.json"
     report = generated_dir / "run_report.json"
+    captured = {}
     _write_demo_crawler(crawler)
     manifest.write_text("{}", encoding="utf-8")
     report.write_text("{}", encoding="utf-8")
 
     class FakeOrchestrator:
         async def run(self, **kwargs):
+            captured.update(kwargs)
             return MasterResult(
                 session_id="rev01",
                 url=kwargs["url"],
@@ -210,3 +214,114 @@ async def test_reverse_worker_registers_adapter_version(tmp_path):
     adapters = runtime.store.list_adapters("example.com")
     assert len(adapters) == 1
     assert adapters[0].verified_at is not None
+    reverse_job = runtime.store.list_jobs(JobType.REVERSE)[0]
+    assert captured["session_id"] == reverse_job.job_id
+
+
+@pytest.mark.asyncio
+async def test_crawl_worker_uses_full_job_id_as_target_session_id(tmp_path):
+    runtime = PlatformRuntime(workspace=tmp_path)
+    script = tmp_path / "crawler.py"
+    manifest = tmp_path / "crawler_manifest.json"
+    _write_demo_crawler(script)
+    manifest.write_text("{}", encoding="utf-8")
+    runtime.store.register_adapter_version(
+        AdapterVersion(
+            site_key="example.com",
+            version="v1",
+            output_mode="standalone",
+            crawler_script_ref=str(script),
+            manifest_ref=str(manifest),
+        )
+    )
+    runtime.control.submit_crawl_job(
+        CrawlJobSpec(
+            site_url="https://example.com/item/1",
+            source_url="https://example.com/item/1",
+            adapter_version="v1",
+            action="page",
+        )
+    )
+
+    captured = {}
+
+    async def fake_execute(script_path, target, **kwargs):
+        captured["session_id"] = target.session_id
+
+        class Result:
+            headers = {}
+            crawl_data = {"ok": True}
+            output_path = None
+            error = None
+
+        return Result()
+
+    worker = CrawlWorker(runtime)
+    worker._replayer.execute_crawl_subprocess = fake_execute  # type: ignore[method-assign]
+
+    assert await worker.run_once() is True
+
+    crawl_job = runtime.store.list_jobs(JobType.CRAWL)[0]
+    assert captured["session_id"] == crawl_job.job_id
+
+
+@pytest.mark.asyncio
+async def test_session_refresh_worker_uses_full_job_id_for_state_paths(tmp_path, monkeypatch):
+    runtime = PlatformRuntime(workspace=tmp_path)
+    account = runtime.resources.upsert_account(
+        AccountRecord(
+            account_id="acct-001",
+            site_key="example.com",
+            credential_ref="secret://acct-001",
+        )
+    )
+
+    runtime.control.submit_session_refresh_job(
+        SessionRefreshJobSpec(
+            account_id=account.account_id,
+            refresh_url="https://example.com/login",
+        )
+    )
+
+    captured = {}
+
+    class FakePage:
+        async def goto(self, url, wait_until=None):
+            captured["goto_url"] = url
+            captured["wait_until"] = wait_until
+
+    class FakeBrowserDriver:
+        def __init__(self, *args, **kwargs):
+            self.context = object()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def launch(self, profile, session_state=None):
+            captured["launched"] = True
+            return FakePage()
+
+    class FakeBrowserStateStore:
+        def __init__(self, store):
+            self._store = store
+
+        async def persist_context(self, session_id, domain, context, state):
+            captured["persist_session_id"] = session_id
+            return state
+
+    monkeypatch.setattr("axelo.platform.workers.BrowserDriver", FakeBrowserDriver)
+    monkeypatch.setattr("axelo.platform.workers.BrowserStateStore", FakeBrowserStateStore)
+
+    worker = SessionRefreshWorker(runtime)
+    assert await worker.run_once() is True
+
+    refresh_job = runtime.store.list_jobs(JobType.SESSION_REFRESH)[0]
+    updated_account = runtime.store.get_account(account.account_id)
+    assert updated_account is not None
+    assert captured["persist_session_id"] == refresh_job.job_id
+    session_state_path = Path(updated_account.session_state_ref)
+    assert session_state_path.parent.name == refresh_job.job_id
+    assert session_state_path.name == "session_state.json"

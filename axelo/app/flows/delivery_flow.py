@@ -235,8 +235,15 @@ class DeliveryFlow:
                 break
 
         ctx.generated.verified = ctx.verified
+        # GENERIC: Pass verification score to adapter registry for reuse decisions
+        # Only adapters with score >= 0.8 will be reused in future runs
+        verification_score = verification.score if verification else 0.0
         if ctx.verified and ctx.target.execution_plan.should_persist_adapter:
-            self._adapter_registry.register(ctx.target, ctx.generated, ctx.analysis, verified=True)
+            self._adapter_registry.register(
+                ctx.target, ctx.generated, ctx.analysis, 
+                verified=True,
+                verification_score=verification_score
+            )
 
         await self.write_memory(ctx)
         return DeliveryArtifacts(

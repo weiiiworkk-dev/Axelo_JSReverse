@@ -31,8 +31,8 @@ class HeaderComparator:
 
 
 class DataQualityEvaluator:
-    def evaluate(self, generated_data) -> DataQualityResult:
-        return evaluate_data_quality(generated_data)
+    def evaluate(self, generated_data, dataset_contract=None) -> DataQualityResult:
+        return evaluate_data_quality(generated_data, dataset_contract=dataset_contract)
 
 
 class StabilityEvaluator:
@@ -76,6 +76,14 @@ def diagnose_failure(
     stability: StabilityResult,
     risk_control_detector: RiskControlDetector,
 ) -> str:
+    # === Enhanced: Check anti-bot first ===
+    from axelo.verification.antibot_detector import get_detector
+    antibot_detector = get_detector()
+    is_blocked, block_reason = antibot_detector.is_antibot_response(replay.generated_data)
+    if is_blocked:
+        return f"ANTI_BOT_DETECTED: {block_reason}"
+    # === End enhanced check ===
+    
     risk_control_reason = risk_control_detector.detect(replay)
     if risk_control_reason:
         return risk_control_reason

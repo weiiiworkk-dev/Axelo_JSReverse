@@ -50,3 +50,13 @@ class ExecutionPlan(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     degradation_notes: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+
+    # Warmup navigation before main crawl
+    warmup_enabled: bool = False
+    warmup_url: str | None = None
+
+    # Universal challenge resolution
+    challenge_resolution_enabled: bool = True
+    challenge_resolution_timeout: float | None = None   # None → use config default
+    challenge_fail_policy: str = "human_in_loop"        # "warn" | "abort" | "human_in_loop"
+    max_challenge_retries: int = 2

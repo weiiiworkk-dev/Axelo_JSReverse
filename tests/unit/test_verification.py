@@ -12,7 +12,7 @@ from axelo.models.target import RequestCapture, TargetSite
 from axelo.verification.comparator import TokenComparator
 from axelo.verification.data_quality import evaluate_data_quality
 from axelo.verification.engine import VerificationEngine, _detect_risk_control
-from axelo.verification.replayer import ReplayResult, RequestReplayer
+from axelo.verification.replayer import ReplayResult, RequestReplayer, _verification_env
 from axelo.verification.stability import evaluate_stability
 
 
@@ -231,3 +231,70 @@ def test_replayer_cleanup_runtime_dir_retries_permission_error(tmp_path, monkeyp
 
     assert attempts["count"] >= 2
     assert not temp_dir.exists()
+
+
+@pytest.mark.asyncio
+async def test_replayer_strips_case_insensitive_transport_headers(monkeypatch):
+    replay = RequestReplayer()
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def request(self, *, method, url, headers, content):
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr("axelo.verification.replayer.httpx.AsyncClient", FakeClient)
+
+    req = RequestCapture(
+        url="https://api.example.com/data",
+        method="POST",
+        request_headers={
+            "Host": "api.example.com",
+            "Content-Length": "12",
+            "Transfer-Encoding": "chunked",
+            "X-Test": "from-capture",
+        },
+        request_body=b"payload",
+    )
+
+    result = await replay._send_request(
+        req,
+        {
+            "host": "override.example.com",
+            "content-length": "99",
+            "transfer-encoding": "gzip",
+            "X-Test": "from-extra",
+        },
+        timeout=5.0,
+    )
+
+    assert result.ok is True
+    assert captured["headers"]["X-Test"] == "from-extra"
+    lowered = {key.lower() for key in captured["headers"]}
+    assert "host" not in lowered
+    assert "content-length" not in lowered
+    assert "transfer-encoding" not in lowered
+
+
+def test_verification_env_preserves_configured_node_binary(monkeypatch):
+    monkeypatch.setattr(settings, "node_bin", "D:/Runtime/node.exe")
+    monkeypatch.delenv("AXELO_NODE_BIN", raising=False)
+    monkeypatch.setenv("NODE_PATH", "C:/deps/node_modules")
+
+    env = _verification_env()
+
+    assert env["AXELO_NODE_BIN"] == "D:/Runtime/node.exe"
+    assert env["NODE_PATH"] == "C:/deps/node_modules"

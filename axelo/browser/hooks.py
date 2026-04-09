@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import time
 
 import structlog
@@ -48,11 +49,13 @@ class JSHookInjector:
         self.intercepts: list[HookIntercept] = []
         self.taint_events: list[TaintEvent] = []
         self._sequence = 0
+        self._binding_name = ""
 
     async def inject(self, page: Page, targets: list[str] | None = None) -> None:
         targets = targets or DEFAULT_HOOK_TARGETS
-        hook_js = self._build_hook_js(targets)
-        await page.expose_binding("__axelo_hook_cb", self._on_hook_fired, handle=False)
+        self._binding_name = f"__axelo_cb_{secrets.token_hex(6)}"
+        hook_js = self._build_hook_js(targets, self._binding_name)
+        await page.expose_binding(self._binding_name, self._on_hook_fired, handle=False)
         await page.add_init_script(hook_js)
         log.info("hooks_injected", count=len(targets))
 
@@ -107,10 +110,19 @@ class JSHookInjector:
         self.taint_events.append(event)
         log.debug("taint_event", event_type=event.event_type, api=event.api_name, seq=event.sequence)
 
-    def _build_hook_js(self, targets: list[str]) -> str:
+    def _build_hook_js(self, targets: list[str], binding_name: str) -> str:
         template = r"""
 (function() {
   const hookTargets = __HOOK_TARGETS__;
+  const bindingName = __HOOK_BINDING__;
+  const emitBinding = (() => {
+    const binding = window[bindingName];
+    if (typeof binding !== "function") return null;
+    try {
+      delete window[bindingName];
+    } catch (_error) {}
+    return binding.bind(window);
+  })();
   const OBJECT_TAINTS = new WeakMap();
   const PRIMITIVE_TAINTS = new Map();
   const XHR_STATE = new WeakMap();
@@ -171,7 +183,8 @@ class JSHookInjector:
 
   function emit(eventType, payload) {
     try {
-      window.__axelo_hook_cb(eventType, JSON.stringify(Object.assign({
+      if (!emitBinding) return;
+      emitBinding(eventType, JSON.stringify(Object.assign({
         sequence: nextSequence(),
         timestamp: nowTs(),
       }, payload || {})));
@@ -323,6 +336,19 @@ class JSHookInjector:
     });
   }
 
+  function spoofNativeToString(fn, name) {
+    const nativeStr = "function " + (name || fn.name || "") + "() { [native code] }";
+    try {
+      Object.defineProperty(fn, "toString", {
+        value: function toString() { return nativeStr; },
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+    } catch (_e) {}
+    return fn;
+  }
+
   function patch(path, factory) {
     const parts = String(path).split(".");
     const prop = parts.pop();
@@ -332,7 +358,10 @@ class JSHookInjector:
     }
     if (!host || typeof host[prop] !== "function") return;
     try {
-      host[prop] = factory(host[prop], host, path);
+      const original = host[prop];
+      const replacement = factory(original, host, path);
+      spoofNativeToString(replacement, original.name || prop);
+      host[prop] = replacement;
     } catch (_error) {}
   }
 
@@ -518,7 +547,11 @@ class JSHookInjector:
   }
 })();
 """
-        return template.replace("__HOOK_TARGETS__", json.dumps(targets, ensure_ascii=False))
+        return (
+            template
+            .replace("__HOOK_TARGETS__", json.dumps(targets, ensure_ascii=False))
+            .replace("__HOOK_BINDING__", json.dumps(binding_name, ensure_ascii=False))
+        )
 
     def get_intercepts(self) -> list[HookIntercept]:
         return list(self.intercepts)

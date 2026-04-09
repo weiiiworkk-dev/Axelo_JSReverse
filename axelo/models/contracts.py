@@ -186,6 +186,7 @@ class AdapterPackage(BaseModel):
     intent_fingerprint: str = ""
     family_id: str = "unknown"
     request_contract_hash: str = ""
+    resource_kind: str = ""
     manifest: dict[str, Any] = Field(default_factory=dict)
     request_contract: RequestContract = Field(default_factory=RequestContract)
     signature_spec: dict[str, Any] = Field(default_factory=dict)

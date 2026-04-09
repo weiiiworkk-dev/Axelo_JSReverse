@@ -11,6 +11,7 @@ import structlog
 from axelo.analysis.request_contracts import build_dataset_contract, derive_capability_profile
 from axelo.ai.hypothesis import CodeGenOutput
 from axelo.browser.simulation import SIMULATION_INIT_SCRIPT_TEMPLATE, build_simulation_payload
+from axelo.config import settings
 from axelo.models.analysis import AIHypothesis, DynamicAnalysis, StaticAnalysis
 from axelo.models.contracts import AdapterPackage, RequestContract, VerificationProfile
 from axelo.models.target import TargetSite
@@ -136,9 +137,20 @@ class AICodegenService:
         grounding_rules = self._grounding.render_grounding_rules(observed_context)
 
         if hypothesis.codegen_strategy == "python_reconstruct":
-            self._agent.default_model = "claude-sonnet-4-6"
-            if algo_type == "custom" and not template_code:
+            # Cost-B: 3-tier model routing based on algorithm complexity
+            # Tier 1 (Haiku): standard well-known algorithms + template available
+            # Tier 2 (Sonnet): known pattern but needs reconstruction
+            # Tier 3 (Opus): custom/unknown algorithm without template
+            _STANDARD_ALGOS = {"hmac", "md5", "sha256", "sha1", "aes", "rsa", "base64"}
+            if algo_type in _STANDARD_ALGOS and template_code:
+                self._agent.default_model = "claude-sonnet-4-6"  # haiku truncates at 4096; sonnet handles full crawler scripts
+                max_tokens_codegen = 4096
+            elif algo_type == "custom" and not template_code:
                 self._agent.default_model = "claude-opus-4-6"
+                max_tokens_codegen = 4096
+            else:
+                self._agent.default_model = "claude-sonnet-4-6"
+                max_tokens_codegen = 3072  # Cost-E: reduced from 4096
             system_prompt = (
                 CODEGEN_SYSTEM
                 + f"\n\nReference template:\n{template_code or '(none)'}"
@@ -160,7 +172,7 @@ class AICodegenService:
                 user_message=user_msg,
                 output_schema=CodeGenOutput,
                 tool_name="codegen",
-                max_tokens=4096,
+                max_tokens=max_tokens_codegen,
             )
             output = response.data
             self._agent._cost.add_ai_call(
@@ -169,6 +181,13 @@ class AICodegenService:
                 output_tok=response.output_tokens,
                 stage="codegen",
             )
+            if not output.crawler_code and response.output_tokens >= max_tokens_codegen:
+                log.warning(
+                    "codegen_truncated",
+                    model=response.model,
+                    output_tokens=response.output_tokens,
+                    max_tokens=max_tokens_codegen,
+                )
             return output
 
         return CodeGenOutput(
@@ -178,7 +197,7 @@ class AICodegenService:
                 dynamic=dynamic,
                 bridge_port=8721,
             ),
-            dependencies=["httpx>=0.27.0"],
+            dependencies=["curl_cffi>=0.7.0", "httpx>=0.27.0"],
             bridge_server_code="",
             notes=_render_js_bridge_notes(target, hypothesis, bridge_port=8721),
         )
@@ -207,13 +226,16 @@ class ArtifactWriter:
             codegen_strategy=hypothesis.codegen_strategy,
         )
 
+        run_id = target.session_id
+        prefix = f"{run_id}_" if run_id else ""
+
         if output.crawler_code:
             output.crawler_code = self._grounding.repair_generated_code_for_target(output.crawler_code, target)
-            path = output_dir / "crawler.py"
+            path = output_dir / f"{prefix}crawler.py"
             path.write_text(output.crawler_code, encoding="utf-8")
             artifacts["crawler_script"] = path
         if hypothesis.codegen_strategy == "js_bridge":
-            path = output_dir / "bridge_server.js"
+            path = output_dir / f"{prefix}bridge_server.js"
             path.write_text(
                 _render_base_bridge_template(
                     target,
@@ -225,7 +247,7 @@ class ArtifactWriter:
             )
             artifacts["bridge_server"] = path
         elif output.bridge_server_code:
-            path = output_dir / "bridge_server.js"
+            path = output_dir / f"{prefix}bridge_server.js"
             path.write_text(output.bridge_server_code, encoding="utf-8")
             artifacts["bridge_server"] = path
         if output.dependencies:
@@ -246,7 +268,7 @@ class ArtifactWriter:
             "notes": output.notes,
             "dependencies": output.dependencies,
         }
-        manifest_path = output_dir / "crawler_manifest.json"
+        manifest_path = output_dir / f"{prefix}manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         artifacts["manifest"] = manifest_path
         package = _build_adapter_package(
@@ -417,6 +439,11 @@ def _render_base_bridge_template(
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
         "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
         "__AXELO_STORAGE_STATE_PATH__": json.dumps(storage_state_path, ensure_ascii=False),
+        "__AXELO_DEFAULT_USER_AGENT__": json.dumps(
+            _canonical_user_agent(target.browser_profile.user_agent or "")
+            or _safe_default_headers(target).get("User-Agent", ""),
+            ensure_ascii=False,
+        ),
         "__AXELO_DEFAULT_APP_KEY__": json.dumps(_default_app_key(target), ensure_ascii=False),
         "__AXELO_EXECUTOR_CANDIDATES__": json.dumps(executor_candidates, ensure_ascii=False, indent=2),
         "__AXELO_PREFERRED_BRIDGE_TARGET__": json.dumps(preferred_target, ensure_ascii=False),
@@ -463,6 +490,7 @@ def _render_base_crawler_template(
     replacements = {
         "__AXELO_CRAWLER_CLASS__": _crawler_class_name(target.url),
         "__AXELO_BRIDGE_PORT__": str(bridge_port),
+        "__AXELO_NODE_BIN__": json.dumps(settings.node_bin or "node", ensure_ascii=False),
         "__AXELO_PAGE_ORIGIN__": json.dumps(_page_origin(target.url), ensure_ascii=False),
         "__AXELO_START_URL__": json.dumps(target.url or "", ensure_ascii=False),
         "__AXELO_KNOWN_ENDPOINT__": json.dumps(target.known_endpoint or "", ensure_ascii=False),
@@ -765,7 +793,7 @@ def _render_template_codegen(
                 dynamic=dynamic,
                 bridge_port=8721,
             ),
-            dependencies=["httpx>=0.27.0"],
+            dependencies=["curl_cffi>=0.7.0", "httpx>=0.27.0"],
             bridge_server_code="",
             notes=(
                 "Template-backed bridge generation selected.\n"
@@ -800,7 +828,12 @@ Template: {template_item.name}
 import json
 from urllib.parse import parse_qsl, urlsplit
 
-import httpx
+try:
+    from curl_cffi import requests as _curl_requests
+    _TRANSPORT = "curl_cffi"
+except ImportError:
+    import httpx as _httpx
+    _TRANSPORT = "httpx"
 
 {generator_code}
 
@@ -834,23 +867,36 @@ class {class_name}:
         headers = {headers_literal}
         headers.update(self._sign(url, method, body))
         self._last_request_url = url
-        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            response = client.request(
+        if _TRANSPORT == "curl_cffi":
+            session = _curl_requests.Session()
+            response = session.request(
                 method=method,
                 url=url,
                 headers=headers,
-                content=body.encode("utf-8") if body else None,
+                data=body.encode("utf-8") if body else None,
+                timeout=15.0,
+                allow_redirects=True,
+                impersonate="chrome124",
             )
-            response.raise_for_status()
-            try:
-                return response.json()
-            except Exception:
-                return {{
-                    "status_code": response.status_code,
-                    "body": response.text,
-                    "template": {json.dumps(template_item.name, ensure_ascii=False)},
-                    "expected_fields": {json.dumps(output_fields, ensure_ascii=False)},
-                }}
+            session.close()
+        else:
+            with _httpx.Client(timeout=15.0, follow_redirects=True) as client:
+                response = client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    content=body.encode("utf-8") if body else None,
+                )
+        response.raise_for_status()
+        try:
+            return response.json()
+        except Exception:
+            return {{
+                "status_code": response.status_code,
+                "body": response.text,
+                "template": {json.dumps(template_item.name, ensure_ascii=False)},
+                "expected_fields": {json.dumps(output_fields, ensure_ascii=False)},
+            }}
 
 
 if __name__ == "__main__":
@@ -860,7 +906,7 @@ if __name__ == "__main__":
 '''
     return CodeGenOutput(
         crawler_code=crawler_code,
-        dependencies=["httpx>=0.27.0"],
+        dependencies=["curl_cffi>=0.7.0", "httpx>=0.27.0"],
         bridge_server_code="",
         notes=(
             "Template-backed standalone generation selected.\n"

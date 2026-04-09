@@ -62,7 +62,7 @@ class VerifierAgent(BaseAgent):
                     user_message=f"分析以下验证失败：\n\n{context}",
                     output_schema=VerificationAnalysis,
                     tool_name="verification_analysis",
-                    max_tokens=1024,
+                    max_tokens=512,   # Cost-E: VerificationAnalysis is structured + small
                 )
                 analysis = response.data
                 self._cost.add_ai_call(

@@ -31,7 +31,8 @@ dependencies = [
 
 [project.scripts]
 axelo = "axelo.cli:app"
-AxeloJsReverse = "axelo.wizard:main"
+axelo-chat = "axelo.chat.cli:main_sync"
+axelo-ui = "axelo.ui.main:main"
 
 [project.optional-dependencies]
 dev = [

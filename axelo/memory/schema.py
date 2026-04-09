@@ -18,6 +18,11 @@ class SitePattern(SQLModel, table=True):
     fail_count: int = 0
     last_seen: datetime = Field(default_factory=datetime.now)
     notes: str = ""
+    # === Enhanced fields for learning ===
+    signature_headers: str = ""                      # JSON: known signature headers
+    antibot_error_codes: str = ""                    # JSON: known anti-bot error codes
+    requires_bridge: bool = False                    # Whether site needs bridge mode
+    session_refresh_needed: bool = False             # Whether session needs refresh
 
 
 class JSBundleCache(SQLModel, table=True):

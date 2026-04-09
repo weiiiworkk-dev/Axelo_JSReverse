@@ -126,6 +126,17 @@ class DeobfuscationPipeline:
         bundle_type: BundleType,
         size_bytes: int,
     ) -> list[DeobfuscatorName]:
+        """
+        GENERIC: Tool selection based on bundle characteristics (same for ALL sites).
+        """
+        # GENERIC: Large file threshold (80KB, same for ALL sites)
+        LARGE_FILE_THRESHOLD = 80 * 1024  # 80KB
+        
+        # GENERIC: ALL large files (>80KB) get babel-manual (60s timeout in _timeout_for)
+        if size_bytes > LARGE_FILE_THRESHOLD:
+            return ["babel-manual"]
+        
+        # Original logic for small files
         if size_bytes > 800_000:
             return ["babel-manual"]
 
@@ -153,6 +164,22 @@ class DeobfuscationPipeline:
         bundle_type: BundleType,
         size_bytes: int,
     ) -> float:
+        """
+        GENERIC: Calculate timeout based on bundle size (same for ALL sites).
+        
+        Large files (>80KB) get more generous timeout (60s).
+        Small files use standard timeout.
+        """
+        # GENERIC: Large file threshold (80KB, same for ALL sites)
+        LARGE_FILE_THRESHOLD = 80 * 1024  # 80KB
+        
+        is_large_file = size_bytes > LARGE_FILE_THRESHOLD
+        
+        if is_large_file:
+            # GENERIC: 60s timeout for large files (same for ALL sites)
+            return 60.0
+        
+        # Standard timeouts for normal files (same for ALL sites)
         if tool == "webcrack":
             return 35.0 if bundle_type == "webpack" and size_bytes <= 250_000 else 20.0
         if tool == "synchrony":

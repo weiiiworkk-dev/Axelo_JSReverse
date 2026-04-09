@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from urllib.parse import urlsplit
+import asyncio
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 from playwright.async_api import Page
 
+from axelo.browser.smart_action_runner import SmartActionRunner
+from axelo.config import settings
 from axelo.models.site_profile import BrowserAction, BrowserActionType
 from axelo.models.target import TargetSite
 from axelo.policies.runtime import RuntimePolicy
@@ -38,6 +41,10 @@ def default_action_flow(target: TargetSite, policy: RuntimePolicy) -> list[Brows
 
 
 class ActionRunner:
+    def __init__(self):
+        # 集成智能动作执行器
+        self._smart_runner = SmartActionRunner()
+    
     async def run(
         self,
         page: Page,
@@ -45,6 +52,8 @@ class ActionRunner:
         policy: RuntimePolicy,
     ) -> ActionRunResult:
         result = ActionRunResult(final_url=page.url)
+        
+        # 先执行标准动作流
         for action in default_action_flow(target, policy):
             try:
                 await self._execute(page, action, policy)
@@ -55,18 +64,28 @@ class ActionRunner:
                 result.failures.append(message)
                 if not action.optional:
                     raise
+        
+        # 尝试智能搜索 (如果需要)
         if _should_attempt_search(target):
             try:
-                if await self._attempt_target_search(page, target, policy):
-                    result.executed += 2
+                # 使用智能动作执行器
+                smart_result = await self._smart_runner.run(page, target, policy)
+                if smart_result.success:
+                    result.executed += smart_result.executed_actions
                     result.final_url = page.url
+                else:
+                    # 降级到原有逻辑
+                    if await self._attempt_target_search(page, target, policy):
+                        result.executed += 2
+                        result.final_url = page.url
             except Exception as exc:
-                result.failures.append(f"auto_search: {exc}")
+                result.failures.append(f"smart_search: {exc}")
+        
         return result
 
     async def _execute(self, page: Page, action: BrowserAction, policy: RuntimePolicy) -> None:
         if action.action_type == BrowserActionType.NAVIGATE:
-            await page.goto(action.url or page.url, wait_until=policy.goto_wait_until, timeout=30_000)
+            await page.goto(action.url or page.url, wait_until=policy.goto_wait_until, timeout=60_000)
             return
         if action.action_type == BrowserActionType.WAIT:
             await page.wait_for_timeout(action.duration_ms or policy.post_navigation_wait_ms)
@@ -98,28 +117,60 @@ class ActionRunner:
         if not query:
             return False
 
+        # --- Phase 1: try to locate and interact with an on-page search box ---
         locators = [
             page.get_by_role("searchbox"),
             page.locator("input[name='q']"),
             page.locator("input[type='search']"),
             page.locator("input[placeholder*='Search' i]"),
             page.locator("input[aria-label*='Search' i]"),
+            # Common e-commerce patterns
+            page.locator("input[name='keyword']"),
+            page.locator("input[name='search']"),
+            page.locator("input[id*='search' i]"),
         ]
-        last_error = "no visible search box"
         for locator in locators:
             field = locator.first
             try:
-                await field.wait_for(state="visible", timeout=2_000)
+                await field.wait_for(state="visible", timeout=2_500)
                 await field.click(timeout=5_000)
                 await field.fill(query, timeout=5_000)
                 await field.press("Enter", timeout=5_000)
                 await page.wait_for_load_state(policy.goto_wait_until, timeout=20_000)
                 await page.wait_for_timeout(policy.post_navigation_wait_ms)
                 return True
-            except Exception as exc:
-                last_error = str(exc)
+            except Exception:
                 continue
-        raise RuntimeError(last_error)
+
+        # --- Phase 2: URL-based fallback navigation ---
+        # When the search box is not interactable (SPA not yet rendered, lazy
+        # init, etc.) navigate directly to a URL constructed from common search
+        # path conventions.  This is a generic heuristic — no site-specific
+        # hard-coded paths.
+        from urllib.parse import urlencode, urlsplit, urlunsplit
+        parts = urlsplit(page.url)
+        base = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+        encoded_q = urlencode({"q": query})
+        encoded_kw = urlencode({"keyword": query})
+        encoded_s = urlencode({"s": query})
+        search_candidates = [
+            f"{base}/search?{encoded_q}",
+            f"{base}/search?{encoded_kw}",
+            f"{base}/s?{encoded_q}",
+            f"{base}?{encoded_q}",
+            f"{base}/search?{encoded_s}",
+        ]
+        for search_url in search_candidates:
+            try:
+                await page.goto(search_url, wait_until=policy.goto_wait_until, timeout=30_000)
+                await page.wait_for_timeout(policy.post_navigation_wait_ms)
+                # Verify we actually landed on a different / meaningful page
+                if page.url.rstrip("/") != urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")).rstrip("/"):
+                    return True
+            except Exception:
+                continue
+
+        raise RuntimeError("search box not interactable and no search URL candidate succeeded")
 
 
 def _should_attempt_search(target: TargetSite) -> bool:

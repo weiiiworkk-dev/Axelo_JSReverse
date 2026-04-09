@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import structlog
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,62 @@ from axelo.models.analysis import StaticAnalysis
 from axelo.models.target import TargetSite
 
 log = structlog.get_logger()
+
+
+# Cost-D: Static rule patterns — if these match, skip AI call entirely
+_SIMPLE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'\bbtoa\b|\batob\b'), "base64"),
+    (re.compile(r'\bmd5\b', re.IGNORECASE), "md5"),
+    (re.compile(r'\bsha256\b|\bsha-256\b', re.IGNORECASE), "sha256"),
+    (re.compile(r'\bHmac\b|\bhmac\b'), "hmac"),
+    (re.compile(r'\bAES\b|\baes\b'), "aes"),
+]
+_COMPLEX_PATTERNS: list[re.Pattern] = [
+    re.compile(r'_0x[0-9a-fA-F]{4}'),     # obfuscated hex identifiers
+    re.compile(r'eval\s*\('),              # eval() usage
+    re.compile(r'Function\s*\('),          # Function() constructor
+]
+
+
+def _static_rule_scan(static_results: dict[str, StaticAnalysis]) -> ScanReport | None:
+    """Quick regex-based scan. Returns ScanReport if confident, else None (fall back to AI)."""
+    all_imports: list[str] = []
+    all_candidates = []
+    for static in static_results.values():
+        all_imports.extend(static.crypto_imports)
+        all_candidates.extend(static.token_candidates)
+        for const in static.string_constants[:20]:
+            for pattern, algo in _SIMPLE_PATTERNS:
+                if pattern.search(const):
+                    all_imports.append(algo)
+
+    # Obfuscation check — if strongly obfuscated, return early with complex verdict
+    joined = " ".join(all_imports + [c.func_id for c in all_candidates])
+    is_obfuscated = any(pat.search(joined) for pat in _COMPLEX_PATTERNS)
+    if is_obfuscated:
+        return None  # Defer to AI
+
+    # Simple algorithm detection
+    detected: list[str] = []
+    for _, algo in _SIMPLE_PATTERNS:
+        if any(algo.lower() in imp.lower() for imp in all_imports):
+            detected.append(algo)
+
+    if not detected and not all_candidates:
+        return None  # Not enough signal
+
+    complexity = "simple" if len(all_candidates) <= 2 else "moderate"
+    difficulty = "easy" if detected else "medium"
+    return ScanReport(
+        bundle_complexity=complexity,
+        detected_frameworks=[],
+        crypto_libs=detected,
+        interesting_functions=[c.func_id for c in all_candidates[:5]],
+        token_field_hints=[c.request_field for c in all_candidates if c.request_field][:5],
+        priority_bundles=list(static_results.keys())[:3],
+        quick_verdict=f"Static rules detected: {', '.join(detected) or 'standard patterns'}",
+        estimated_difficulty=difficulty,
+    )
 
 
 class ScanReport(BaseModel):
@@ -42,6 +99,12 @@ class ScannerAgent(BaseAgent):
         target: TargetSite,
         static_results: dict[str, StaticAnalysis],
     ) -> ScanReport:
+        # Cost-D: try static rules first — skip AI for ~50% of simple bundles
+        rule_result = _static_rule_scan(static_results)
+        if rule_result is not None:
+            log.info("scanner_rules_matched", complexity=rule_result.bundle_complexity, algos=rule_result.crypto_libs)
+            return rule_result
+
         bm25_context = self._bm25_lookup(static_results)
 
         parts = [f"URL: {target.url}", f"目标: {target.interaction_goal}", ""]
@@ -63,7 +126,7 @@ class ScannerAgent(BaseAgent):
             user_message=f"请扫描以下 JS bundle 特征：\n\n{context}",
             output_schema=ScanReport,
             tool_name="scan_report",
-            max_tokens=1024,
+            max_tokens=512,   # Cost-E: ScanReport is structured + small, 400 tokens max
         )
         result = response.data
 
