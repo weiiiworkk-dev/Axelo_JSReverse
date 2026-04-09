@@ -25,7 +25,7 @@ from axelo.models.target import TargetSite
 
 class CodeGenAgent(BaseAgent):
     role = "codegen"
-    default_model = "claude-sonnet-4-6"
+    default_model = "deepseek-chat"
 
     def __init__(self, *args, retriever: MemoryRetriever, **kwargs) -> None:
         super().__init__(*args, **kwargs)

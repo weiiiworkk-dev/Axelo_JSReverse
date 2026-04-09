@@ -105,7 +105,7 @@ class CodegenTool(BaseTool):
     async def execute(self, input_data: dict[str, Any], state: ToolState) -> ToolResult:
         """执行代码生成"""
         hypothesis = input_data.get("hypothesis")
-        target_url = input_data.get("target_url")
+        target_url = input_data.get("target_url") or input_data.get("page_url") or input_data.get("url")
         
         if not hypothesis:
             return ToolResult(
@@ -123,10 +123,9 @@ class CodegenTool(BaseTool):
         
         try:
             output = self._generate(input_data)
-            
-            log.info("codegen_success", 
-                     url=target_url, 
-                     algorithm=input_data.get("algorithm", "unknown"))
+
+            safe_algorithm = self._ascii_safe(input_data.get("algorithm", "unknown"))
+            log.info("codegen_success", url=target_url, algorithm=safe_algorithm)
             
             return ToolResult(
                 tool_name=self.name,
@@ -146,6 +145,12 @@ class CodegenTool(BaseTool):
                 status=ToolStatus.FAILED,
                 error=str(exc),
             )
+
+    @staticmethod
+    def _ascii_safe(value: Any) -> str:
+        text = str(value) if value is not None else ""
+        # Keep logs ASCII-safe on Windows consoles with narrow encodings.
+        return text.encode("ascii", errors="backslashreplace").decode("ascii")
     
     def _generate(self, input_data: dict) -> CodegenOutput:
         """生成代码"""

@@ -7,8 +7,8 @@ ProxyManager can rotate to the next available proxy automatically.
 Usage::
 
     pm = ProxyManager(ProxyConfig(mode="rotating", url="http://user:pass@host:port"))
-    proxy_url = pm.get_proxy("shopee.com.my")       # "http://..." or None
-    pm.mark_blocked(proxy_url, "shopee.com.my")     # signal this proxy is blocked
+    proxy_url = pm.get_proxy("example.com")       # "http://..." or None
+    pm.mark_blocked(proxy_url, "example.com")     # signal this proxy is blocked
     pm.rotate()                                      # pick next proxy
 """
 from __future__ import annotations

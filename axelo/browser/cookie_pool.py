@@ -15,14 +15,14 @@ Usage::
     pool = CookiePoolCoordinator()
     await pool.start_refresh_loop()  # background task
 
-    cookies = await pool.get_cookies("shopee.com.my", timeout=30.0)
+    cookies = await pool.get_cookies("example.com", timeout=30.0)
     if cookies:
         # use cookies
         ...
     else:
         # resolve challenge and put cookies
         cookies = await resolve_challenge(...)
-        await pool.put_cookies("shopee.com.my", cookies, ttl=1500)
+        await pool.put_cookies("example.com", cookies, ttl=1500)
 """
 from __future__ import annotations
 

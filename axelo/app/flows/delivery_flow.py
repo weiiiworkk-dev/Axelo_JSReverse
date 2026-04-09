@@ -51,7 +51,7 @@ class DeliveryFlow:
             ctx.result.error = "code generation prerequisites are missing"
             return None
         if ctx.ai_client is None:
-            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
+            ctx.ai_client = AIClient(api_key=settings.deepseek_api_key, model=settings.model)
 
         codegen_stage = CodeGenStage(ctx.ai_client, ctx.cost, ctx.budget, self._retriever)
         verify_stage = VerifyStage(ctx.ai_client, ctx.cost, ctx.budget)
@@ -257,7 +257,7 @@ class DeliveryFlow:
         if ctx.analysis is None:
             return
         if ctx.ai_client is None:
-            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
+            ctx.ai_client = AIClient(api_key=settings.deepseek_api_key, model=settings.model)
         mem_agent = MemoryWriterAgent(ctx.ai_client, ctx.cost, ctx.budget, writer=self._mem_writer)
         await mem_agent.write(
             session_id=ctx.sid,

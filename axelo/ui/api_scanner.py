@@ -33,44 +33,6 @@ class ScanResult:
 class APIScanner:
     """API Scanner - discovers APIs from target website"""
     
-    # Generic third-party domains (used by ALL sites)
-    THIRD_PARTY_DOMAINS = {
-        # Google ecosystem
-        "google-analytics.com",
-        "googletagmanager.com",
-        "doubleclick.net",
-        "google.com",
-        "gstatic.com",
-        "googleusercontent.com",
-        "googlesyndication.com",
-        # Facebook ecosystem
-        "facebook.net",
-        "facebook.com",
-        "instagram.com",
-        "messenger.com",
-        # Other common tracking
-        "criteo.com",
-        "taboola.com",
-        "outbrain.com",
-        "amazon-adsystem.com",
-        "advertising.com",
-        "bing.com",
-        "yahoo.com",
-        "scorecardresearch.com",
-        "quantserve.com",
-        "hotjar.com",
-        "mixpanel.com",
-        "segment.com",
-        "amplitude.com",
-        # Analytics
-        "analytics.google.com",
-        "stats.g.doubleclick.net",
-        # Tag managers
-        "connect.facebook.net",
-        # Amazon specific (treated as third-party for non-Amazon sites)
-        "amazon-adsystem.com",
-    }
-    
     # Generic API type priority (used by ALL sites)
     API_TYPE_PRIORITY = {
         "search_results": 100,
@@ -89,8 +51,8 @@ class APIScanner:
         Quick scan - capture requests and discover APIs
         
         Args:
-            site: Site name (e.g., "amazon")
-            url: Resolved URL (e.g., "https://www.amazon.com")
+            site: Site identifier from user input
+            url: Resolved URL (e.g., "https://example.com")
             search_query: Optional search query to navigate to specific content
         """
         start_time = time.time()
@@ -210,8 +172,6 @@ class APIScanner:
                         # Different sites have different search box selectors
                         search_selectors = [
                             "input[name='keyword']",           # Generic
-                            "input[name='k']",                # Amazon
-                            "input[id='twotabsearchtextbox']", # Amazon
                             "input[id='search']",             # Generic
                             "input[type='search']",           # Generic
                             "input[placeholder*='Search']",   # Generic
@@ -235,7 +195,7 @@ class APIScanner:
                         
                         if not search_success:
                             # Fallback: try direct URL navigation
-                            # Build search URL based on site
+                            # Build a generic search URL from base URL
                             search_url = self._build_search_url(site, url, search_query)
                             if search_url:
                                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
@@ -365,7 +325,7 @@ class APIScanner:
             "product_listing": ["product", "item", "/p/", "detail", "goods", "sku"],
             "product_detail": ["detail", "info", "pdp", "item"],
             "reviews": ["review", "comment", "rating", "feedback"],
-            "video": ["video", "play", "feed", "bilibili"],
+            "video": ["video", "play", "feed", "stream"],
             "user": ["user", "profile", "account", "member"],
             "cart": ["cart", "shopping", "order"],
             "payment": ["pay", "payment", "checkout"],
@@ -396,15 +356,6 @@ class APIScanner:
             skip_domains = ['.jpg', '.jpeg', '.png', '.gif', '.css', '.woff', '.ttf', 
                           '.ico', '.svg', '.webp', '.mp4', '.mp3', '.flv']
             if any(url_lower.endswith(ext) for ext in skip_domains):
-                continue
-            
-            # GENERIC: Skip third-party domains (used by ALL sites)
-            is_third_party = False
-            for domain in self.THIRD_PARTY_DOMAINS:
-                if domain in url_lower:
-                    is_third_party = True
-                    break
-            if is_third_party:
                 continue
             
             confidence = 0.0
@@ -586,7 +537,7 @@ class APIScanner:
     
     def _build_search_url(self, site: str, base_url: str, query: str) -> str:
         """
-        Build search URL based on site.
+        Build search URL in a generic way.
         
         Args:
             site: Site name
@@ -600,27 +551,13 @@ class APIScanner:
         
         encoded_query = urllib.parse.quote(query)
         
-        # Site-specific search URL patterns
-        search_patterns = {
-            "amazon": f"https://www.amazon.com/s?k={encoded_query}",
-            "jd": f"https://search.jd.com/Search?keyword={encoded_query}",
-            "taobao": f"https://s.taobao.com/search?q={encoded_query}",
-            "tmall": f"https://list.tmall.com/search_product.htm?q={encoded_query}",
-            "ebay": f"https://www.ebay.com/sch/i.html?_nkw={encoded_query}",
-            "walmart": f"https://www.walmart.com/search?q={encoded_query}",
-            "target": f"https://www.target.com/s?searchTerm={encoded_query}",
-            "bestbuy": f"https://www.bestbuy.com/site/searchpage.jsp?st={encoded_query}",
-            "alibaba": f"https://www.alibaba.com/trade/search?SearchText={encoded_query}",
-        }
-        
-        # Check if site matches any known pattern
-        site_lower = site.lower()
-        for key, pattern in search_patterns.items():
-            if key in site_lower:
-                return pattern
-        
-        # Generic fallback: try common search paths
-        return f"{base_url.rstrip('/')}/search?q={encoded_query}"
+        parsed = urllib.parse.urlsplit(base_url)
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        root = f"{parsed.scheme}://{parsed.netloc}"
+        # Generic fallback: try common search paths without brand-specific templates.
+        # The caller can still fall back to on-page search box interaction.
+        return f"{root}/search?q={encoded_query}"
 
 
 async def scan_website(site: str) -> ScanResult:
@@ -628,7 +565,7 @@ async def scan_website(site: str) -> ScanResult:
     Convenience function to scan a website
     
     Args:
-        site: Site name (e.g., "jd.com")
+        site: Site name (e.g., "example.com")
         
     Returns:
         ScanResult with discovered APIs

@@ -88,8 +88,8 @@ class VerifyTool(BaseTool):
     
     async def execute(self, input_data: dict[str, Any], state: ToolState) -> ToolResult:
         """执行验证"""
-        code = input_data.get("code")
-        target_url = input_data.get("target_url")
+        code = input_data.get("code") or input_data.get("python_code") or input_data.get("js_code")
+        target_url = input_data.get("target_url") or input_data.get("page_url") or input_data.get("url")
         
         if not code:
             return ToolResult(

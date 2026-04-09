@@ -28,7 +28,7 @@ VERIFIER_SYSTEM = """你是一位验证分析专家（Verifier Agent）。
 
 class VerifierAgent(BaseAgent):
     role = "verifier"
-    default_model = "claude-sonnet-4-6"
+    default_model = "deepseek-chat"
 
     async def verify_and_analyze(
         self,

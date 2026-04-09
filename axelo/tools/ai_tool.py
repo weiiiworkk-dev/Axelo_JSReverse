@@ -106,15 +106,8 @@ class AITool(BaseTool):
     
     async def execute(self, input_data: dict[str, Any], state: ToolState) -> ToolResult:
         """执行 AI 分析"""
-        candidates = input_data.get("candidates", [])
+        candidates = input_data.get("candidates") or input_data.get("signature_candidates") or []
         goal = input_data.get("goal")
-        
-        if not candidates:
-            return ToolResult(
-                tool_name=self.name,
-                status=ToolStatus.FAILED,
-                error="Missing required input: candidates",
-            )
         
         if not goal:
             return ToolResult(
@@ -150,15 +143,14 @@ class AITool(BaseTool):
     
     async def _analyze(self, input_data: dict, state: ToolState) -> AIAnalysisOutput:
         """调用 AI 进行分析"""
-        candidates = input_data.get("candidates", [])
+        candidates = input_data.get("candidates") or input_data.get("signature_candidates") or []
         goal = input_data.get("goal", "")
         crypto_usage = input_data.get("crypto_usage", [])
         js_code = input_data.get("js_code", "")[:2000]  # 限制代码长度
         
-        # 检查是否有 DeepSeek API key
-        api_key = getattr(settings, "deepseek_api_key", None) or getattr(settings, "anthropic_api_key", None)
-        
-        if not api_key:
+        deepseek_api_key = (getattr(settings, "deepseek_api_key", None) or "").strip()
+
+        if not deepseek_api_key:
             log.warning("no_ai_api_key", using_fallback=True)
             return self._fallback_analysis(input_data)
         
@@ -166,8 +158,7 @@ class AITool(BaseTool):
         prompt = self._build_prompt(candidates, crypto_usage, goal, js_code)
         
         try:
-            # 尝试使用 DeepSeek
-            output = await self._call_deepseek(prompt, api_key)
+            output = await self._call_deepseek(prompt, deepseek_api_key)
             return output
         except Exception as e:
             log.warning("ai_api_failed", error=str(e), using_fallback=True)
@@ -259,10 +250,10 @@ class AITool(BaseTool):
                 confidence=0.3,
                 reasoning="API 返回无法解析，使用原始响应",
             )
-    
+
     def _fallback_analysis(self, input_data: dict) -> AIAnalysisOutput:
         """降级分析 - 基于规则的启发式分析"""
-        candidates = input_data.get("candidates", [])
+        candidates = input_data.get("candidates") or input_data.get("signature_candidates") or []
         crypto_usage = input_data.get("crypto_usage", [])
         goal = input_data.get("goal", "")
         

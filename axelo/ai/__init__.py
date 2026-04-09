@@ -8,18 +8,14 @@ from .client import AIClient
 from .context_builder import ContextBuilder
 from .hypothesis import AIHypothesisOutput, CodeGenOutput
 from .unified import (
-    # Data structures
     ModelProvider,
     ChatMessage,
     ChatResponse,
     ExecutionResult,
-    # Clients
-    AnthropicClient,
     DeepSeekClient,
-    QwenClient,
+    DeepSeekV3Client,
     MultiModelAIClient,
     DualModelOrchestrator,
-    # Utilities
     create_orchestrator,
     quick_chat,
 )
@@ -54,9 +50,8 @@ __all__ = [
     "ChatMessage",
     "ChatResponse",
     "ExecutionResult",
-    "AnthropicClient",
     "DeepSeekClient",
-    "QwenClient",
+    "DeepSeekV3Client",
     "MultiModelAIClient",
     "DualModelOrchestrator",
     "create_orchestrator",

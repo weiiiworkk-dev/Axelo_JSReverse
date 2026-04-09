@@ -136,7 +136,7 @@ class AIAnalyzer:
     Uses AI to enhance the inference accuracy of the signature engine.
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-sonnet-4-6"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "deepseek-chat"):
         self._api_key = api_key
         self._model = model
         self._client = None

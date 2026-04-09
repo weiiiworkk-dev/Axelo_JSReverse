@@ -199,9 +199,9 @@ class BrowserProfilePool:
     Usage::
 
         pool = BrowserProfilePool()
-        profile = pool.select("shopee.com.my")
+        profile = pool.select("example.com")
         # ... use profile for crawl ...
-        pool.record_usage("shopee.com.my", profile_hash, outcome="success")
+        pool.record_usage("example.com", profile_hash, outcome="success")
     """
 
     def __init__(self, exclude_recent_hours: int = 1) -> None:

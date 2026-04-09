@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,21 @@ from axelo.tools.base import (
 from axelo.config import settings
 
 log = structlog.get_logger()
+DEBUG_LOG_PATH = "E:/Test_Project/Axelo_JSReverse/debug-d07492.log"
+
+
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "d07492",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 @dataclass
@@ -60,6 +76,7 @@ class BrowserTool(BaseTool):
     
     def __init__(self):
         super().__init__()
+        self._playwright = None
         self._driver = None
         self._page = None
         self._captures: list[dict] = []
@@ -205,8 +222,12 @@ class BrowserTool(BaseTool):
             if self._page:
                 try:
                     cookies = await self._page.context.cookies()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning(
+                        "browser_cookies_fetch_failed",
+                        error_code="BROWSER_COOKIES_FETCH_FAILED",
+                        error=str(exc),
+                    )
             
             # 获取 storage
             local_storage = {}
@@ -267,7 +288,16 @@ class BrowserTool(BaseTool):
         
         log.info("browser_launch", url=input_data.get("url"), headless=headless)
         
-        pw = await async_playwright().start()
+        self._playwright = await async_playwright().start()
+        # region agent log
+        _debug_log(
+            run_id="post-fix",
+            hypothesis_id="H9",
+            location="axelo/tools/browser_tool.py:_launch_browser",
+            message="playwright started",
+            data={"started": self._playwright is not None},
+        )
+        # endregion
         
         # 构建启动参数
         launch_options = {
@@ -284,7 +314,7 @@ class BrowserTool(BaseTool):
             launch_options["args"].append(f"--user-agent={user_agent}")
         
         # 启动浏览器
-        browser_type = getattr(pw, settings.browser or "chromium")
+        browser_type = getattr(self._playwright, settings.browser or "chromium")
         
         if proxy:
             launch_options["proxy"] = {"server": proxy}
@@ -313,7 +343,7 @@ class BrowserTool(BaseTool):
                 "timestamp": str(uuid.uuid4()),
             })
         
-        await context.on("request", handle_request)
+        context.on("request", handle_request)
         
         # 创建页面并导航
         self._page = await context.new_page()
@@ -396,15 +426,52 @@ class BrowserTool(BaseTool):
         try:
             if self._page:
                 await self._page.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(
+                "browser_page_close_failed",
+                error_code="BROWSER_PAGE_CLOSE_FAILED",
+                error=str(exc),
+            )
         
         try:
             if self._driver:
                 await self._driver.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(
+                "browser_driver_close_failed",
+                error_code="BROWSER_DRIVER_CLOSE_FAILED",
+                error=str(exc),
+            )
+
+        try:
+            if self._playwright:
+                await self._playwright.stop()
+                # region agent log
+                _debug_log(
+                    run_id="post-fix",
+                    hypothesis_id="H9",
+                    location="axelo/tools/browser_tool.py:_close_browser",
+                    message="playwright stopped",
+                    data={"stopped": True},
+                )
+                # endregion
+        except Exception as exc:
+            log.warning(
+                "browser_playwright_stop_failed",
+                error_code="BROWSER_PLAYWRIGHT_STOP_FAILED",
+                error=str(exc),
+            )
+            # region agent log
+            _debug_log(
+                run_id="post-fix",
+                hypothesis_id="H9",
+                location="axelo/tools/browser_tool.py:_close_browser",
+                message="playwright stop failed",
+                data={"error": str(exc)},
+            )
+            # endregion
         
+        self._playwright = None
         self._page = None
         self._driver = None
         self._captures = []

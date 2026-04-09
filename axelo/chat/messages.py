@@ -143,8 +143,8 @@ class ConversationHistory:
         """获取最近 n 条消息"""
         return self.messages[-n:]
     
-    def to_openai_format(self) -> list[dict[str, Any]]:
-        """转换为 OpenAI 格式"""
+    def to_api_format(self) -> list[dict[str, Any]]:
+        """转换为通用聊天 API 格式"""
         return [
             {
                 "role": msg.role.value,

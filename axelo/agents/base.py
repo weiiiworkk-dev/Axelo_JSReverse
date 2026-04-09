@@ -13,7 +13,7 @@ class BaseAgent(ABC):
     """
 
     role: str = ""          # 角色名（用于日志和成本追踪）
-    default_model: str = "claude-sonnet-4-6"  # 默认使用中等模型
+    default_model: str = "deepseek-chat"
 
     def __init__(
         self,

@@ -31,7 +31,7 @@ log = structlog.get_logger()
 class SuccessPattern:
     """A successful pattern learned"""
     id: str
-    domain_pattern: str  # e.g., "*.jd.com"
+    domain_pattern: str  # e.g., "*.example.com"
     algorithm: str
     key_source: str
     parameter_order: list[str]

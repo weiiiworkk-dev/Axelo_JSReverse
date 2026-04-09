@@ -88,7 +88,7 @@ SCANNER_SYSTEM = """你是一位 JS 逆向扫描器（Scanner）。
 
 class ScannerAgent(BaseAgent):
     role = "scanner"
-    default_model = "claude-haiku-4-5"
+    default_model = "deepseek-chat"
 
     def __init__(self, *args, retriever=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)

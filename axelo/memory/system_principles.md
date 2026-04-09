@@ -10,14 +10,15 @@ All development must adhere to these principles.
 **PRINCIPLE**: Never add code that specifically handles individual websites (Amazon, Shopee, Lazada, eBay, JD, Taobao, etc.)
 
 **RULE**:
-- ❌ FORBIDDEN: `if "amazon" in url: ...` or `elif "shopee": ...`
+- ❌ FORBIDDEN: `if "brand_x" in url: ...` or `elif "brand_y": ...`
+- ❌ FORBIDDEN: Any built-in brand/domain lookup table used to special-case behavior
 - ✅ ALLOWED: Generic algorithms that work for all sites
-- ✅ ALLOWED: Configuration data (JSON/YAML) loaded at runtime
+- ✅ ALLOWED: User-provided target URL/domain as plain input
 
 **IMPLEMENTATION**:
-- All site-specific data must be externalized to data files (JSON/YAML)
-- Site detection must use generic pattern matching
-- All browser parameters must be site-agnostic
+- Core tool behavior must be fully site-agnostic
+- No hardcoded domain mapping in code paths
+- Browser/network parameters must be generic and reusable
 
 ---
 
@@ -26,7 +27,6 @@ All development must adhere to these principles.
 **PRIORITY ORDER**:
 1. **Primary**: DeepSeek V3 (`deepseek-chat`)
 2. **Secondary**: DeepSeek R1 (`deepseek-reasoner`)
-3. **Tertiary**: Claude Opus 4.6 (`claude-opus-4-6-20251105`)
 
 **FALLBACK LOGIC**:
 ```
@@ -34,9 +34,7 @@ try DeepSeek V3
 except (rate_limit, quota_error, timeout):
     try DeepSeek R1
     except (rate_limit, quota_error, timeout):
-        try Claude Opus 4.6
-        except:
-            raise NoModelsAvailableError
+        raise NoModelsAvailableError
 ```
 
 ---
@@ -55,12 +53,19 @@ except (rate_limit, quota_error, timeout):
 
 ## 4. Configuration-Driven (配置驱动)
 
-**PRINCIPLE**: All site-specific data must be externalized to configuration files.
+**PRINCIPLE**: Runtime options may be configured, but tool logic must remain generic.
 
 **IMPLEMENTATION**:
-- Site profiles in `axelo/data/site_profiles.json`
-- URL patterns in configuration, not code
+- Runtime params come from user input and common defaults
+- Avoid domain-specific profiles in runtime decision logic
 - Algorithm selection based on generic heuristics
+
+---
+
+## 5. Compliance Note (本次新增)
+
+- Reverse/crawling capability may only be enhanced through universal tools.
+- Do not add or preserve any site-specific micro-tuning in router, scanner, toolchain, or memory patterns.
 
 ---
 

@@ -9,15 +9,11 @@ _DEFAULT_WORKSPACE = _PROJECT_ROOT / "workspace"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AXELO_", env_file=str(_PROJECT_ROOT / ".env"), extra="ignore")
 
-    anthropic_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "AXELO_ANTHROPIC_API_KEY"),
-    )
     deepseek_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("DEEPSEEK_API_KEY", "AXELO_DEEPSEEK_API_KEY"),
     )
-    model: str = "claude-opus-4-6"
+    model: str = "deepseek-chat"
     workspace: Path = _DEFAULT_WORKSPACE
     sessions_root: Path | None = Field(
         default=None,
@@ -156,8 +152,8 @@ class Settings(BaseSettings):
         return self.platform_dir / "warehouse"
 
     @property
-    def has_anthropic_api_key(self) -> bool:
-        return bool(self.anthropic_api_key and self.anthropic_api_key.strip())
+    def has_deepseek_api_key(self) -> bool:
+        return bool(self.deepseek_api_key and self.deepseek_api_key.strip())
 
     @property
     def run_counter_path(self) -> Path:

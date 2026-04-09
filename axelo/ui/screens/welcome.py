@@ -29,17 +29,17 @@ def show_welcome(console: Console) -> None:
     # 示例
     examples = Text()
     examples.append("示例: ", style="text_muted")
-    examples.append("jd.com", style="primary")
+    examples.append("example.com", style="primary")
     examples.append("  ", style="text_primary")
-    examples.append("淘宝", style="primary")
+    examples.append("shop.example", style="primary")
     examples.append("  ", style="text_primary")
-    examples.append("amazon", style="primary")
+    examples.append("api.example.org", style="primary")
     examples.append("  ", style="text_primary")
-    examples.append("拼多多", style="primary")
+    examples.append("news.example", style="primary")
     examples.append("  ", style="text_primary")
-    examples.append("小红书", style="primary")
+    examples.append("forum.example", style="primary")
     examples.append("  ", style="text_primary")
-    examples.append("抖音", style="primary")
+    examples.append("video.example", style="primary")
     
     # 输入提示
     prompt = Text()

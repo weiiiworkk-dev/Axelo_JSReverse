@@ -31,8 +31,7 @@ dependencies = [
 
 [project.scripts]
 axelo = "axelo.cli:app"
-axelo-chat = "axelo.chat.cli:main_sync"
-axelo-ui = "axelo.ui.main:main"
+Axelo = "axelo.cli:app"
 
 [project.optional-dependencies]
 dev = [

@@ -5,11 +5,10 @@ import structlog
 
 log = structlog.get_logger()
 
-# Claude 模型单价（USD / 1M tokens）
+# DeepSeek 模型单价（USD / 1M tokens）
 MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "claude-opus-4-6":    (15.0,  75.0),   # input, output
-    "claude-sonnet-4-6":  (3.0,   15.0),
-    "claude-haiku-4-5":   (0.25,   1.25),
+    "deepseek-chat":      (0.27,  1.10),
+    "deepseek-reasoner":  (0.55,  2.19),
 }
 
 
@@ -59,7 +58,7 @@ class CostRecord:
         return metrics
 
     def add_ai_call(self, model: str, input_tok: int, output_tok: int, stage: str = "") -> None:
-        pricing = MODEL_PRICING.get(model, (15.0, 75.0))
+        pricing = MODEL_PRICING.get(model, MODEL_PRICING["deepseek-chat"])
         cost = (input_tok * pricing[0] + output_tok * pricing[1]) / 1_000_000
 
         self.input_tokens += input_tok
@@ -150,11 +149,11 @@ class CostBudget:
         """根据剩余预算选择合适的模型"""
         remaining = self.max_usd - record.total_usd
         if remaining < 0.05:
-            log.warning("budget_low_switch_haiku", remaining=f"${remaining:.4f}")
-            return "claude-haiku-4-5"
-        if remaining < 0.20 and "opus" in preferred:
-            log.info("budget_medium_switch_sonnet", remaining=f"${remaining:.4f}")
-            return "claude-sonnet-4-6"
+            log.warning("budget_low_switch_chat", remaining=f"${remaining:.4f}")
+            return "deepseek-chat"
+        if remaining < 0.20 and preferred == "deepseek-reasoner":
+            log.info("budget_medium_switch_chat", remaining=f"${remaining:.4f}")
+            return "deepseek-chat"
         return preferred
 
     def should_skip_dynamic(self, record: CostRecord) -> bool:

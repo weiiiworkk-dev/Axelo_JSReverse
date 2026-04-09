@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+import structlog
 from axelo.browser.driver import BrowserDriver
 from axelo.browser.profiles import PROFILES
 from axelo.browser.state_store import BrowserStateStore
@@ -39,6 +40,8 @@ from axelo.platform.runtime import PlatformRuntime
 from axelo.platform.topics import TOPIC_PLATFORM_EVENTS
 from axelo.storage.session_state_store import SessionStateStore
 from axelo.verification.replayer import RequestReplayer
+
+log = structlog.get_logger()
 
 
 def build_adapter_version(
@@ -144,11 +147,14 @@ class ReverseWorker(WorkerBase):
     async def run_once(self) -> bool:
         # Check if orchestrator is available
         if self._orchestrator_class is None:
-            log.error("orchestrator_not_available", message="MasterOrchestrator is not available. Please ensure the orchestrator module is installed.")
+            log.error(
+                "orchestrator_not_available",
+                error_code="WORKER_ORCHESTRATOR_UNAVAILABLE",
+                message="MasterOrchestrator is not available. Please ensure the orchestrator module is installed.",
+            )
             self._heartbeat("error", details={"error": "orchestrator not available"})
             return False
 
-    async def run_once(self) -> bool:
         job = self._runtime.store.acquire_job(JobType.REVERSE, queue=self._queue_name, region=self._region)
         if job is None:
             self._heartbeat("idle")
@@ -452,7 +458,13 @@ def _load_adapter_package(path: Path | None) -> AdapterPackage | None:
         return None
     try:
         return AdapterPackage.model_validate_json(path.read_text(encoding="utf-8"))
-    except Exception:
+    except (ValueError, OSError) as exc:
+        log.warning(
+            "adapter_package_load_failed",
+            error_code="ADAPTER_PACKAGE_LOAD_FAILED",
+            path=str(path),
+            error=str(exc),
+        )
         return None
 
 

@@ -304,8 +304,7 @@ class AnalysisFlow:
                 scan_report=ctx.scan_report,
             )
 
-        # 优先使用 DeepSeek V3，如果失败则 fallback 到 Claude
-        # 检查 DeepSeek API key 是否可用
+        # DeepSeek-only orchestration path.
         from axelo.ai.dual_model_client import DualModelOrchestrator
         
         orchestrator = None
@@ -313,27 +312,23 @@ class AnalysisFlow:
             try:
                 orchestrator = DualModelOrchestrator(
                     deepseek_key=settings.deepseek_api_key,
-                    anthropic_key=settings.anthropic_api_key,
-                    enable_fallback=True
+                    enable_fallback=False,
                 )
-                log.info("using_deepseek_v3_primary")
+                log.info("using_deepseek_primary")
             except Exception as e:
-                log.warning("deepseek_init_failed_using_claude", error=str(e))
+                log.warning("deepseek_init_failed", error=str(e))
                 orchestrator = None
         
-        # 如果没有 DeepSeek，回退到纯 Claude
         if orchestrator is None:
-            log.info("using_claude_direct")
+            log.info("using_deepseek_direct_client")
         
-        # 创建 AI Client (优先 DeepSeek)
+        # Create AI client (DeepSeek only)
         if orchestrator and orchestrator._deepseek_v3:
-            # 使用 DualModelOrchestrator 作为 AI 客户端
             ctx.ai_client = orchestrator
             ctx.ai_client_name = "deepseek-v3"
         else:
-            # 回退到 Claude
-            ctx.ai_client = AIClient(api_key=settings.anthropic_api_key, model=settings.model)
-            ctx.ai_client_name = "claude"
+            ctx.ai_client = AIClient(api_key=settings.deepseek_api_key, model=settings.model)
+            ctx.ai_client_name = "deepseek-chat"
         
         ai_stage = AIAnalysisStage(ctx.ai_client, ctx.cost, ctx.budget, self._retriever)
 

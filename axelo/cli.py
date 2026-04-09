@@ -19,26 +19,6 @@ def _get_run_config():
     from axelo.models.run_config import RunConfig
     return RunConfig
 
-def _get_modes():
-    from axelo.modes.registry import available_modes
-    return available_modes
-
-def _get_orchestrator():
-    """Try to import orchestrator, return None if doesn't exist"""
-    try:
-        from axelo.orchestrator.master import MasterOrchestrator
-        return MasterOrchestrator
-    except ImportError:
-        return None
-
-def _get_presentation():
-    """Try to import presentation, return None if doesn't exist"""
-    try:
-        from axelo.presentation import verification_status_markup, verification_was_skipped
-        return verification_status_markup, verification_was_skipped
-    except ImportError:
-        return None, None
-
 def _get_session_store():
     from axelo.storage.session_store import SessionStore
     return SessionStore
@@ -54,21 +34,6 @@ def _get_memory_db():
 def _get_profiles():
     from axelo.browser.profiles import PROFILES
     return PROFILES
-
-# Platform imports - wrap in try/except
-def _get_platform_modules():
-    """Get platform modules if they exist, otherwise return None"""
-    try:
-        from axelo.platform.models import FrontierSeedRequest, ReverseJobSpec, CrawlJobSpec, SessionRefreshJobSpec
-        from axelo.platform.runtime import PlatformRuntime
-        from axelo.platform.workers import worker_from_type
-        return {
-            'models': (FrontierSeedRequest, ReverseJobSpec, CrawlJobSpec, SessionRefreshJobSpec),
-            'runtime': PlatformRuntime,
-            'workers': worker_from_type,
-        }
-    except ImportError:
-        return None
 
 def _setup_logging(log_level: str) -> None:
     import logging
@@ -105,20 +70,6 @@ def default_command(ctx: typer.Context):
         _setup_logging("info")
         asyncio.run(AxeloChatCLI().start())
 
-# UI 交互界面
-ui_app = typer.Typer(help="启动交互式 UI 界面", invoke_without_command=True)
-submit_app = typer.Typer(help="提交平台化作业")
-frontier_app = typer.Typer(help="管理 URL frontier")
-worker_app = typer.Typer(help="运行平台 worker")
-serve_app = typer.Typer(help="运行平台服务")
-
-app.add_typer(ui_app, name="ui")
-app.add_typer(submit_app, name="submit")
-app.add_typer(frontier_app, name="frontier")
-app.add_typer(worker_app, name="worker")
-app.add_typer(serve_app, name="serve")
-
-
 def _parse_login_state(login_state: str) -> bool | None:
     value = login_state.strip().lower()
     if value in {"cookie", "yes", "true"}:
@@ -126,11 +77,6 @@ def _parse_login_state(login_state: str) -> bool | None:
     if value in {"no", "false"}:
         return False
     return None
-
-
-def _platform_runtime() -> PlatformRuntime:
-    return PlatformRuntime.from_settings()
-
 
 @app.command()
 def run(
@@ -165,7 +111,7 @@ def run(
         "interactive",
         "--mode",
         "-m",
-        help=f"运行模式: {_get_modes()}",
+        help="运行模式: interactive/full_auto/full_manual",
     ),
     session_id: Optional[str] = typer.Option(None, "--session", "-s", help="会话 ID，用于续跑"),
     resume: bool = typer.Option(False, "--resume", "-r", help="从上次进度继续"),
@@ -208,7 +154,6 @@ def run(
     
     RunConfig = _get_run_config()
     PROFILES = _get_profiles()
-    verification_status_markup, verification_was_skipped = _get_presentation()
 
     if profile not in PROFILES:
         choices = ", ".join(sorted(PROFILES.keys()))
@@ -259,56 +204,12 @@ def run(
         )
     )
 
-    # Try to use orchestrator if available, otherwise use new tool-based flow
-    MasterOrchestrator = _get_orchestrator()
-    
-    if MasterOrchestrator is not None:
-        # Original orchestrator flow
-        orchestrator = MasterOrchestrator()
-        kwargs = run_cfg.orchestrator_kwargs()
-        kwargs["session_id"] = session_id
-        kwargs["resume"] = resume
-        kwargs["browser_profile"] = selected_profile
-        result = asyncio.run(orchestrator.run(**kwargs))
+    console.print("\n[dim]使用新版 AI 对话式架构...[/dim]")
+    from axelo.chat.cli import AxeloChatCLI
 
-        if result.completed:
-            if verification_was_skipped(result):
-                console.print(f"\n[bold cyan]✓ 流程完成（验证已跳过）[/bold cyan]  会话: [cyan]{result.session_id}[/cyan]")
-            else:
-                console.print(f"\n[bold green]✓ 逆向完成[/bold green]  会话: [cyan]{result.session_id}[/cyan]")
-            if result.difficulty:
-                console.print(
-                    f"难度: [yellow]{result.difficulty.level}[/yellow]  "
-                    f"验证: {verification_status_markup(result)}"
-                )
-            if result.execution_plan:
-                console.print(
-                    f"路径: [cyan]{result.route_label or result.execution_plan.route_label}[/cyan]  "
-                    f"预估成本: [yellow]{result.execution_plan.estimated_cost_range}[/yellow]"
-                )
-                if result.execution_plan.degradation_notes:
-                    console.print(f"[dim]降级原因: {' | '.join(result.execution_plan.degradation_notes)}[/dim]")
-                elif result.execution_plan.reasons:
-                    console.print(f"[dim]路径原因: {' | '.join(result.execution_plan.reasons[:2])}[/dim]")
-            if result.reuse_hits:
-                console.print(f"[dim]复用命中: {', '.join(result.reuse_hits)}[/dim]")
-            if result.output_dir:
-                console.print(f"输出: [cyan]{result.output_dir}[/cyan]")
-            if result.cost:
-                console.print(f"[dim]{result.cost.summary()}[/dim]")
-            if result.report_path:
-                console.print(f"[dim]报告: {result.report_path}[/dim]")
-        else:
-            console.print(f"\n[bold red]✗ 未完成[/bold red]: {result.error or '未知错误'}")
-            console.print(f"续跑: [dim]axelo run {run_cfg.url} --resume --session {result.session_id}[/dim]")
-    else:
-        # New tool-based flow
-        console.print("\n[dim]使用新版 AI 对话式架构...[/dim]")
-        from axelo.chat.cli import AxeloChatCLI
-        
-        # Run the chat CLI (blocking)
-        cli = AxeloChatCLI()
-        asyncio.run(cli._run_non_interactive(url, goal))
+    # Run the chat CLI (blocking)
+    cli = AxeloChatCLI()
+    asyncio.run(cli._run_non_interactive(url, goal))
 
 
 @app.command()
@@ -357,7 +258,7 @@ def info() -> None:
         ("无头模式", str(settings.headless)),
         ("工作目录", str(settings.workspace)),
         ("Node.js", settings.node_bin),
-        ("API Key", "[green]已配置[/green]" if settings.anthropic_api_key else "[red]未配置[/red]"),
+        ("API Key", "[green]已配置[/green]" if settings.deepseek_api_key else "[red]未配置[/red]"),
     ]
     for key, value in rows:
         table.add_row(key, value)
@@ -373,15 +274,6 @@ def info() -> None:
             console.print(f"\n[dim]记忆库: {db_path} | 历史会话: {len(sessions_list)} 条[/dim]")
     except Exception:
         pass
-
-
-def _platform_runtime():
-    """Get platform runtime if available, otherwise return None"""
-    platform_modules = _get_platform_modules()
-    if platform_modules is None:
-        return None
-    return platform_modules['runtime'].from_settings()
-
 
 @app.command()
 def chat(
@@ -421,178 +313,6 @@ def tools() -> None:
             table.add_row(name, tool.schema.category, tool.description)
     
     console.print(table)
-
-
-# Platform commands - wrapped with availability check
-def _register_platform_commands():
-    """Register platform commands if platform module is available"""
-    platform_modules = _get_platform_modules()
-    if platform_modules is None:
-        return  # Skip platform commands if not available
-    
-    FrontierSeedRequest, ReverseJobSpec, CrawlJobSpec, SessionRefreshJobSpec = platform_modules['models']
-    PlatformRuntime = platform_modules['runtime']
-    worker_from_type = platform_modules['workers']
-    
-    @submit_app.command("reverse")
-    def submit_reverse(
-        url: str = typer.Argument(..., help="目标站点 URL"),
-        goal: str = typer.Option("分析并复现请求签名/Token 生成逻辑", "--goal", "-g", help="逆向目标"),
-        target_hint: str = typer.Option("", "--target-hint", help="目标对象提示"),
-        known_endpoint: str = typer.Option("", "--known-endpoint", help="已知 API 路径"),
-        antibot_type: str = typer.Option("unknown", "--antibot", help="反爬类型"),
-        login_state: str = typer.Option("unknown", "--login", help="登录需求: no/cookie/unknown"),
-        browser_profile_name: str = typer.Option("default", "--profile", help="浏览器环境 profile"),
-        budget: float = typer.Option(2.0, "--budget", help="逆向预算"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        job = runtime.control.submit_reverse_job(
-            ReverseJobSpec(
-                url=url,
-                goal=goal,
-                target_hint=target_hint,
-                known_endpoint=known_endpoint,
-                antibot_type=antibot_type,
-                requires_login=_parse_login_state(login_state),
-                browser_profile_name=browser_profile_name,
-                budget_usd=budget,
-            )
-        )
-        console.print(f"[green]reverse job submitted[/green] {job.job_id}")
-
-
-    @submit_app.command("crawl")
-    def submit_crawl(
-        site_url: str = typer.Argument(..., help="站点或详情页 URL"),
-        adapter_version: str = typer.Option("", "--adapter-version", help="指定 adapter 版本"),
-        action: str = typer.Option("page", "--action", help="page/request/observed/known_endpoint"),
-        dataset_name: str = typer.Option("default", "--dataset", help="目标数据集"),
-        account_id: str = typer.Option("", "--account", help="绑定账号"),
-        proxy_id: str = typer.Option("", "--proxy", help="绑定代理"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        job = runtime.control.submit_crawl_job(
-            CrawlJobSpec(
-                site_url=site_url,
-                source_url=site_url,
-                adapter_version=adapter_version,
-                action=action,
-                dataset_name=dataset_name,
-                account_id=account_id,
-                proxy_id=proxy_id,
-            )
-        )
-        console.print(f"[green]crawl job submitted[/green] {job.job_id}")
-
-
-    @submit_app.command("session-refresh")
-    def submit_session_refresh(
-        refresh_url: str = typer.Argument(..., help="刷新 session 的页面 URL"),
-        account_id: str = typer.Option(..., "--account", help="账号 ID"),
-        browser_profile_name: str = typer.Option("default", "--profile", help="浏览器环境 profile"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        job = runtime.control.submit_session_refresh_job(
-            SessionRefreshJobSpec(
-                account_id=account_id,
-                refresh_url=refresh_url,
-                browser_profile_name=browser_profile_name,
-            )
-        )
-        console.print(f"[green]session refresh job submitted[/green] {job.job_id}")
-
-
-    @frontier_app.command("seed")
-    def frontier_seed(
-        urls: list[str] = typer.Argument(..., help="待种入 frontier 的 URL 列表"),
-        site_key: str = typer.Option("", "--site-key", help="站点标识"),
-        adapter_version: str = typer.Option("", "--adapter-version", help="绑定 adapter 版本"),
-        priority: int = typer.Option(100, "--priority", help="优先级，数值越小越高"),
-        depth: int = typer.Option(0, "--depth", help="frontier 深度"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        items = runtime.frontier.seed(
-            FrontierSeedRequest(
-                urls=urls,
-                site_key=site_key,
-                adapter_version=adapter_version,
-                priority=priority,
-                depth=depth,
-            )
-        )
-        console.print(f"[green]seeded frontier items[/green] {len(items)}")
-
-
-    @worker_app.command("run")
-    def worker_run(
-        worker_type: str = typer.Option(..., "--type", help="reverse-worker/crawl-worker/bridge-worker/session-refresh-worker"),
-        queue_name: str = typer.Option("default", "--queue", help="队列名"),
-        region: str = typer.Option("global", "--region", help="区域"),
-        once: bool = typer.Option(False, "--once", help="只处理一次"),
-        limit: Optional[int] = typer.Option(None, "--limit", help="处理上限"),
-        poll_interval: float = typer.Option(settings.platform_poll_interval_sec, "--poll-interval", help="空轮询等待秒数"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        worker = worker_from_type(runtime, worker_type, queue_name=queue_name, region=region)
-        if once:
-            processed = asyncio.run(worker.run_once())
-            raise typer.Exit(code=0 if processed else 1)
-        asyncio.run(worker.run_forever(poll_interval=poll_interval, limit=limit))
-
-
-    @serve_app.command("scheduler")
-    def serve_scheduler(
-        once: bool = typer.Option(False, "--once", help="只调度一次"),
-        limit: int = typer.Option(100, "--limit", help="单次调度条数"),
-        poll_interval: float = typer.Option(settings.platform_poll_interval_sec, "--poll-interval", help="轮询秒数"),
-    ) -> None:
-        runtime = PlatformRuntime.from_settings()
-        if once:
-            created = runtime.scheduler.dispatch_frontier(limit=limit)
-            console.print(f"[green]scheduler dispatched[/green] {len(created)} jobs")
-            return
-
-        async def _loop() -> None:
-            while True:
-                runtime.scheduler.dispatch_frontier(limit=limit)
-                await asyncio.sleep(poll_interval)
-
-        asyncio.run(_loop())
-
-
-    @serve_app.command("control-api")
-    def serve_control_api(
-        host: str = typer.Option(settings.control_api_host, "--host", help="监听地址"),
-        port: int = typer.Option(settings.control_api_port, "--port", help="监听端口"),
-    ) -> None:
-        try:
-            import uvicorn
-        except ImportError as exc:
-            console.print("[bold red]缺少 optional 依赖[/bold red]，请安装 `pip install .[platform]`")
-            raise typer.Exit(code=2) from exc
-
-        from axelo.platform.control_api import create_control_app
-
-        uvicorn.run(create_control_app(PlatformRuntime.from_settings()), host=host, port=port)
-
-
-# Register platform commands if available
-_register_platform_commands()
-
-
-@ui_app.command("run")
-def ui_run(
-    demo: bool = typer.Option(False, "--demo", help="运行演示模式"),
-) -> None:
-    """启动交互式 UI 界面"""
-    from axelo.ui.main import main as ui_main
-    
-    # 设置演示模式参数
-    if demo:
-        sys.argv.append("--demo")
-    
-    ui_main()
-
 
 if __name__ == "__main__":
     app()

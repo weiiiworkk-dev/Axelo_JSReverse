@@ -39,7 +39,7 @@ SYSTEM_PROMPT = """You are Axelo, a professional AI reverse engineering assistan
 ## Core Rule: Generate Complete Plan on First Response
 
 When user states their need, you MUST immediately generate a complete task plan:
-1. Target website (infer from user input, e.g., "Amazon" -> "amazon.com")
+1. Target website URL or domain (from user input, do not guess specific brands)
 2. Crawling goal (what data user wants)
 3. Data quantity (user says X, default 100)
 4. Data fields (infer from goal, e.g., "product info" -> "title, price, rating, reviews")
@@ -64,7 +64,7 @@ When user states their need, you MUST immediately generate a complete task plan:
 ### Example Plan Output:
 ```
 ===== Task Plan =====
-Target: amazon.com [US Amazon]
+Target: example.com
 Goal: iPhone 15 product data
 Quantity: 100 records
 Fields: title, price, rating, reviews, stock status
@@ -84,17 +84,9 @@ Confirm this plan? Enter "confirm" to execute, or "cancel" to restart.
 
 ## Inference Rules
 
-| User Input | Inferred |
-|------------|----------|
-| Amazon / amazon | amazon.com |
-| Taobao / taobao | taobao.com |
-| JD / jd | jd.com |
-| iPhone 15 | electronics / phone |
-| Product info | title, price, rating, reviews |
-| Search results | product list, sorting, pagination |
-| User reviews | review content, user rating, timestamp |
-
-If user input is incomplete, infer and mark [TBD]
+- Infer goals and fields from user intent.
+- Do not use any site-specific mapping table.
+- If user input is incomplete, infer and mark [TBD].
 
 ## Available Tools
 1. web_search - Web search (confirm website info)
@@ -177,6 +169,10 @@ class ConversationState:
     url: str = ""
     goal: str = ""
     pending_tool_call: bool = False
+    last_ai_error: str = ""
+    plan_ready: bool = False
+    executing: bool = False
+    planned_tools: list[str] | None = None
 
 
 @dataclass
@@ -220,35 +216,60 @@ class ConversationRouter:
         tools = {
             "web_search": {
                 "description": "Web search for website info",
-                "params": {"query": "search query"}
+                "params": {
+                    "query": {"type": "string", "description": "search query"},
+                },
             },
             "fetch": {
                 "description": "Download JS bundles and HTML",
-                "params": {"url": "target URL", "type": "html/js/json"}
+                "params": {
+                    "url": {"type": "string", "description": "target URL"},
+                    "type": {
+                        "type": "string",
+                        "description": "content type",
+                        "enum": ["html", "js", "json"],
+                    },
+                },
             },
             "browser": {
                 "description": "Browser automation",
-                "params": {"url": "target URL"}
+                "params": {
+                    "url": {"type": "string", "description": "target URL"},
+                    "goal": {"type": "string", "description": "crawl goal"},
+                },
             },
             "static": {
                 "description": "Static analysis of JS code",
-                "params": {"code": "JavaScript code"}
+                "params": {
+                    "js_code": {"type": "string", "description": "JavaScript code"},
+                },
             },
             "crypto": {
                 "description": "Crypto analysis",
-                "params": {"code": "JavaScript code"}
+                "params": {
+                    "js_code": {"type": "string", "description": "JavaScript code"},
+                },
             },
             "ai_analyze": {
                 "description": "AI analysis",
-                "params": {"data": "analysis data"}
+                "params": {
+                    "goal": {"type": "string", "description": "analysis goal"},
+                    "candidates": {"type": "array", "description": "signature candidates"},
+                },
             },
             "codegen": {
                 "description": "Code generation",
-                "params": {"url": "target URL", "goal": "crawling goal"}
+                "params": {
+                    "hypothesis": {"type": "string", "description": "signature hypothesis"},
+                    "target_url": {"type": "string", "description": "target URL"},
+                },
             },
             "verify": {
                 "description": "Verify code works",
-                "params": {"code": "code to verify", "test_url": "test URL"}
+                "params": {
+                    "code": {"type": "string", "description": "code to verify"},
+                    "target_url": {"type": "string", "description": "test URL"},
+                },
             }
         }
         
@@ -261,7 +282,7 @@ class ConversationRouter:
                     "parameters": {
                         "type": "object",
                         "properties": info["params"],
-                        "required": list(info["params"].keys())[:1]
+                        "required": list(info["params"].keys())[:1],
                     }
                 }
             })
@@ -296,38 +317,47 @@ class ConversationRouter:
         
         messages.append({"role": "user", "content": user_input})
         
-        api_key = getattr(settings, "deepseek_api_key", None) or getattr(settings, "anthropic_api_key", None)
-        
-        if not api_key:
+        deepseek_api_key = (getattr(settings, "deepseek_api_key", None) or "").strip()
+
+        if not deepseek_api_key:
+            self._conv_state.last_ai_error = "No AI API key configured"
             return self._fallback_response(user_input), []
         
         try:
-            payload = {
-                "model": "deepseek-chat",
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 1000,
-            }
-            
-            if not tool_call_mode:
-                payload["tools"] = self._get_tool_schemas()
-            
-            async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json=payload
-                )
-                response.raise_for_status()
-                result = response.json()
-                
-                message = result["choices"][0]["message"]
-                return message.get("content", ""), message.get("tool_calls", [])
-        
+            content, tool_calls = await self._call_deepseek(messages, deepseek_api_key, tool_call_mode)
+            self._conv_state.last_ai_error = ""
+            return content, tool_calls
         except Exception as e:
-            log.warning("ai_call_failed", error=str(e))
+            self._conv_state.last_ai_error = str(e)
+            log.warning("ai_call_failed", error=str(e), provider="deepseek")
             return self._fallback_response(user_input), []
-    
+
+    async def _call_deepseek(
+        self,
+        messages: list[dict[str, str]],
+        api_key: str,
+        tool_call_mode: bool,
+    ) -> tuple[str, list[dict]]:
+        payload: dict[str, Any] = {
+            "model": "deepseek-chat",
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 1000,
+        }
+        if not tool_call_mode:
+            payload["tools"] = self._get_tool_schemas()
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
+            message = result["choices"][0]["message"]
+            return message.get("content", ""), message.get("tool_calls", [])
+
     def _parse_tool_calls(self, tool_calls: list[dict]) -> list[ToolCall]:
         parsed = []
         for tc in tool_calls:
@@ -366,8 +396,13 @@ class ConversationRouter:
             return f"Tool error: {str(e)}"
     
     def _fallback_response(self, user_input: str) -> str:
+        if self._conv_state.last_ai_error:
+            return (
+                f"AI call failed: {self._conv_state.last_ai_error}\n"
+                "Please check API key/provider settings, then continue by providing target URL."
+            )
         if self._conv_state.waiting_for_url:
-            return "Please tell me the target website URL (e.g., amazon.com, jd.com)"
+            return "Please tell me the target website URL (e.g., example.com)"
         if self._conv_state.waiting_for_goal:
             return "What's your crawling goal? (e.g., product list, user reviews)"
         if self._conv_state.has_url and self._conv_state.has_goal:
@@ -387,10 +422,19 @@ class ConversationRouter:
                 return Message.ai("Restarted. What website do you want to crawl?")
         
         self._update_conversation_state(user_input)
-        
-        if self._conv_state.has_url and self._conv_state.has_goal:
-            if any(kw in text for kw in confirm_keywords):
+        if self._is_confirmation_text(text, confirm_keywords):
+            # Accept confirm only when required inputs are complete.
+            if self._conv_state.has_url and self._conv_state.url and self._conv_state.has_goal:
                 return await self._handle_confirm(user_input)
+            missing = []
+            if not (self._conv_state.has_url and self._conv_state.url):
+                missing.append("target URL")
+            if not self._conv_state.has_goal:
+                missing.append("goal")
+            return Message.ai(
+                f"Cannot execute yet. Missing required input: {', '.join(missing)}. "
+                "Please provide the missing information, then confirm again."
+            )
         
         user_msg = Message.user(user_input)
         self.history.add(user_msg)
@@ -407,18 +451,95 @@ class ConversationRouter:
                 for pc in parsed:
                     result = await self._execute_tool_call(pc)
                     self.history.add(Message.system(f"[{pc.tool_name}] Result:\n{result}"))
+                    if self._should_stop_tool_loop(pc.tool_name, result):
+                        ai_response = "Tool execution reached completion criteria."
+                        tool_calls = []
+                        break
+                if not tool_calls:
+                    break
             
-            ai_response, tool_calls = await self._call_ai("Continue based on tool results", tool_call_mode=True)
-            tool_call_count += 1
+            if tool_calls:
+                ai_response, tool_calls = await self._call_ai("Continue based on tool results", tool_call_mode=True)
+                tool_call_count += 1
         
         ai_response = TextProcessor.clean(ai_response)
+        self._sync_state_from_plan_text(ai_response)
         ai_msg = Message.ai(ai_response)
-        
-        if self._conv_state.has_url and self._conv_state.has_goal:
-            plan_msg = await self._generate_plan()
-            return plan_msg
-        
         return ai_msg
+
+    def _should_stop_tool_loop(self, tool_name: str, result_text: str) -> bool:
+        if tool_name == "verify":
+            return True
+        if tool_name == "codegen":
+            lowered = (result_text or "").lower()
+            if "tool failed" in lowered or "tool error" in lowered:
+                return True
+        return False
+
+    def _sync_state_from_plan_text(self, ai_text: str) -> None:
+        text = ai_text or ""
+        lowered = text.lower()
+        looks_like_plan = ("execution plan" in lowered and "confirm" in lowered) or ("===== task plan =====" in lowered)
+        self._conv_state.plan_ready = looks_like_plan
+        if not looks_like_plan:
+            self._conv_state.planned_tools = None
+            return
+
+        target_match = re.search(r"(?im)^target:\s*(.+)\s*$", text)
+        if target_match:
+            target_raw = target_match.group(1).strip()
+            if target_raw and "[tbd]" not in target_raw.lower():
+                domain_match = re.search(r"([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", target_raw)
+                if domain_match:
+                    url = domain_match.group(1)
+                    if not url.startswith("http"):
+                        url = f"https://{url}"
+                    self._conv_state.url = url
+                    self._conv_state.has_url = True
+                    self._conv_state.waiting_for_url = False
+
+        goal_match = re.search(r"(?im)^goal:\s*(.+)\s*$", text)
+        if goal_match:
+            goal_raw = goal_match.group(1).strip()
+            if goal_raw and "[tbd]" not in goal_raw.lower():
+                self._conv_state.goal = goal_raw
+                self._conv_state.has_goal = True
+                self._conv_state.waiting_for_goal = False
+
+        # Parse execution plan tool sequence from AI text, if present.
+        self._conv_state.planned_tools = self._extract_plan_tools(text)
+
+    def _extract_plan_tools(self, text: str) -> list[str]:
+        tools: list[str] = []
+        for line in (text or "").splitlines():
+            line_norm = line.strip().lower()
+            match = re.match(r"^\d+\.\s*([a-z_]+)\b", line_norm)
+            if not match:
+                continue
+            tool_name = match.group(1)
+            if tool_name in {
+                "web_search",
+                "fetch",
+                "fetch_js_bundles",
+                "browser",
+                "static",
+                "crypto",
+                "ai_analyze",
+                "codegen",
+                "verify",
+            }:
+                tools.append(tool_name)
+        return tools
+
+    def _is_confirmation_text(self, text: str, confirm_keywords: list[str]) -> bool:
+        normalized = text.strip().lower()
+        if not normalized:
+            return False
+        # Require exact match for short keywords like "y"/"ok" to avoid accidental triggers.
+        if normalized in confirm_keywords:
+            return True
+        # Allow explicit command prefix for natural inputs like "confirm now".
+        return any(normalized.startswith(f"{kw} ") for kw in ("confirm", "execute", "start"))
     
     def _update_conversation_state(self, user_input: str) -> None:
         text = user_input.lower().strip()
@@ -432,17 +553,6 @@ class ConversationRouter:
                 self._conv_state.url = url
                 self._conv_state.has_url = True
                 self._conv_state.waiting_for_url = False
-        
-        website_hints = ["amazon", "taobao", "jd", "tmall", "alibaba", "ebay", "walmart", "target", "bestbuy", "apple"]
-        
-        detected = None
-        for site in website_hints:
-            if site in text and not self._conv_state.has_url:
-                detected = site
-                break
-        
-        if detected and not self._conv_state.has_url:
-            self._conv_state.url = detected
         
         goal_keywords = ["crawl", "get", "fetch", "scrape", "product", "review", "data", "iphone", "phone", "search"]
         if any(kw in text for kw in goal_keywords):
@@ -485,30 +595,40 @@ class ConversationRouter:
         goal = self._conv_state.goal.lower()
         tools = ["browser"]
         if "js" in goal or "javascript" in goal or "analyze" in goal:
-            tools.extend(["fetch", "static"])
+            tools.extend(["fetch_js_bundles", "static"])
             if "crypto" in goal or "encrypt" in goal:
                 tools.append("crypto")
         tools.extend(["ai_analyze", "codegen", "verify"])
         return tools
     
     async def execute_plan(self) -> dict[str, Any]:
-        tools = self._select_tools()
+        tools = self._conv_state.planned_tools or self._select_tools()
         initial_input = {"url": self._conv_state.url, "goal": self._conv_state.goal}
         results = await self._executor.execute_sequence(tools, initial_input)
         outputs = self._executor.get_outputs()
         return {"tools": tools, "results": {k: {"success": v.success, "error": v.error} for k, v in results.items()}, "outputs": outputs}
     
     async def _handle_confirm(self, text: str) -> Message:
-        result = await self.execute_plan()
-        outputs = result.get("outputs", {})
-        if "python_code" in outputs:
-            code = outputs["python_code"]
-            return Message(type=MessageType.AI, content=f"Done! Code:\n\n{code[:1000]}...")
-        elif "codegen" in result.get("results", {}):
-            codegen_result = result["results"].get("codegen", {})
-            if not codegen_result.get("success"):
-                return Message.error(f"Failed: {codegen_result.get('error', 'Unknown')}")
-        return Message.ai(f"Executed {len(result['tools'])} tools")
+        self._conv_state.executing = True
+        self._conv_state.plan_ready = False
+        try:
+            result = await self.execute_plan()
+            outputs = result.get("outputs", {})
+            if "python_code" in outputs:
+                code = outputs["python_code"]
+                return Message(type=MessageType.AI, content=f"Done! Code:\n\n{code[:1000]}...")
+            if "codegen" in result.get("results", {}):
+                codegen_result = result["results"].get("codegen", {})
+                if not codegen_result.get("success"):
+                    return Message.error(f"Failed: {codegen_result.get('error', 'Unknown')}")
+            if "verify" in result.get("results", {}):
+                verify_result = result["results"].get("verify", {})
+                if verify_result.get("success"):
+                    return Message.ai("Execution completed: codegen + verify passed.")
+                return Message.error(f"Verify failed: {verify_result.get('error', 'Unknown')}")
+            return Message.ai(f"Executed {len(result['tools'])} tools")
+        finally:
+            self._conv_state.executing = False
     
     def get_context(self) -> ConversationContext:
         return self.context

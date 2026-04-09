@@ -1,4 +1,4 @@
-"""Dual model client - Free models (DeepSeek + Qwen) with Claude fallback."""
+"""DeepSeek-only orchestrator client."""
 from __future__ import annotations
 
 import os
@@ -50,7 +50,7 @@ class ExecutionResult:
     success: bool
     content: str = ""
     code: str = ""
-    source: str = ""  # "deepseek", "qwen", "claude", "hybrid"
+    source: str = "deepseek"
     confidence: float = 0.0
     error: str = ""
     fallback: bool = False
@@ -210,164 +210,21 @@ class DeepSeekV3Client(BaseAPIClient):
 
 
 # =============================================================================
-# QWEN CLIENT (Coding)
-# =============================================================================
-
-class QwenClient(BaseAPIClient):
-    """
-    Qwen3-Coder coding model client.
-    
-    API: https://openrouter.ai/ (free tier)
-    Model: qwen/qwen3-coder:free
-    """
-    
-    def __init__(self, api_key: str = ""):
-        config = ModelConfig(
-            name="qwen/qwen3-coder:free",
-            api_url="https://openrouter.ai/api/v1/chat/completions",
-            api_key=api_key or os.getenv("OPENROUTER_API_KEY", ""),
-            max_tokens=4096,
-            temperature=0.5,
-            timeout=60,
-        )
-        super().__init__(config)
-    
-    def _get_headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self._config.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://axelo.ai",
-            "X-Title": "Axelo JSReverse",
-        }
-    
-    def chat(self, messages: list[ChatMessage], **kwargs) -> ChatResponse:
-        """Send chat request to Qwen."""
-        
-        payload = {
-            "model": self._config.name,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "max_tokens": kwargs.get("max_tokens", self._config.max_tokens),
-            "temperature": kwargs.get("temperature", self._config.temperature),
-        }
-        
-        try:
-            response = self._make_request(payload)
-            
-            return ChatResponse(
-                content=response["choices"][0]["message"]["content"],
-                model=self._config.name,
-                tokens_used=response.get("usage", {}).get("total_tokens", 0),
-                finish_reason=response["choices"][0].get("finish_reason", ""),
-                raw_response=response,
-            )
-        except Exception as e:
-            log.error("qwen_request_failed", error=str(e))
-            raise
-
-
-# =============================================================================
-# CLAUDE CLIENT (Fallback)
-# =============================================================================
-
-class ClaudeClient(BaseAPIClient):
-    """
-    Claude API client for fallback.
-    
-    API: https://console.anthropic.com/
-    Model: claude-3-5-sonnet-20241022
-    """
-    
-    def __init__(self, api_key: str = ""):
-        config = ModelConfig(
-            name="claude-3-5-sonnet-20241022",
-            api_url="https://api.anthropic.com/v1/messages",
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY", ""),
-            max_tokens=4096,
-            temperature=0.7,
-            timeout=60,
-        )
-        super().__init__(config)
-    
-    def _get_headers(self) -> dict:
-        return {
-            "x-api-key": self._config.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
-    
-    def chat(self, messages: list[ChatMessage], **kwargs) -> ChatResponse:
-        """Send chat request to Claude."""
-        
-        # Convert messages to Anthropic format
-        system = ""
-        converted_messages = []
-        
-        for msg in messages:
-            if msg.role == "system":
-                system = msg.content
-            else:
-                converted_messages.append(msg)
-        
-        # Build payload
-        payload = {
-            "model": self._config.name,
-            "max_tokens": kwargs.get("max_tokens", self._config.max_tokens),
-            "temperature": kwargs.get("temperature", self._config.temperature),
-        }
-        
-        if system:
-            payload["system"] = system
-        
-        if converted_messages:
-            payload["messages"] = [
-                {"role": m.role, "content": m.content} 
-                for m in converted_messages
-            ]
-        
-        try:
-            response = self._make_request(payload)
-            
-            return ChatResponse(
-                content=response["content"][0]["text"],
-                model=self._config.name,
-                tokens_used=response.get("usage", {}).get("input_tokens", 0) + 
-                           response.get("usage", {}).get("output_tokens", 0),
-                finish_reason=response.get("stop_reason", ""),
-                raw_response=response,
-            )
-        except Exception as e:
-            log.error("claude_request_failed", error=str(e))
-            raise
-
-
-# =============================================================================
-# DUAL MODEL ORCHESTRATOR
+# ORCHESTRATOR
 # =============================================================================
 
 class DualModelOrchestrator:
     """
-    Unified DeepSeek orchestration with Claude fallback.
-    
-    Priority Chain:
-    1. DeepSeek V3 (primary - general purpose)
-    2. DeepSeek R1 (secondary - reasoning)
-    3. Claude Opus 4.6 (tertiary - fallback)
-    
-    Workflow:
-    1. Try DeepSeek V3 for both reasoning AND coding
-    2. If V3 fails, try DeepSeek R1
-    3. If R1 also fails, fallback to Claude
+    Unified DeepSeek orchestration with optional R1 fallback.
     """
     
     def __init__(
         self,
         deepseek_key: str = "",
-        anthropic_key: str = "",
         enable_fallback: bool = True,
     ):
         self._deepseek_v3 = None
         self._deepseek_r1 = None
-        self._claude = None
         
         # Initialize DeepSeek V3 (Primary)
         if deepseek_key or os.getenv("DEEPSEEK_API_KEY"):
@@ -385,20 +242,11 @@ class DualModelOrchestrator:
             except Exception as e:
                 log.warning("deepseek_r1_init_failed", error=str(e))
         
-        # Initialize Claude for final fallback
-        if anthropic_key or os.getenv("ANTHROPIC_API_KEY"):
-            try:
-                self._claude = ClaudeClient(anthropic_key)
-                log.info("claude_client_initialized_fallback")
-            except Exception as e:
-                log.warning("claude_init_failed", error=str(e))
-        
         self._enable_fallback = enable_fallback
         
         log.info("orchestrator_initialized",
                 deepseek_v3=bool(self._deepseek_v3),
-                deepseek_r1=bool(self._deepseek_r1),
-                claude=bool(self._claude))
+                deepseek_r1=bool(self._deepseek_r1))
     
     def execute(
         self,
@@ -410,7 +258,7 @@ class DualModelOrchestrator:
         """
         Execute task with automatic model fallback.
         
-        Priority Chain: V3 → R1 → Claude
+        Priority Chain: V3 → R1
         
         Args:
             prompt: Main prompt
@@ -438,14 +286,9 @@ class DualModelOrchestrator:
                 log.warning("deepseek_r1_execution_failed", error=str(e))
                 # Continue to Step 3
         
-        # Step 3: Try Claude (Tertiary/Final Fallback)
-        if self._enable_fallback and self._claude:
-            log.info("fallback_to_claude")
-            return self._fallback_to_claude(prompt, reasoning_context)
-        
         return ExecutionResult(
             success=False,
-            error="No AI models available. Please configure API keys.",
+            error="No DeepSeek models available. Please configure API keys.",
             source="none",
         )
     
@@ -649,48 +492,6 @@ Include:
         
         return self._deepseek_v3.chat(messages)
     
-    def _run_coding_with_qwen(self, prompt: str, context: str = "") -> ChatResponse:
-        """Legacy: Run coding model (Qwen) - DEPRECATED, use DeepSeek for both."""
-    
-    def _fallback_to_claude(
-        self, 
-        prompt: str, 
-        context: str = ""
-    ) -> ExecutionResult:
-        """Fallback to Claude."""
-        
-        system_prompt = """You are a professional reverse engineer and Python coder.
-Analyze JavaScript code and generate signature generation code.
-Provide complete, runnable code with proper error handling."""
-
-        user_content = prompt
-        if context:
-            user_content = f"Previous analysis:\n{context}\n\nTask:\n{prompt}"
-
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_content),
-        ]
-        
-        try:
-            response = self._claude.chat(messages)
-            
-            return ExecutionResult(
-                success=True,
-                content=response.content,
-                code=self._extract_code(response.content),
-                source="claude",
-                confidence=0.95,
-                fallback=True,
-                cost=0.02,  # Estimated
-            )
-        except Exception as e:
-            return ExecutionResult(
-                success=False,
-                error=str(e),
-                source="claude",
-            )
-    
     def _validate_result(self, response: ChatResponse) -> bool:
         """Validate response quality."""
         
@@ -733,32 +534,22 @@ Provide complete, runnable code with proper error handling."""
 
 def create_orchestrator(
     deepseek_key: str = "",
-    openrouter_key: str = "",
-    anthropic_key: str = "",
 ) -> DualModelOrchestrator:
-    """Create dual model orchestrator."""
+    """Create deepseek orchestrator."""
     return DualModelOrchestrator(
         deepseek_key=deepseek_key,
-        openrouter_key=openrouter_key,
-        anthropic_key=anthropic_key,
     )
 
 
 def quick_chat(
     prompt: str,
-    model: str = "deepseek",
+    model: str = "deepseek-chat",
     **kwargs
 ) -> ChatResponse:
-    """Quick chat with a specific model."""
-    
-    if model == "deepseek":
+    """Quick chat with DeepSeek models."""
+    if model == "deepseek-reasoner":
         client = DeepSeekClient()
-    elif model == "qwen":
-        client = QwenClient()
-    elif model == "claude":
-        client = ClaudeClient()
     else:
-        raise ValueError(f"Unknown model: {model}")
-    
+        client = DeepSeekV3Client()
     messages = [ChatMessage(role="user", content=prompt)]
     return client.chat(messages, **kwargs)

@@ -87,7 +87,14 @@ class StaticTool(BaseTool):
     
     async def execute(self, input_data: dict[str, Any], state: ToolState) -> ToolResult:
         """执行静态分析"""
-        js_code = input_data.get("js_code")
+        js_code = input_data.get("js_code") or input_data.get("content")
+        
+        # 处理 bundles 列表
+        if not js_code and "bundles" in input_data:
+            bundles = input_data["bundles"]
+            if isinstance(bundles, list):
+                # 拼接前 5 个最相关的 bundle
+                js_code = "\n\n".join([b.get("content", "") for b in bundles[:5]])
         
         if not js_code:
             return ToolResult(

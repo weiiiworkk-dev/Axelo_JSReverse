@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generic, Type, TypeVar
 
-import anthropic
-import anyio
+import httpx
 import structlog
 from pydantic import BaseModel
 
@@ -26,13 +24,11 @@ class AIResponse(Generic[T]):
 
 
 class AIClient:
-    """
-    Anthropic SDK wrapper that returns typed tool outputs and real usage metadata.
-    """
+    """DeepSeek API wrapper returning typed outputs."""
 
-    def __init__(self, api_key: str, model: str = "claude-opus-4-6") -> None:
-        self._client = anthropic.Anthropic(api_key=api_key)
-        self._model = model
+    def __init__(self, api_key: str, model: str = "deepseek-chat") -> None:
+        self._api_key = (api_key or "").strip()
+        self._model = model or "deepseek-chat"
 
     async def analyze(
         self,
@@ -44,56 +40,45 @@ class AIClient:
         log_dir: Path | None = None,
         enable_cache: bool = True,
     ) -> AIResponse[T]:
-        tool_schema = _pydantic_to_tool_schema(output_schema, tool_name)
+        if not self._api_key:
+            raise ValueError("Missing DEEPSEEK_API_KEY")
 
-        # Cost-A: Anthropic prompt caching — mark static system prompt as ephemeral cache block.
-        # Cache hits are billed at 0.1× input price, saving ~45–65% on repeated calls with the same system prompt.
-        system_content: str | list = system_prompt
-        if enable_cache and system_prompt:
-            system_content = [
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-
-        t0 = time.monotonic()
-        response = await anyio.to_thread.run_sync(
-            lambda: self._client.messages.create(
-                model=self._model,
-                max_tokens=max_tokens,
-                system=system_content,
-                messages=[{"role": "user", "content": user_message}],
-                tools=[tool_schema],
-                tool_choice={"type": "tool", "name": tool_name},
+        schema = output_schema.model_json_schema()
+        schema.pop("title", None)
+        format_hint = json.dumps(schema, ensure_ascii=False, indent=2)
+        composed_prompt = (
+            f"{system_prompt}\n\n"
+            "Return ONLY valid JSON for this schema:\n"
+            f"{format_hint}\n\n"
+            f"Task:\n{user_message}"
+        )
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": composed_prompt}],
+            "temperature": 0.2 if enable_cache else 0.3,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json=payload,
             )
-        )
-        duration = time.monotonic() - t0
+            response.raise_for_status()
+            data = response.json()
 
-        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-        cache_created = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-        log.info(
-            "ai_call_done",
-            model=self._model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            cache_read_tokens=cache_read,
-            cache_created_tokens=cache_created,
-            duration=f"{duration:.1f}s",
-        )
-
-        tool_block = next((block for block in response.content if block.type == "tool_use"), None)
-        if tool_block is None:
-            raise ValueError("AI response did not contain a tool_use block")
-
-        result = output_schema.model_validate(tool_block.input)
+        content = data["choices"][0]["message"].get("content", "").strip()
+        if not content:
+            raise ValueError("DeepSeek response content is empty")
+        result = output_schema.model_validate(json.loads(content))
+        usage = data.get("usage", {})
         payload = AIResponse(
             data=result,
             model=self._model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            response_id=getattr(response, "id", ""),
+            input_tokens=int(usage.get("prompt_tokens", 0)),
+            output_tokens=int(usage.get("completion_tokens", 0)),
+            response_id=str(data.get("id", "")),
         )
 
         if log_dir:
@@ -118,13 +103,3 @@ class AIClient:
             )
 
         return payload
-
-
-def _pydantic_to_tool_schema(model: Type[BaseModel], name: str) -> dict:
-    schema = model.model_json_schema()
-    schema.pop("title", None)
-    return {
-        "name": name,
-        "description": f"Structured {model.__name__} output",
-        "input_schema": schema,
-    }

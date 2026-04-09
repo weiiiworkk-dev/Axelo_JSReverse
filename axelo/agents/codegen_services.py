@@ -137,19 +137,16 @@ class AICodegenService:
         grounding_rules = self._grounding.render_grounding_rules(observed_context)
 
         if hypothesis.codegen_strategy == "python_reconstruct":
-            # Cost-B: 3-tier model routing based on algorithm complexity
-            # Tier 1 (Haiku): standard well-known algorithms + template available
-            # Tier 2 (Sonnet): known pattern but needs reconstruction
-            # Tier 3 (Opus): custom/unknown algorithm without template
+            # Cost-B: DeepSeek model routing based on algorithm complexity
             _STANDARD_ALGOS = {"hmac", "md5", "sha256", "sha1", "aes", "rsa", "base64"}
             if algo_type in _STANDARD_ALGOS and template_code:
-                self._agent.default_model = "claude-sonnet-4-6"  # haiku truncates at 4096; sonnet handles full crawler scripts
+                self._agent.default_model = "deepseek-chat"
                 max_tokens_codegen = 4096
             elif algo_type == "custom" and not template_code:
-                self._agent.default_model = "claude-opus-4-6"
+                self._agent.default_model = "deepseek-reasoner"
                 max_tokens_codegen = 4096
             else:
-                self._agent.default_model = "claude-sonnet-4-6"
+                self._agent.default_model = "deepseek-chat"
                 max_tokens_codegen = 3072  # Cost-E: reduced from 4096
             system_prompt = (
                 CODEGEN_SYSTEM

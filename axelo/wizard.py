@@ -14,21 +14,28 @@ def _resolve_site(site: str) -> tuple[str, dict]:
     Resolve a site string to a URL and metadata.
     
     Args:
-        site: Site string (e.g., 'amazon.com', 'jd.com')
+        site: Site string (e.g., 'example.com', 'api.example.org')
         
     Returns:
         Tuple of (url, metadata_dict)
     """
-    # Simple URL construction
-    if not site.startswith(('http://', 'https://')):
-        url = f"https://{site}"
+    raw_site = (site or "").strip()
+    normalized = raw_site
+
+    if not normalized.startswith(("http://", "https://")):
+        # Generic normalization:
+        # - if user passes a plain token like "amazon", resolve to "www.amazon.com"
+        # - if user passes domain-like input with dot, keep it as is
+        if "." not in normalized and normalized:
+            normalized = f"www.{normalized}.com"
+        url = f"https://{normalized}"
     else:
-        url = site
+        url = normalized
     
     metadata = {
-        "site": site,
+        "site": raw_site,
         "resolved": True,
-        "method": "simple"
+        "method": "normalized"
     }
     
     return url, metadata

@@ -67,7 +67,11 @@ class AxeloChatCLI:
             try:
                 # 等待用户输入
                 user_input = await self._get_input()
-                
+
+                if user_input is None:
+                    self.ui.print_system("输入结束，正在退出...")
+                    break
+
                 if not user_input:
                     self.ui.print_system("请输入内容，或按 Ctrl+C 退出")
                     continue
@@ -92,9 +96,15 @@ class AxeloChatCLI:
     
     async def _run_non_interactive(self, url: str, goal: str) -> None:
         """非交互式运行 - 用于 axelo run 命令"""
-        # Set context directly
+        # Set context and state directly
         self.router.context.url = url
         self.router.context.goal = goal
+        self.router._conv_state.url = url
+        self.router._conv_state.goal = goal
+        self.router._conv_state.has_url = True
+        self.router._conv_state.has_goal = True
+        self.router._conv_state.waiting_for_url = False
+        self.router._conv_state.waiting_for_goal = False
         
         # Generate and display plan
         plan_message = await self.router._generate_plan()
