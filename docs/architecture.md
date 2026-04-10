@@ -2,279 +2,32 @@
 
 ## Overview
 
-Axelo JSReverse is a staged reverse-engineering system for browser-driven request discovery, JavaScript analysis, signature reconstruction, crawler generation, and result verification.
+Axelo uses a single AI conversation runtime.
+Users start from terminal (`Axelo` / `axelo`), describe reverse-engineering and crawling requirements, confirm an AI-generated plan, and the system executes tools dynamically.
 
-The repository now also includes a platform layer that can wrap the canonical reverse-engineering runtime inside a control plane, a frontier scheduler, resource management services, and worker-based execution. The local implementation uses file/object-store mirrors and SQLModel-backed metadata so the same contracts can later move to Redis/Kafka/S3/ClickHouse style infrastructure.
+## Canonical Flow
 
-The current implementation is organized around a single primary orchestration path:
+1. Entry: `axelo/cli.py`
+2. Chat loop: `axelo/chat/cli.py`
+3. Router/planning: `axelo/chat/router.py`
+4. Tool execution: `axelo/chat/executor.py`
+5. Tool implementations: `axelo/tools/*.py`
 
-- `axelo/orchestrator/master.py`
+## Planning and Execution
 
-An optional facade remains available through:
+- The router collects required context (target + goal).
+- AI returns a structured task plan and tool sequence.
+- On confirmation, execution prefers the AI-planned tools.
+- Execution results are returned in the same conversation session.
 
-- `axelo/session.py`
+## Commands
 
-This facade delegates to the same runtime and should not be treated as a second architecture.
-All new features should target the master orchestrator path.
+- `Axelo` or `axelo`: interactive AI conversation.
+- `axelo run <url> --goal "<goal>"`: non-interactive run through chat flow.
+- `axelo chat`: explicit chat command.
+- `axelo tools`: inspect tool registry.
 
-## Control Plane
+## Source of Truth
 
-Purpose:
-
-- collect user intent
-- normalize runtime inputs
-- attach compliance and site metadata
-
-Main components:
-
-- `axelo/cli.py`
-- `axelo/wizard.py`
-- `axelo/models/run_config.py`
-- `axelo/models/target.py`
-- `axelo/models/site_profile.py`
-- `axelo/models/compliance.py`
-- `axelo/models/execution.py`
-
-Important characteristics:
-
-- one canonical `RunConfig`
-- 9-step wizard
-- user-provided crawl context carried end-to-end
-- structured `ExecutionPlan` attached to every run
-- compliance-aware intent fields: `use_case`, `authorization_status`, `replay_mode`
-- safe-by-default discovery mode for non-authorized runs
-
-## Planning Plane
-
-Purpose:
-
-- choose the cheapest safe execution tier first
-- reuse verified adapters before browser work
-- degrade gracefully when the budget is tight
-
-Main components:
-
-- `axelo/planner/strategy.py`
-- `axelo/storage/adapter_registry.py`
-- `axelo/cost/governor.py`
-
-Important characteristics:
-
-- adapter-first planning
-- tiered execution: `adapter_reuse`, `browser_light`, `browser_full`, `manual_review`
-- budget-aware degradation
-- verification-mode selection
-- compliance-aware downgrade that disables codegen and live replay outside authorized replay mode
-
-## Workflow Plane
-
-Purpose:
-
-- coordinate stages
-- persist checkpoints
-- support resume and manual review
-
-Main components:
-
-- `axelo/orchestrator/master.py`
-- `axelo/orchestrator/workflow_runtime.py`
-- `axelo/orchestrator/recovery.py`
-- `axelo/storage/workflow_store.py`
-
-Important characteristics:
-
-- stage-level checkpoint writes
-- recoverable workflow metadata
-- explicit `waiting_manual_review` state for extreme targets
-- planning checkpoints and adapter-reuse checkpoints
-
-## Execution Plane
-
-Purpose:
-
-- open browser sessions
-- run page actions
-- capture network activity
-- persist browser state
-- manage session health
-
-Main components:
-
-- `axelo/browser/driver.py`
-- `axelo/browser/action_runner.py`
-- `axelo/browser/interceptor.py`
-- `axelo/browser/state_store.py`
-- `axelo/browser/session_pool.py`
-- `axelo/browser/trace_capture.py`
-- `axelo/storage/session_state_store.py`
-
-Important characteristics:
-
-- Playwright storage-state persistence
-- cookie persistence
-- file-backed session pool
-- cooldown-aware session rotation
-- trace artifact generation
-- action-flow execution beyond simple `goto`
-
-## Analysis Plane
-
-Purpose:
-
-- classify difficulty
-- analyze bundles and runtime behavior
-- derive structured signature metadata
-
-Main components:
-
-- `axelo/pipeline/stages/s4_static.py`
-- `axelo/pipeline/stages/s5_dynamic.py`
-- `axelo/pipeline/stages/s6_ai_analyze.py`
-- `axelo/agents/scanner.py`
-- `axelo/agents/hypothesis.py`
-- `axelo/classifier/rules.py`
-- `axelo/analysis/signature_spec_builder.py`
-- `axelo/models/signature.py`
-- `axelo/models/analysis.py`
-
-Important characteristics:
-
-- natural-language AI hypothesis output
-- structured `SignatureSpec` output
-- explicit manual-review routing for extreme difficulty
-
-## Delivery Plane
-
-Purpose:
-
-- generate crawler artifacts
-- emit runtime manifests
-- replay and validate generated behavior
-
-Main components:
-
-- `axelo/pipeline/stages/s7_codegen.py`
-- `axelo/pipeline/stages/s8_verify.py`
-- `axelo/agents/codegen_agent.py`
-- `axelo/agents/verifier_agent.py`
-- `axelo/verification/replayer.py`
-- `axelo/verification/engine.py`
-- `axelo/verification/data_quality.py`
-- `axelo/verification/stability.py`
-- `axelo/output/sink.py`
-
-Important characteristics:
-
-- Python crawler or JS bridge generation
-- crawler manifest generation
-- generated crawler replay executed in a dedicated subprocess
-- data-quality scoring
-- repeated-run stability validation
-- verification mode control through the execution plan
-
-## Observability Plane
-
-Purpose:
-
-- record run metadata
-- preserve trace and session artifacts
-- support audit and debugging
-
-Main components:
-
-- `axelo/telemetry/report.py`
-- `axelo/models/trace.py`
-
-Important characteristics:
-
-- structured `run_report.json`
-- session-state artifact references
-- trace file references
-- workflow status serialization
-- risk-control evidence and authorization context preserved in report payloads
-
-## Platform Plane
-
-Purpose:
-
-- submit and persist distributed jobs
-- deduplicate and schedule large URL frontiers
-- manage adapter versions, accounts, proxies, and leases
-- separate reverse, crawl, bridge, and session-refresh execution into workers
-- ingest normalized results into warehouse-ready sinks
-
-Main components:
-
-- `axelo/platform/runtime.py`
-- `axelo/platform/services.py`
-- `axelo/platform/storage.py`
-- `axelo/platform/workers.py`
-- `axelo/platform/control_api.py`
-
-Important characteristics:
-
-- `PlatformRuntime` boots the platform metadata store, event bus, object store, and warehouse sink
-- `ControlPlaneService` submits `reverse`, `crawl`, `bridge`, and `session_refresh` jobs
-- `FrontierService` is the only URL entrypoint and performs canonicalization plus deduplication
-- `SchedulerService` creates reverse jobs when adapters are missing and crawl jobs when verified adapters exist
-- `ReverseWorker` wraps `MasterOrchestrator` rather than replacing it
-- `CrawlWorker` executes verified standalone adapters directly
-- `BridgeWorker` isolates browser-bound adapters into a separate execution pool
-- `SessionRefreshWorker` updates cookies and Playwright storage state for account inventory
-- local file-backed implementations exist for events, artifacts, and warehouse sinks so the platform layer can be exercised without cluster infrastructure
-
-## End-to-End Flow
-
-1. Input is collected through CLI or wizard into `RunConfig`
-2. `MasterOrchestrator` creates `TargetSite`, workflow state, and trace metadata
-3. The `Planner` resolves an `ExecutionPlan`
-4. The adapter registry is checked before any browser or AI cost is incurred
-5. `CrawlStage` executes browser actions only when the selected tier requires it, records network captures, persists session state, and stores a Playwright trace when enabled
-6. Fetch, deobfuscation, static analysis, and dynamic analysis stages build evidence
-7. AI analysis and `SignatureSpec` construction produce machine-usable signature metadata
-8. Code generation emits crawler artifacts and a manifest
-9. Verification replays the crawler and evaluates correctness, data quality, and stability using the selected verification mode
-10. Verified outputs are eligible for adapter-registry persistence
-11. Memory write-back stores reusable knowledge
-12. The orchestrator finalizes the run report and latest workflow checkpoint
-13. In platform mode, verified outputs can be registered as `AdapterVersion` records and then consumed by crawl workers through the frontier scheduler
-
-## Main Runtime Models
-
-- `TargetSite`
-  - target metadata, compliance, session state, trace info, and user context
-- `PipelineState`
-  - current stage, workflow status, review reason, and artifact paths
-- `SessionState`
-  - cookies, Playwright storage-state path, local values, and login metadata
-- `SiteProfile`
-  - domain-specific capability flags and notes
-- `CompliancePolicy`
-  - controls manual-review and stability requirements
-- `SignatureSpec`
-  - executable intermediate representation of the signing strategy
-- `TraceArtifact`
-  - trace file paths and capture metadata
-- `ExecutionPlan`
-  - selected tier, verification mode, cache hints, retries, and degradation notes
-
-## Current Guarantees
-
-- full unit-test suite passes
-- mock integration pipeline passes
-- full test suite passes in the current repository state
-- workflow state, session state, and trace metadata are persisted as files
-- verified adapters can be cached and reused across runs
-
-## Design Intent
-
-The system is designed for staged automation with auditability and human control, not for opaque single-shot generation. The most important design choices in the current architecture are:
-
-- a single primary orchestration path
-- orchestration split into initialization, discovery, analysis, codegen/verify, and finalization helpers under the same master runtime
-- adapter-first planning before expensive execution
-- budget-aware execution degradation
-- structured runtime models instead of ad-hoc dictionaries
-- explicit recovery artifacts
-- explicit manual review for high-risk targets
-- verification that measures more than basic header matching
+This document and `README.md` define the active architecture.
+Legacy orchestrator/UI paths are not part of the supported runtime contract.

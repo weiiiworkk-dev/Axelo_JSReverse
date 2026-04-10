@@ -5,8 +5,11 @@ Static Tool - 静态分析工具
 """
 from __future__ import annotations
 
+import json
 import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -23,6 +26,25 @@ from axelo.tools.base import (
 )
 
 log = structlog.get_logger()
+DEBUG_LOG_PATH = Path("E:/Test_Project/Axelo_JSReverse/debug-8ca886.log")
+DEBUG_SESSION_ID = "8ca886"
+
+
+def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    payload = {
+        "sessionId": DEBUG_SESSION_ID,
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as fp:
+            fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 @dataclass
@@ -87,6 +109,24 @@ class StaticTool(BaseTool):
     
     async def execute(self, input_data: dict[str, Any], state: ToolState) -> ToolResult:
         """执行静态分析"""
+        # #region agent log
+        _debug_log(
+            run_id="run",
+            hypothesis_id="H2",
+            location="axelo/tools/static_tool.py:execute:entry",
+            message="static received input",
+            data={
+                "keys": sorted(list(input_data.keys())),
+                "has_js_code": bool(input_data.get("js_code")),
+                "has_content": bool(input_data.get("content")),
+                "has_html_content": bool(input_data.get("html_content")),
+                "has_bundles": bool(input_data.get("bundles")),
+                "has_js_bundles": bool(input_data.get("js_bundles")),
+                "content_len": len(input_data.get("content") or ""),
+                "html_content_len": len(input_data.get("html_content") or ""),
+            },
+        )
+        # #endregion
         js_code = input_data.get("js_code") or input_data.get("content")
         
         # 处理 bundles 列表
@@ -97,6 +137,19 @@ class StaticTool(BaseTool):
                 js_code = "\n\n".join([b.get("content", "") for b in bundles[:5]])
         
         if not js_code:
+            # #region agent log
+            _debug_log(
+                run_id="run",
+                hypothesis_id="H2",
+                location="axelo/tools/static_tool.py:execute:missing_js",
+                message="js_code missing before static failure",
+                data={
+                    "keys": sorted(list(input_data.keys())),
+                    "content_len": len(input_data.get("content") or ""),
+                    "html_content_len": len(input_data.get("html_content") or ""),
+                },
+            )
+            # #endregion
             return ToolResult(
                 tool_name=self.name,
                 status=ToolStatus.FAILED,

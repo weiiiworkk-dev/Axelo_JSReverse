@@ -25,83 +25,102 @@ from axelo.config import settings
 log = structlog.get_logger()
 
 
+def _is_placeholder_value(value: str) -> bool:
+    text = (value or "").strip().lower()
+    if not text:
+        return True
+    placeholder_markers = [
+        "[tbd]",
+        "tbd",
+        "待确认",
+        "需要确认",
+        "用户未提供",
+        "未提供具体网站",
+        "请提供",
+        "to be determined",
+    ]
+    return any(marker in text for marker in placeholder_markers)
+
+
 # ============================================================================
 # System Prompt
 # ============================================================================
 
-SYSTEM_PROMPT = """You are Axelo, a professional AI reverse engineering assistant that helps users scrape websites.
+SYSTEM_PROMPT = """你是 Axelo，一个专业的 AI 逆向工程助手，帮助用户抓取网站数据。
 
-## Your Role
-- You are an efficient assistant - when user says ONE sentence, generate a COMPLETE task plan
-- Do not ask questions step by step, infer complete information proactively
-- You can call tools to complete tasks
+## 你的角色
+- 你是高效助手：当用户只说一句话，也要直接生成完整任务计划
+- 不要逐步追问，优先主动推断完整信息
+- 你可以调用工具完成任务
 
-## Core Rule: Generate Complete Plan on First Response
+## 核心规则：首轮必须给出完整计划
 
-When user states their need, you MUST immediately generate a complete task plan:
-1. Target website URL or domain (from user input, do not guess specific brands)
-2. Crawling goal (what data user wants)
-3. Data quantity (user says X, default 100)
-4. Data fields (infer from goal, e.g., "product info" -> "title, price, rating, reviews")
-5. Anti-crawling mechanism analysis (infer from website type)
-6. Execution plan (tool sequence)
+当用户表达需求时，你必须立即输出完整任务计划，包含：
+1. 目标网站 URL 或域名（从用户输入提取，不要猜测具体品牌）
+2. 抓取目标（用户要什么数据）
+3. 数据量（用户未指定时默认 100）
+4. 字段清单（根据目标推断，例如“商品信息”->“标题、价格、评分、评论数”）
+5. 反爬机制分析（根据网站类型推断）
+6. 执行计划（工具调用顺序）
 
-## Output Format Requirements (VERY IMPORTANT)
+## 输出格式要求（非常重要）
 
-### DO NOT use Markdown:
-- NO *italic*, **bold**
-- NO ## headings, ### subheadings
-- NO ```code blocks```
-- NO - bullet lists
-- NO > quotes
+### 禁止使用 Markdown：
+- 不要使用 *斜体*、**加粗**
+- 不要使用 ## 标题、### 子标题
+- 不要使用 ```代码块```
+- 不要使用 - 无序列表
+- 不要使用 > 引用
 
-### MUST use plain text format:
-- Headers use === dividers: ===== Task Plan =====
-- Lists use numbers: 1. item  2. item
-- Code use [code] wrapper: [code] print('hello') [end]
-- Dividers use - or = characters
+### 必须使用纯文本格式：
+- 标题使用等号分隔：===== 任务计划 =====
+- 列表使用数字：1. 项目  2. 项目
+- 代码使用 [code] 包裹：[code] print('hello') [end]
+- 分隔线使用 - 或 = 字符
 
-### Example Plan Output:
-```
-===== Task Plan =====
-Target: example.com
-Goal: iPhone 15 product data
-Quantity: 100 records
-Fields: title, price, rating, reviews, stock status
-Anti-crawling: [TBD] - signature verification may be needed
+### 计划输出示例：
+=====
+任务计划
+=====
+目标: example.com
+目标数据: iPhone 15 商品数据
+数量: 100 条
+字段: 标题, 价格, 评分, 评论数, 库存状态
+反爬分析: [TBD] - 可能需要签名校验
 
-Execution Plan:
-  1. browser - visit site, get page structure
-  2. fetch - download JS bundles
-  3. static - analyze code, extract signatures
-  4. crypto - analyze encryption
-  5. codegen - generate crawler code
-  6. verify - verify code works
+执行计划:
+  1. browser - 访问站点并获取页面结构
+  2. fetch - 下载 JS 资源与页面内容
+  3. static - 分析代码并提取签名候选
+  4. crypto - 识别加密与摘要算法
+  5. codegen - 生成抓取代码
+  6. verify - 验证代码可用性
 
-===== Confirmation =====
-Confirm this plan? Enter "confirm" to execute, or "cancel" to restart.
-```
+=====
+确认
+=====
+请确认此计划。输入“确认”开始执行，输入“取消”重新开始。
 
-## Inference Rules
+## 推断规则
 
-- Infer goals and fields from user intent.
-- Do not use any site-specific mapping table.
-- If user input is incomplete, infer and mark [TBD].
+- 根据用户意图推断抓取目标与字段
+- 不要依赖站点专用映射表
+- 输入不完整时可推断，并用 [TBD] 标记
 
-## Available Tools
-1. web_search - Web search (confirm website info)
-2. fetch - Download web pages, JS bundles
-3. browser - Browser automation, get cookies, execute JS
-4. static - Extract signature candidates from JS
-5. crypto - Detect AES/RSA/HMAC/SHA encryption
-6. ai_analyze - Generate signature hypotheses
-7. codegen - Generate crawler code
-8. verify - Test if code works
+## 可用工具
+1. web_search - 联网搜索（确认站点信息）
+2. fetch - 下载网页与 JS 资源
+3. browser - 浏览器自动化（获取 Cookie、执行 JS）
+4. static - 对 JS 做静态分析，提取签名候选
+5. crypto - 识别 AES/RSA/HMAC/SHA 等加密特征
+6. ai_analyze - 生成签名假设
+7. codegen - 生成抓取代码
+8. verify - 验证代码是否有效
 
-## Style
-- Give the plan directly, don't ask too many questions
-- Use plain text structured output
-- Concise but complete"""
+## 风格
+- 直接给出计划，不要过度提问
+- 使用结构化纯文本输出
+- 简洁但完整"""
 
 
 # ============================================================================
@@ -294,9 +313,9 @@ class ConversationRouter:
         lines = []
         for msg in self.history.messages:
             if msg.type == MessageType.USER:
-                lines.append(f"User: {msg.content}")
+                lines.append(f"用户: {msg.content}")
             elif msg.type == MessageType.AI:
-                lines.append(f"AI: {msg.content}")
+                lines.append(f"助手: {msg.content}")
         return "\n".join(lines[-10:])
     
     async def _call_ai(self, user_input: str, tool_call_mode: bool = False) -> tuple[str, list[dict]]:
@@ -304,23 +323,23 @@ class ConversationRouter:
         
         state_info = []
         if self._conv_state.has_url:
-            state_info.append(f"Target: {self._conv_state.url}")
+            state_info.append(f"目标网址: {self._conv_state.url}")
         if self._conv_state.has_goal:
-            state_info.append(f"Goal: {self._conv_state.goal}")
+            state_info.append(f"抓取目标: {self._conv_state.goal}")
         
         if state_info:
-            messages.append({"role": "system", "content": f"State:\n" + "\n".join(state_info)})
+            messages.append({"role": "system", "content": f"状态:\n" + "\n".join(state_info)})
         
         history_text = self._conversation_history_text
         if history_text:
-            messages.append({"role": "system", "content": f"History:\n{history_text}"})
+            messages.append({"role": "system", "content": f"对话历史:\n{history_text}"})
         
         messages.append({"role": "user", "content": user_input})
         
         deepseek_api_key = (getattr(settings, "deepseek_api_key", None) or "").strip()
 
         if not deepseek_api_key:
-            self._conv_state.last_ai_error = "No AI API key configured"
+            self._conv_state.last_ai_error = "未配置 AI API Key"
             return self._fallback_response(user_input), []
         
         try:
@@ -398,42 +417,49 @@ class ConversationRouter:
     def _fallback_response(self, user_input: str) -> str:
         if self._conv_state.last_ai_error:
             return (
-                f"AI call failed: {self._conv_state.last_ai_error}\n"
-                "Please check API key/provider settings, then continue by providing target URL."
+                f"AI 调用失败: {self._conv_state.last_ai_error}\n"
+                "请检查 API Key 或模型提供方配置，然后继续提供目标网址。"
             )
         if self._conv_state.waiting_for_url:
-            return "Please tell me the target website URL (e.g., example.com)"
+            return "请提供目标网站网址（例如：example.com）"
         if self._conv_state.waiting_for_goal:
-            return "What's your crawling goal? (e.g., product list, user reviews)"
+            return "请说明你的抓取目标（例如：商品列表、用户评论）"
         if self._conv_state.has_url and self._conv_state.has_goal:
-            return "Got all info. Enter 'confirm' to execute, or 'cancel' to restart."
-        return "Hello! Tell me what website you want to crawl."
+            return "信息已齐全。输入“确认”开始执行，或输入“取消”重新开始。"
+        return "你好！请告诉我你想抓取哪个网站。"
     
     async def process_input(self, user_input: str) -> Message:
         text = user_input.lower().strip()
         
-        confirm_keywords = ["confirm", "yes", "y", "ok", "execute", "start"]
-        cancel_keywords = ["cancel", "stop", "quit", "restart"]
+        confirm_keywords = ["确认", "执行", "开始", "继续"]
+        cancel_keywords = ["取消", "停止", "退出", "重来", "重新开始"]
         
         text_words = text.split()
         for kw in cancel_keywords:
             if kw in text_words or text.startswith(kw):
                 self._conv_state = ConversationState()
-                return Message.ai("Restarted. What website do you want to crawl?")
+                return Message.ai("已重置。请告诉我你要抓取的网站网址。")
         
         self._update_conversation_state(user_input)
-        if self._is_confirmation_text(text, confirm_keywords):
-            # Accept confirm only when required inputs are complete.
-            if self._conv_state.has_url and self._conv_state.url and self._conv_state.has_goal:
+        is_confirm = self._is_confirmation_text(text, confirm_keywords)
+        if is_confirm:
+            # 仅在必要输入齐全时接受确认执行。
+            can_execute_with_search = (
+                self._conv_state.has_goal
+                and self._conv_state.plan_ready
+                and bool(self._conv_state.planned_tools)
+                and ("web_search" in (self._conv_state.planned_tools or []))
+            )
+            if (self._conv_state.has_url and self._conv_state.url and self._conv_state.has_goal) or can_execute_with_search:
                 return await self._handle_confirm(user_input)
             missing = []
             if not (self._conv_state.has_url and self._conv_state.url):
-                missing.append("target URL")
+                missing.append("目标网址")
             if not self._conv_state.has_goal:
-                missing.append("goal")
+                missing.append("抓取目标")
             return Message.ai(
-                f"Cannot execute yet. Missing required input: {', '.join(missing)}. "
-                "Please provide the missing information, then confirm again."
+                f"暂时无法执行。缺少必要信息：{', '.join(missing)}。"
+                "请先补充缺失信息，再输入“确认”。"
             )
         
         user_msg = Message.user(user_input)
@@ -459,7 +485,7 @@ class ConversationRouter:
                     break
             
             if tool_calls:
-                ai_response, tool_calls = await self._call_ai("Continue based on tool results", tool_call_mode=True)
+                ai_response, tool_calls = await self._call_ai("请基于工具结果继续", tool_call_mode=True)
                 tool_call_count += 1
         
         ai_response = TextProcessor.clean(ai_response)
@@ -479,16 +505,23 @@ class ConversationRouter:
     def _sync_state_from_plan_text(self, ai_text: str) -> None:
         text = ai_text or ""
         lowered = text.lower()
-        looks_like_plan = ("execution plan" in lowered and "confirm" in lowered) or ("===== task plan =====" in lowered)
+        looks_like_plan = (
+            ("执行计划" in text and "确认" in text)
+            or ("===== 任务计划 =====" in text)
+            or ("execution plan" in lowered and "confirm" in lowered)
+        )
         self._conv_state.plan_ready = looks_like_plan
         if not looks_like_plan:
             self._conv_state.planned_tools = None
             return
 
-        target_match = re.search(r"(?im)^target:\s*(.+)\s*$", text)
+        target_match = (
+            re.search(r"(?im)^目标(?:网址)?\s*:\s*(.+)\s*$", text)
+            or re.search(r"(?im)^target:\s*(.+)\s*$", text)
+        )
         if target_match:
             target_raw = target_match.group(1).strip()
-            if target_raw and "[tbd]" not in target_raw.lower():
+            if target_raw and not _is_placeholder_value(target_raw):
                 domain_match = re.search(r"([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", target_raw)
                 if domain_match:
                     url = domain_match.group(1)
@@ -498,10 +531,14 @@ class ConversationRouter:
                     self._conv_state.has_url = True
                     self._conv_state.waiting_for_url = False
 
-        goal_match = re.search(r"(?im)^goal:\s*(.+)\s*$", text)
+        goal_match = (
+            re.search(r"(?im)^目标(?:数据|内容|任务)?\s*:\s*(.+)\s*$", text)
+            or re.search(r"(?im)^抓取目标\s*:\s*(.+)\s*$", text)
+            or re.search(r"(?im)^goal:\s*(.+)\s*$", text)
+        )
         if goal_match:
             goal_raw = goal_match.group(1).strip()
-            if goal_raw and "[tbd]" not in goal_raw.lower():
+            if goal_raw and not _is_placeholder_value(goal_raw):
                 self._conv_state.goal = goal_raw
                 self._conv_state.has_goal = True
                 self._conv_state.waiting_for_goal = False
@@ -535,11 +572,14 @@ class ConversationRouter:
         normalized = text.strip().lower()
         if not normalized:
             return False
-        # Require exact match for short keywords like "y"/"ok" to avoid accidental triggers.
+        # Some Windows terminal/codepage paths can turn "确认" into "??".
+        if normalized in {"??", "？？"}:
+            return True
+        # 中文确认关键词使用精确匹配，避免误触发。
         if normalized in confirm_keywords:
             return True
-        # Allow explicit command prefix for natural inputs like "confirm now".
-        return any(normalized.startswith(f"{kw} ") for kw in ("confirm", "execute", "start"))
+        # 允许自然命令前缀，如“确认执行”“开始执行”
+        return any(normalized.startswith(kw) for kw in ("确认", "执行", "开始", "继续"))
     
     def _update_conversation_state(self, user_input: str) -> None:
         text = user_input.lower().strip()
@@ -554,7 +594,24 @@ class ConversationRouter:
                 self._conv_state.has_url = True
                 self._conv_state.waiting_for_url = False
         
-        goal_keywords = ["crawl", "get", "fetch", "scrape", "product", "review", "data", "iphone", "phone", "search"]
+        goal_keywords = [
+            "抓取",
+            "采集",
+            "爬取",
+            "获取",
+            "搜索",
+            "商品",
+            "评论",
+            "数据",
+            "价格",
+            "销量",
+            "店铺",
+            "关键词",
+            "手机",
+            "苹果",
+            "请求",
+            "接口",
+        ]
         if any(kw in text for kw in goal_keywords):
             if self._conv_state.has_url:
                 self._conv_state.goal = user_input
@@ -564,6 +621,19 @@ class ConversationRouter:
                 self._conv_state.goal = user_input
                 self._conv_state.has_goal = True
                 self._conv_state.waiting_for_goal = False
+                self._conv_state.waiting_for_url = True
+        # Fallback for mojibake/input degradation where Chinese becomes "??".
+        # Keep it conservative: only infer goal when meaningful ASCII/digits exist.
+        elif (
+            not self._conv_state.has_goal
+            and text
+            and re.search(r"[a-z0-9]", text)
+            and len(text) >= 3
+        ):
+            self._conv_state.goal = user_input
+            self._conv_state.has_goal = True
+            self._conv_state.waiting_for_goal = False
+            if not self._conv_state.has_url:
                 self._conv_state.waiting_for_url = True
     
     def _looks_like_url(self, text: str) -> bool:
@@ -576,7 +646,7 @@ class ConversationRouter:
         
         tools = self._select_tools()
         
-        reasoning = f"Based on '{self._conv_state.goal}', execution plan:\n"
+        reasoning = f"基于“{self._conv_state.goal}”，执行计划如下：\n"
         for i, tool in enumerate(tools, 1):
             reasoning += f"  {i}. {tool}\n"
         
@@ -586,7 +656,7 @@ class ConversationRouter:
         return Message.plan(content=reasoning, tools=plan.tool_sequence)
     
     def _generate_thinking(self) -> str:
-        lines = ["Analyzing target...", "", f"Target: {self._conv_state.url}", f"Goal: {self._conv_state.goal}"]
+        lines = ["正在分析目标...", "", f"目标网址: {self._conv_state.url}", f"抓取目标: {self._conv_state.goal}"]
         tools = self._select_tools()
         lines.append(f"Tools: {', '.join(tools)}")
         return "\n".join(lines)
@@ -603,10 +673,37 @@ class ConversationRouter:
     
     async def execute_plan(self) -> dict[str, Any]:
         tools = self._conv_state.planned_tools or self._select_tools()
+        tools = self._normalize_tool_sequence(tools)
         initial_input = {"url": self._conv_state.url, "goal": self._conv_state.goal}
         results = await self._executor.execute_sequence(tools, initial_input)
         outputs = self._executor.get_outputs()
         return {"tools": tools, "results": {k: {"success": v.success, "error": v.error} for k, v in results.items()}, "outputs": outputs}
+
+    def _normalize_tool_sequence(self, tools: list[str]) -> list[str]:
+        """
+        Ensure static/crypto analysis has JS bundle inputs.
+
+        Some AI plans include `fetch` before `static`, which only provides page
+        content and can leave `static` without usable JS code. We normalize the
+        sequence by inserting `fetch_js_bundles` before the first analysis step
+        that requires JS code.
+        """
+        seq = list(tools or [])
+        if not seq:
+            return seq
+        needs_js = any(name in {"static", "crypto", "flow"} for name in seq)
+        if not needs_js:
+            return seq
+        if "fetch_js_bundles" in seq:
+            return seq
+
+        insert_at = len(seq)
+        for i, name in enumerate(seq):
+            if name in {"static", "crypto", "flow"}:
+                insert_at = i
+                break
+        seq.insert(insert_at, "fetch_js_bundles")
+        return seq
     
     async def _handle_confirm(self, text: str) -> Message:
         self._conv_state.executing = True
@@ -616,17 +713,17 @@ class ConversationRouter:
             outputs = result.get("outputs", {})
             if "python_code" in outputs:
                 code = outputs["python_code"]
-                return Message(type=MessageType.AI, content=f"Done! Code:\n\n{code[:1000]}...")
+                return Message(type=MessageType.AI, content=f"执行完成！代码如下：\n\n{code[:1000]}...")
             if "codegen" in result.get("results", {}):
                 codegen_result = result["results"].get("codegen", {})
                 if not codegen_result.get("success"):
-                    return Message.error(f"Failed: {codegen_result.get('error', 'Unknown')}")
+                    return Message.error(f"执行失败：{codegen_result.get('error', '未知错误')}")
             if "verify" in result.get("results", {}):
                 verify_result = result["results"].get("verify", {})
                 if verify_result.get("success"):
-                    return Message.ai("Execution completed: codegen + verify passed.")
-                return Message.error(f"Verify failed: {verify_result.get('error', 'Unknown')}")
-            return Message.ai(f"Executed {len(result['tools'])} tools")
+                    return Message.ai("执行完成：codegen 与 verify 均通过。")
+                return Message.error(f"验证失败：{verify_result.get('error', '未知错误')}")
+            return Message.ai(f"已执行 {len(result['tools'])} 个工具")
         finally:
             self._conv_state.executing = False
     
