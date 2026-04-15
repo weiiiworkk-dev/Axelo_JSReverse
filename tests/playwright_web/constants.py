@@ -1,19 +1,11 @@
-"""共享测试常量 — 模块级，只计算一次。
+"""
+共享测试常量 — 从 tests/shared_port.py 统一导入端口配置。
 
-通过此文件统一导出 TEST_PORT 和 BASE_URL，
-避免 conftest.py 被 pytest 自动加载与 import 语句两次实例化导致端口不一致。
+历史问题：本文件曾自己调用 _find_free_port()，导致与 tests/conftest.py
+中的端口不同，runner.py 在测试时连接到错误的服务地址。
+
+现在统一从 shared_port 导入，保证整个 pytest 会话只有一个端口。
 """
 from __future__ import annotations
 
-import socket
-
-
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
-TEST_PORT: int = _find_free_port()
-BASE_URL: str = f"http://localhost:{TEST_PORT}"
+from tests.shared_port import TEST_PORT, BASE_URL  # noqa: F401

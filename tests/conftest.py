@@ -1,11 +1,12 @@
 """
 顶层 conftest.py — 提供 axelo web 服务器生命周期 fixture，
 供所有测试（包括 tests/test_suite.py）共享。
+
+端口由 tests/shared_port.py 统一管理，避免与子目录 conftest 冲突。
 """
 from __future__ import annotations
 
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -15,18 +16,9 @@ import httpx
 import pytest
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page, Playwright
 
+from tests.shared_port import TEST_PORT, BASE_URL  # noqa: F401  (re-exported for test_suite.py)
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
-TEST_PORT: int = _find_free_port()
-BASE_URL: str = f"http://localhost:{TEST_PORT}"
 
 
 @pytest.fixture(scope="session")

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
-import numpy as np
 import structlog
+
+if TYPE_CHECKING:
+    import numpy as np
 
 log = structlog.get_logger()
 
@@ -138,7 +140,8 @@ class VectorStore:
     def has_entries(self) -> bool:
         return bool(self._meta) or self._index_path.exists()
 
-    def _encode(self, text: str) -> np.ndarray:
+    def _encode(self, text: str):
+        import numpy as np
         vec = self._model.encode([text], normalize_embeddings=True, show_progress_bar=False)
         return vec.astype(np.float32)
 

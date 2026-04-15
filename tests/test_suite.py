@@ -1,28 +1,58 @@
 """
-Axelo 统一测试套件 — 一站式爬虫与逆向能力验证
+Axelo 一站式测试套件 — 完整业务流程验证
+
+架构原则：
+  所有逆向与爬虫任务均直接调用生产级业务系统（POST /api/mission/start），
+  不使用 mock 或测试替身，确保测试即生产验证。
 
 测试层级：
-  Part 1 — 静态分析能力   : 检测签名算法、加密模式、设备指纹等 JS 特征
-  Part 2 — 分类能力       : 难度评估与认证机制识别
-  Part 3 — Web API        : REST 端点健康检查（需运行服务器）
-  Part 4 — E2E Playwright : 浏览器驱动的完整任务流程（需服务器 + 浏览器）
+  Part 0 — 系统健康      : 服务启动、前端构建、API 连通性
+  Part 1 — 静态分析      : 签名算法、加密模式、设备指纹 JS 特征检测
+  Part 2 — 分类能力      : 难度评估与认证机制识别
+  Part 3 — Web API       : REST 端点健康检查（需运行服务器）
+  Part 4 — Web UI        : 浏览器驱动的 UI 布局与交互测试
+  Part 5 — E2E 10 硬目标 : 生产级反爬/逆向任务执行（Google/LinkedIn/Instagram 等）
 
-运行方式：
-    # 全部测试（含 E2E）
+运行方式:
+    # 完整套件
     pytest tests/test_suite.py -v
 
-    # 仅静态能力测试（无需服务器）
+    # 仅静态能力（无需服务器）
     pytest tests/test_suite.py -v -k "Static or Classifier"
 
     # 仅 API 测试
     pytest tests/test_suite.py -v -k "API"
 
-    # 仅 E2E Playwright
-    pytest tests/test_suite.py -v -k "E2E"
+    # 仅 UI 布局测试
+    pytest tests/test_suite.py -v -k "WebUI or Intake"
 
-核心原则：
-    所有测试均验证系统的通用逆向与爬虫能力，
-    使用合成 JS 代码或通用测试目标，不绑定任何特定商业网站。
+    # 仅 10 个硬目标 E2E（最耗时）
+    pytest tests/test_suite.py -v -k "hard_target"
+
+    # 指定单个站点
+    pytest tests/test_suite.py -v -k "google_search"
+
+    # 排除高风险站点
+    pytest tests/test_suite.py -v -k "hard_target and not linkedin and not instagram"
+
+产出物:
+    workspace/test_runs/{site_name}/{NNNNN}/
+      ├── test_report.json          # 完整报告
+      ├── challenge_signals.json    # 反爬信号
+      ├── captured_api_endpoints.json
+      └── screenshots/
+
+10 个硬目标选取依据（均来自官方声明）：
+  Google Search   — reCAPTCHA Enterprise + "Unusual traffic" 拦截
+  Google Maps     — 行为/位置信号 + protobuf RPC + 反滥用联动
+  LinkedIn        — Voyager API 认证 + 账号身份图谱 + 行为模型
+  Instagram       — Meta 登录墙 + GraphQL + ig_did 设备指纹
+  X / Twitter     — GraphQL SearchTimeline + bearer/ct0 双 token + 速率限制
+  Ticketmaster    — Queue-it + Arkose Labs/FunCaptcha + 票务反爬军备竞赛
+  Airbnb          — StaysSearch GraphQL + Sift 风控 + CDN WAF
+  Booking.com     — Akamai Bot Manager + bkng session + XSRF 轮换
+  Zillow          — zgsession token + GraphQL + CAPTCHA 自动触发
+  Indeed          — PerimeterX/HUMAN Security + CTK token + 行为 JS 指纹
 """
 from __future__ import annotations
 
@@ -34,8 +64,62 @@ import httpx
 import pytest
 from playwright.sync_api import Page
 
-# 顶层 conftest.py 提供 web_server / browser / page 等 fixture
-from tests.conftest import BASE_URL
+from tests.shared_port import BASE_URL
+
+# ── 支持模块（仅含配置和执行器，不含测试函数）────────────────────────
+from tests.playwright_web.sites import SITES as _HARD_SITES, SiteConfig as _SiteConfig
+from tests.playwright_web.runner import (
+    run_site_test as _run_site_test,
+    _CHALLENGE_KEYWORDS as _CHALLENGE_KW,
+)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Part 0 — 系统健康检查（需要 web_server fixture）
+# ═══════════════════════════════════════════════════════════════
+
+@pytest.mark.usefixtures("web_server")
+class TestSystemHealth:
+    """Part 0: 验证完整服务栈的健康状态（服务启动、API 连通、前端就绪）。"""
+
+    def test_server_is_up(self):
+        """服务进程必须正常启动并响应 HTTP 请求。"""
+        r = httpx.get(f"{BASE_URL}/", timeout=15)
+        assert r.status_code in (200, 404), (
+            f"服务未能响应，状态码: {r.status_code}。"
+            f"请确认 axelo web 已启动（port={BASE_URL}）"
+        )
+
+    def test_api_docs_accessible(self):
+        """Swagger UI 应可访问（FastAPI 服务正常）。"""
+        r = httpx.get(f"{BASE_URL}/docs", timeout=10)
+        assert r.status_code == 200, f"/docs 应返回 200，实际: {r.status_code}"
+
+    def test_sessions_api_returns_list(self):
+        """/api/sessions 应返回数组（空或有数据）。"""
+        r = httpx.get(f"{BASE_URL}/api/sessions", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list), f"/api/sessions 应返回数组，实际: {type(data)}"
+
+    def test_intake_session_create(self):
+        """能够创建摄入 session，获取 intake_id。"""
+        r = httpx.post(f"{BASE_URL}/api/intake/session", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        assert "intake_id" in data, f"响应缺少 intake_id: {data}"
+        assert data["phase"] == "welcome"
+
+    def test_nonexistent_session_404(self):
+        """不存在的 session 应返回 404。"""
+        r = httpx.get(f"{BASE_URL}/api/sessions/nonexistent_xyz_000", timeout=10)
+        assert r.status_code == 404
+
+    def test_frontend_spa_served(self, page: Page):
+        """前端 SPA 应正常加载（已构建）。"""
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        title = page.title()
+        assert title != "", "页面标题不应为空（前端未构建或服务未就绪）"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -44,7 +128,6 @@ from tests.conftest import BASE_URL
 
 # ── 合成 JS 代码：代表各类常见签名/加密模式 ──────────────────────
 
-# 通用 HMAC-SHA256 签名函数
 GENERIC_HMAC_SIGN_FUNC = """
 function signRequest(method, path, timestamp, body) {
     var nonce = generateNonce(16);
@@ -62,7 +145,6 @@ function hmacSHA256(data, key) {
 }
 """
 
-# 多层 HMAC 签名（类似 AWS SigV4 风格）
 MULTILAYER_SIGN_FUNC = """
 function generateSigningKey(secretKey, date, region, service) {
     var dateKey    = hmac('AWS4' + secretKey, date);
@@ -78,7 +160,6 @@ function sha256(data) {
 }
 """
 
-# MD5 + 时间戳签名（常见于中国平台）
 MD5_TIMESTAMP_SIGN_FUNC = """
 function generateSign(params, appKey, appSecret, timestamp) {
     var sorted = Object.keys(params).sort().map(k => k + params[k]).join('');
@@ -86,7 +167,6 @@ function generateSign(params, appKey, appSecret, timestamp) {
 }
 """
 
-# 设备指纹（Canvas + WebGL）
 DEVICE_FINGERPRINT_FUNC = """
 function collectFingerprint() {
     var canvas = document.createElement('canvas');
@@ -102,7 +182,6 @@ function collectFingerprint() {
 }
 """
 
-# WBI key mixing（Bilibili 风格）
 WBI_MIX_FUNC = """
 function mixKey(img_key, sub_key) {
     var mixinKeyEncTab = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49];
@@ -120,7 +199,6 @@ function wbiSign(params, img_key, sub_key) {
 }
 """
 
-# 混淆代码（变量名混淆 + 字符串编码）
 OBFUSCATED_FUNC = """
 var _0x1234 = ['fromCharCode','charCodeAt','length'];
 (function(_0xa, _0xb) {
@@ -142,14 +220,14 @@ STRING_CONSTANTS = [
     "HmacSHA256",
     "aws4_request",
     "sha256",
-    "ab12",                                          # 4 字符 hex，应被过滤
-    "1a2b3c4d5e6f789012345678901234567890abcdef12",  # 长 hex key，应保留
+    "ab12",
+    "1a2b3c4d5e6f789012345678901234567890abcdef12",
     "sign_type=HMAC-SHA256",
 ]
 
 
 class TestStaticSignatureDetection:
-    """通用签名检测能力测试：HMAC、SHA256、MD5 等"""
+    """Part 1a: 通用签名检测能力 — HMAC、SHA256、MD5 等。"""
 
     def test_detects_hmac_in_sign_function(self):
         from axelo.models.analysis import FunctionSignature
@@ -211,7 +289,6 @@ class TestStaticSignatureDetection:
     def test_detects_sha256_helper(self):
         from axelo.models.analysis import FunctionSignature
         from axelo.analysis.static.pattern_matcher import score_function
-        # 从 MULTILAYER_SIGN_FUNC 中提取 sha256 辅助函数
         sha256_src = """
 function sha256(data) {
     return CryptoJS.SHA256(data).toString(CryptoJS.enc.Hex);
@@ -227,7 +304,7 @@ function sha256(data) {
 
 
 class TestStaticFingerprintDetection:
-    """通用设备指纹检测能力测试：Canvas、WebGL、UserAgent"""
+    """Part 1b: 通用设备指纹检测 — Canvas、WebGL、UserAgent。"""
 
     def test_detects_canvas_fingerprinting(self):
         from axelo.models.analysis import FunctionSignature
@@ -238,8 +315,7 @@ class TestStaticFingerprintDetection:
             raw_source=DEVICE_FINGERPRINT_FUNC,
         )
         candidates = score_function(func, {})
-        # Canvas + WebGL 指纹应被识别为高危风险模式
-        assert candidates or True, "canvas 指纹函数分析完成"  # 宽松断言：不崩溃即通过
+        assert candidates or True  # 宽松断言：不崩溃即通过
 
     def test_detects_wbi_key_mixing(self):
         from axelo.models.analysis import FunctionSignature
@@ -250,22 +326,22 @@ class TestStaticFingerprintDetection:
             raw_source=WBI_MIX_FUNC,
         )
         candidates = score_function(func, {})
-        assert candidates or True  # 宽松：不崩溃即可
+        assert candidates or True
 
 
 class TestCallGraphAnalysis:
-    """通用调用图分析能力测试"""
+    """Part 1c: 通用调用图分析能力。"""
 
     def test_call_graph_construction(self):
         from axelo.models.analysis import FunctionSignature
         from axelo.analysis.static.call_graph import CallGraph
         funcs = {
-            "f:signRequest":  FunctionSignature(
-                func_id="f:signRequest",  name="signRequest",
+            "f:signRequest": FunctionSignature(
+                func_id="f:signRequest", name="signRequest",
                 calls=["f:hmac", "f:sha256"],
             ),
-            "f:hmac":    FunctionSignature(func_id="f:hmac",    name="hmac",    calls=[]),
-            "f:sha256":  FunctionSignature(func_id="f:sha256",  name="sha256",  calls=[]),
+            "f:hmac":   FunctionSignature(func_id="f:hmac",   name="hmac",   calls=[]),
+            "f:sha256": FunctionSignature(func_id="f:sha256", name="sha256", calls=[]),
             "f:fetchAPI": FunctionSignature(
                 func_id="f:fetchAPI", name="fetchAPI",
                 calls=["f:signRequest"],
@@ -294,7 +370,7 @@ class TestCallGraphAnalysis:
 # ═══════════════════════════════════════════════════════════════
 
 class TestSigningComplexityClassification:
-    """签名复杂度分类能力：easy / medium / hard / extreme"""
+    """Part 2a: 签名复杂度分类 — easy / medium / hard / extreme。"""
 
     def test_simple_md5_is_easy_or_medium(self):
         from axelo.models.analysis import StaticAnalysis
@@ -378,7 +454,7 @@ class TestSigningComplexityClassification:
 
 
 class TestVerificationCapability:
-    """验证层通用能力测试"""
+    """Part 2b: 验证层通用能力。"""
 
     def test_token_comparator_format_match(self):
         from axelo.models.target import RequestCapture
@@ -395,10 +471,9 @@ class TestVerificationCapability:
         )
         generated = {
             "X-Signature": "hmac_sha256_abc123def456" + "1" * 32,
-            "X-Timestamp": "1700000001",  # 时效性字段，允许差异
+            "X-Timestamp": "1700000001",
         }
         result = cmp.compare(generated, capture)
-        # 签名格式相似，部分匹配
         assert result.score >= 0.0, "TokenComparator 应返回有效分数"
 
 
@@ -408,7 +483,7 @@ class TestVerificationCapability:
 
 @pytest.mark.usefixtures("web_server")
 class TestWebServerAPI:
-    """Web 服务器 REST API 健康与功能测试"""
+    """Part 3: Web 服务器 REST API 健康与功能测试。"""
 
     def test_root_returns_200(self):
         r = httpx.get(f"{BASE_URL}/", timeout=10)
@@ -416,286 +491,229 @@ class TestWebServerAPI:
 
     def test_sessions_api_accessible(self):
         r = httpx.get(f"{BASE_URL}/api/sessions", timeout=10)
-        assert r.status_code == 200, f"/api/sessions 应返回 200，实际: {r.status_code}"
+        assert r.status_code == 200
         data = r.json()
         assert isinstance(data, list), "/api/sessions 应返回数组"
 
     def test_intake_session_create(self):
         r = httpx.post(f"{BASE_URL}/api/intake/session", timeout=10)
-        assert r.status_code == 200, f"创建 intake session 应返回 200，实际: {r.status_code}"
+        assert r.status_code == 200
         data = r.json()
-        assert "intake_id" in data, f"响应中应包含 intake_id，实际: {data}"
-        assert data["phase"] == "welcome", f"初始阶段应为 welcome，实际: {data['phase']}"
+        assert "intake_id" in data
+        assert data["phase"] == "welcome"
 
     def test_intake_session_not_found(self):
-        r = httpx.post(f"{BASE_URL}/api/intake/nonexistent-id/chat",
-                       json={"message": "test"}, timeout=10)
-        assert r.status_code == 404, "不存在的 intake session 应返回 404"
+        r = httpx.post(
+            f"{BASE_URL}/api/intake/nonexistent-id/chat",
+            json={"message": "test"},
+            timeout=10,
+        )
+        assert r.status_code == 404
 
     def test_docs_accessible(self):
         r = httpx.get(f"{BASE_URL}/docs", timeout=10)
-        assert r.status_code == 200, "/docs (Swagger UI) 应可访问"
+        assert r.status_code == 200
 
     def test_mission_stop_no_running(self):
         r = httpx.post(f"{BASE_URL}/api/mission/stop", json={}, timeout=10)
-        assert r.status_code in (200, 404), \
-            "无运行任务时 /api/mission/stop 应返回 200 或 404"
+        assert r.status_code in (200, 404)
 
     def test_invalid_session_returns_404(self):
         r = httpx.get(f"{BASE_URL}/api/sessions/session_does_not_exist_xyz", timeout=10)
         assert r.status_code == 404
 
     def test_intake_full_lifecycle(self):
-        """完整 intake 生命周期：创建 → 发送消息 → 获取合约"""
-        # 1. 创建 session
+        """完整 intake 生命周期：创建 → 获取合约。"""
         r1 = httpx.post(f"{BASE_URL}/api/intake/session", timeout=10)
         assert r1.status_code == 200
         intake_id = r1.json()["intake_id"]
 
-        # 2. 获取合约（尚未发消息）
         r2 = httpx.get(f"{BASE_URL}/api/intake/{intake_id}/contract", timeout=10)
         assert r2.status_code == 200
         data = r2.json()
         assert data["phase"] == "welcome"
         assert "contract" in data
 
+    def test_mission_start_requires_url(self):
+        """不带 url 的 mission start 应返回错误（422 或 400）。"""
+        r = httpx.post(
+            f"{BASE_URL}/api/mission/start",
+            json={"goal": "测试"},
+            timeout=10,
+        )
+        assert r.status_code in (400, 422), \
+            f"缺少 url 时应返回 400/422，实际: {r.status_code}"
+
 
 # ═══════════════════════════════════════════════════════════════
-# Part 4 — E2E Playwright 测试（需要 web_server + browser + page）
+# Part 4 — Web UI Playwright 测试
 # ═══════════════════════════════════════════════════════════════
 
 class TestWebUILayout:
-    """Web UI 布局与基础渲染测试（Playwright）"""
+    """Part 4a: Web UI 布局与基础渲染测试（Playwright）。"""
 
     def test_page_loads(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
-        assert page.title() != "", "页面标题不应为空"
+        assert page.title() != ""
 
     def test_header_visible(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#header", timeout=10_000)
-        header = page.locator("#header")
-        assert header.is_visible(), "页面顶部 header 应可见"
+        assert page.locator("#header").is_visible()
 
     def test_left_panel_visible(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#left-panel", timeout=10_000)
-        assert page.locator("#left-panel").is_visible(), "左侧 Mission Contract 面板应可见"
+        assert page.locator("#left-panel").is_visible()
 
     def test_right_panel_visible(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#right-panel", timeout=10_000)
-        assert page.locator("#right-panel").is_visible(), "右侧对话面板应可见"
+        assert page.locator("#right-panel").is_visible()
 
     def test_bottom_input_visible(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#main-input", timeout=10_000)
-        assert page.locator("#main-input").is_visible(), "底部输入框应可见"
+        assert page.locator("#main-input").is_visible()
 
     def test_axelo_logo_present(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector(".hdr-logo", timeout=10_000)
         logo_text = page.locator(".hdr-logo").inner_text()
-        assert "AXELO" in logo_text.upper(), f"Logo 应包含 AXELO，实际: {logo_text}"
+        assert "AXELO" in logo_text.upper()
 
     def test_session_selector_present(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#session-select", timeout=10_000)
-        assert page.locator("#session-select").is_visible(), "Session 选择器应可见"
+        assert page.locator("#session-select").is_visible()
 
     def test_connection_badge_present(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
-        assert page.locator(".conn-badge").is_visible(), "连接状态徽标应可见"
+        assert page.locator(".conn-badge").is_visible()
 
     def test_readiness_bar_visible(self, page: Page):
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#readiness-row", timeout=10_000)
-        assert page.locator("#readiness-row").is_visible(), "就绪度进度栏应可见"
+        assert page.locator("#readiness-row").is_visible()
+
+    def test_ui_uses_lavender_theme(self, page: Page):
+        """UI 配色应使用薰衣草紫色调（accent 颜色验证）。"""
+        page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+        # 检查 CSS 变量 --accent 是否为紫色系
+        accent = page.evaluate(
+            "() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()"
+        )
+        # 薰衣草紫色系：#7b61c8 或类似紫色 hex
+        assert accent, "CSS --accent 变量应被定义"
+        # 不应仍是旧版绿色
+        assert "#00aa55" not in accent.lower() and "00aa55" not in accent.lower(), \
+            f"--accent 不应仍为绿色，实际: {accent}"
 
 
 class TestIntakeFlow:
-    """需求摄入完整流程测试（Playwright）"""
+    """Part 4b: 需求摄入完整流程测试（Playwright）。"""
 
     def test_intake_session_created_on_load(self, page: Page):
-        """页面加载后 intake session 应自动创建"""
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
-        # 等待对话面板初始化（欢迎消息出现）
         page.wait_for_selector(".cp-welcome-msg", timeout=15_000)
-        welcome = page.locator(".cp-welcome-msg")
-        assert welcome.is_visible(), "欢迎消息应在对话面板中可见"
+        assert page.locator(".cp-welcome-msg").is_visible()
 
     def test_input_send_message(self, page: Page):
-        """能够输入并发送消息"""
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#main-input", timeout=15_000)
-        inp = page.locator("#main-input")
-        inp.fill("我想爬取 quotes.toscrape.com 的名言数据")
-        send_btn = page.locator("#main-send-btn")
-        assert not send_btn.is_disabled(), "发送按钮不应被禁用"
+        page.locator("#main-input").fill("我想爬取 quotes.toscrape.com 的名言数据")
+        assert not page.locator("#main-send-btn").is_disabled()
 
     def test_start_btn_hidden_initially(self, page: Page):
-        """初始状态下「开始任务」按钮应隐藏（未就绪）"""
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector("#main-start-btn", timeout=10_000)
         start_btn = page.locator("#main-start-btn")
-        # 初始阶段应隐藏或禁用
         style = start_btn.get_attribute("style") or ""
         is_disabled = start_btn.is_disabled()
-        assert "none" in style or is_disabled, \
-            "任务未就绪时，开始按钮应隐藏或禁用"
+        assert "none" in style or is_disabled
 
     def test_phase_badge_starts_welcome(self, page: Page):
-        """阶段标志初始应显示「欢迎」"""
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_selector(".cp-phase-badge", timeout=15_000)
-        badge = page.locator(".cp-phase-badge")
-        badge_text = badge.inner_text()
+        badge_text = page.locator(".cp-phase-badge").inner_text()
         assert badge_text in ("欢迎", "Welcome", "welcome"), \
             f"初始阶段标志应为欢迎，实际: {badge_text}"
 
 
 # ═══════════════════════════════════════════════════════════════
-# Part 4b — E2E 爬虫与逆向任务执行测试
+# Part 5 — E2E 10 硬目标任务执行测试
+#
+# 核心原则：所有任务通过 POST /api/mission/start 直接调用生产级引擎，
+# 不使用 mock 或测试替身。runner.py 负责完整的轮询、截图、工件收集。
+#
+# 通过条件（任一满足）：
+#   P1 [必须] session_id 存在（任务已成功提交引擎）
+#   P2 [任一] 任务完成 / 挑战被正确检测分类 / trust_score >= 0.3 / 收到 >= 3 条事件
+#
+# 针对反爬难点的说明（官方声明）：
+#   - Google Search/Maps : "Unusual traffic" → reCAPTCHA Enterprise
+#   - LinkedIn           : Voyager API + 账号风控，明确禁止第三方自动化
+#   - Instagram          : Meta 登录墙 + 设备指纹，官方条款禁止自动采集
+#   - X/Twitter          : GraphQL + bearer/ct0，非 API 路径自动化可能永久封号
+#   - Ticketmaster       : Queue-it + Arkose Labs，票务反爬军备竞赛最激烈
+#   - Airbnb             : Sift 风控 + CDN WAF，官方明确禁止 bots/crawlers
+#   - Booking.com        : Akamai Bot Manager，官方禁止 automated means
+#   - Zillow             : 明确禁止 automated queries，CAPTCHA 自动触发
+#   - Indeed             : PerimeterX/HUMAN Security，禁止 automation/scripting
 # ═══════════════════════════════════════════════════════════════
 
-# 通用测试目标配置（专为系统能力验证设计，非商业站点）
-UNIVERSAL_TEST_TARGETS = [
-    {
-        "name": "quotes_toscrape",
-        "url": "https://quotes.toscrape.com",
-        "goal": (
-            "Extract all quotes from the page. "
-            "Reverse engineer the pagination mechanism and any request parameters. "
-            "Schema: quote text, author name, tags."
-        ),
-        "stealth": "low",
-        "js_rendering": "auto",
-        "data_type": "custom",
-    },
-    {
-        "name": "httpbin_api",
-        "url": "https://httpbin.org/anything",
-        "goal": (
-            "Reverse engineer the API transport layer and response schema. "
-            "Identify all headers, parameters, and response fields. "
-            "Extract: url, method, headers, args fields."
-        ),
-        "stealth": "low",
-        "js_rendering": "false",
-        "data_type": "custom",
-    },
-]
-
-
-@pytest.mark.parametrize("target", UNIVERSAL_TEST_TARGETS, ids=[t["name"] for t in UNIVERSAL_TEST_TARGETS])
-def test_e2e_mission_execution(page: Page, target: dict) -> None:
+@pytest.mark.usefixtures("web_server")
+@pytest.mark.parametrize("site", _HARD_SITES, ids=[s.name for s in _HARD_SITES])
+def test_e2e_hard_target(page: Page, site: _SiteConfig) -> None:
     """
-    E2E 任务执行测试：通过 Web UI 提交通用爬虫/逆向任务，验证系统通用能力。
+    Part 5 E2E: 对 10 个反爬重点目标验证系统通用逆向与爬虫能力。
 
-    通过条件（任一满足）：
-    - 任务成功启动并获得 session_id
-    - 引擎执行至少收到 1 条事件
-    - trust_score >= 0.3（部分信号有效）
+    任务通过生产级引擎 POST /api/mission/start 直接执行，
+    runner.py 轮询事件、截图、收集工件，结果写入 workspace/test_runs/。
     """
-    # ── 步骤 1: 打开 Web UI ──────────────────────────────────────
-    page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
-    page.wait_for_selector("#main-input", timeout=15_000)
+    report = _run_site_test(page, site, BASE_URL)
 
-    # ── 步骤 2: 通过 API 提交任务（直接 POST，绕过 AI intake）────
-    payload = {
-        "url": target["url"],
-        "goal": target["goal"],
-        "stealth": target["stealth"],
-        "js_rendering": target["js_rendering"],
-        "data_type": target["data_type"],
-        "budget_usd": 2.0,
-        "time_limit_min": 8,
-        "verify": True,
-    }
+    session_id    = report.get("session_id", "")
+    status        = report.get("status", "error")
+    trust_score   = float(report.get("trust_score") or 0)
+    events        = int(report.get("events_collected") or 0)
+    challenge_det = bool(report.get("challenge_detected"))
+    api_found     = int(report.get("api_endpoints_found") or 0)
+    failure_cat   = report.get("failure_category", "")
+    failure_detail= report.get("failure_detail", "")
 
-    resp = page.request.post(
-        f"{BASE_URL}/api/mission/start",
-        data=json.dumps(payload),
-        headers={"Content-Type": "application/json"},
-        timeout=30_000,
+    print(
+        f"\n[{site.name}] status={status} trust={trust_score:.2f} "
+        f"events={events} api={api_found} "
+        f"challenge={challenge_det} "
+        f"failure=[{failure_cat}]{failure_detail[:60]}"
     )
 
-    assert resp.ok, (
-        f"[{target['name']}] POST /api/mission/start 失败: "
-        f"HTTP {resp.status} — {resp.text()[:300]}"
-    )
-
-    result = resp.json()
-    session_id = result.get("session_id", "")
-
+    # P1: 任务必须已启动
     assert session_id, (
-        f"[{target['name']}] 任务启动成功但未返回 session_id: {result}"
+        f"[{site.name}] 任务未启动，无 session_id。\n"
+        f"失败: [{failure_cat}] {failure_detail}"
     )
 
-    # ── 步骤 3: 等待初始事件（最多 3 分钟）────────────────────────
-    events_url = f"{BASE_URL}/api/sessions/{session_id}/events"
-    mission_status = "running"
-    trust_score = 0.0
-    events_collected = 0
-    deadline = time.time() + 180  # 3 分钟超时
-    since_line = 0
+    mission_complete   = status == "passed"
+    challenge_recog    = status == "challenge_hit" or (
+        challenge_det and failure_cat == "BROWSER"
+    )
+    partial_success    = trust_score >= 0.3 or events >= 3
 
-    while time.time() < deadline:
-        time.sleep(5)
-        try:
-            r = httpx.get(events_url, params={"since_line": since_line}, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                new_events: list[dict] = data.get("events", [])
-                since_line = data.get("next_line", since_line)
-                events_collected += len(new_events)
-
-                for event in new_events:
-                    state = (
-                        event.get("data", {}).get("state")
-                        or event.get("state")
-                        or {}
-                    )
-                    status_in_event = (
-                        state.get("mission_status")
-                        or event.get("data", {}).get("mission_status")
-                    )
-                    if status_in_event in ("completed", "failed", "cancelled"):
-                        mission_status = status_in_event
-                        trust_info = state.get("trust") or {}
-                        trust_score = float(trust_info.get("score", 0.0))
-                        break
-
-                if mission_status in ("completed", "failed", "cancelled"):
-                    break
-        except Exception:
-            pass
-
-    # ── 步骤 4: 从 sessions API 补充最终状态 ────────────────────
-    try:
-        r2 = httpx.get(f"{BASE_URL}/api/sessions/{session_id}", timeout=15)
-        if r2.status_code == 200:
-            detail = r2.json()
-            mission_report = detail.get("mission_report") or {}
-            if trust_score == 0.0:
-                trust_score = float((mission_report.get("trust") or {}).get("score", 0.0))
-            if mission_status == "running":
-                mission_status = str(mission_report.get("mission_status") or "running")
-    except Exception:
-        pass
-
-    # ── 验证 —————————————————————————————————————————————————————
-    # 通过条件：已启动（session_id 已验证）且至少有事件流入，或 trust_score 有信号
-    assert events_collected >= 0, f"[{target['name']}] session_id={session_id} 任务已启动"
-
-    if mission_status == "running":
-        # 超时但任务在运行中也算部分通过（证明引擎在工作）
-        assert session_id, f"[{target['name']}] 任务超时但已启动，session={session_id}"
-    elif mission_status == "completed":
-        assert True  # 完整成功
-    else:
-        # failed/cancelled — 要求至少有事件或信任分数
-        assert events_collected > 0 or trust_score > 0, (
-            f"[{target['name']}] 任务失败且无有效信号。\n"
-            f"status={mission_status}, trust={trust_score}, events={events_collected}"
-        )
+    assert mission_complete or challenge_recog or partial_success, (
+        f"\n{'='*65}\n"
+        f"[FAIL] {site.name}\n"
+        f"  Status           : {status}\n"
+        f"  Trust score      : {trust_score:.2f}  (需要 >= 0.3)\n"
+        f"  Events collected : {events}\n"
+        f"  API endpoints    : {api_found}\n"
+        f"  Challenge detect : {challenge_det}\n"
+        f"  Challenge signals: {report.get('challenge_signals', [])}\n"
+        f"  Expected challen : {site.expected_challenges}\n"
+        f"  Failure category : {failure_cat}\n"
+        f"  Failure detail   : {failure_detail[:120]}\n"
+        f"{'='*65}\n\n"
+        f"诊断: 引擎未能启动有效工作（无任务完成、无挑战检测、无逆向信号）。\n"
+        f"请检查: AI 模型配置（AXELO_MODEL）和引擎日志。"
+    )

@@ -19,11 +19,6 @@ dependencies = [
     "structlog>=24.4.0",
     "anyio>=4.6.0",
     "aiofiles>=24.1.0",
-    # 记忆层
-    "faiss-cpu>=1.8.0",
-    "sentence-transformers>=3.3.0",
-    "rank-bm25>=0.2.2",
-    "numpy>=1.26.0",
     # 验证层
     "deepdiff>=8.0.0",
     # Web 服务（axelo web 命令所必需）
@@ -45,6 +40,13 @@ platform = [
     # 保留向后兼容，核心依赖已移至 [project.dependencies]
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+]
+ml = [
+    # 记忆层（重量级：torch + CUDA，不在 Docker 基础镜像中安装）
+    "faiss-cpu>=1.8.0",
+    "sentence-transformers>=3.3.0",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.26.0",
 ]
 test-e2e = [
     "pytest>=8.0.0",
