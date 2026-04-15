@@ -65,7 +65,7 @@ except (rate_limit, quota_error, timeout):
 ## 5. Compliance Note (本次新增)
 
 - Reverse/crawling capability may only be enhanced through universal tools.
-- Do not add or preserve any site-specific micro-tuning in router, scanner, toolchain, or memory patterns.
+- Do not add or preserve any site-specific micro-tuning in runtime control logic, scanners, toolchains, or memory patterns.
 
 ---
 

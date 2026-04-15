@@ -131,7 +131,7 @@ class RunConfig(BaseModel):
     @model_validator(mode="after")
     def _normalize_intent(self) -> "RunConfig":
         if self.intent is None:
-            self.intent = CaptureIntent.from_legacy(
+            self.intent = CaptureIntent.from_request_inputs(
                 goal=self.goal,
                 target_hint=self.target_hint,
                 known_endpoint=self.known_endpoint,
@@ -149,7 +149,7 @@ class RunConfig(BaseModel):
             self.intent.output_format = self.output_format.value
         return self
 
-    def orchestrator_kwargs(self) -> dict:
+    def runtime_kwargs(self) -> dict:
         return {
             "url": self.url,
             "goal": self.goal,

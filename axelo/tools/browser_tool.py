@@ -2,6 +2,7 @@
 Browser Tool - 浏览器操作工具
 
 集成 Playwright 进行真实的浏览器操作
+支持 stealth 模式 (反检测)
 """
 from __future__ import annotations
 
@@ -26,14 +27,21 @@ from axelo.tools.base import (
     ToolCategory,
 )
 from axelo.config import settings
+from axelo.tools.stealth_config import (
+    get_stealth_args,
+    get_context_options,
+    get_all_stealth_scripts,
+    random_user_agent,
+)
+from axelo.tools.dynamic_analyzer import DynamicAnalyzer
 
 log = structlog.get_logger()
-DEBUG_LOG_PATH = "E:/Test_Project/Axelo_JSReverse/debug-d07492.log"
+DEBUG_LOG_PATH = settings.workspace / "debug.log"
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
     payload = {
-        "sessionId": "d07492",
+        "sessionId": "default",
         "runId": run_id,
         "hypothesisId": hypothesis_id,
         "location": location,
@@ -41,8 +49,11 @@ def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, dat
         "data": data,
         "timestamp": int(time.time() * 1000),
     }
-    with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    try:
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 @dataclass
@@ -160,6 +171,27 @@ class BrowserTool(BaseTool):
                     required=False,
                     default=5000,
                 ),
+                ToolInput(
+                    name="stealth",
+                    type="boolean",
+                    description="启用反检测 stealth 模式 (默认开启)",
+                    required=False,
+                    default=True,
+                ),
+                ToolInput(
+                    name="dynamic_analysis",
+                    type="boolean",
+                    description="启用动态JS执行分析 (追踪API调用和签名函数)",
+                    required=False,
+                    default=False,
+                ),
+                ToolInput(
+                    name="target_functions",
+                    type="array",
+                    description="要触发的目标函数名列表 (用于动态分析)",
+                    required=False,
+                    default=[],
+                ),
             ],
             output_schema=[
                 ToolOutput(name="session_id", type="string", description="会话ID"),
@@ -171,6 +203,7 @@ class BrowserTool(BaseTool):
                 ToolOutput(name="session_storage", type="object", description="SessionStorage"),
                 ToolOutput(name="captures", type="object", description="请求/响应捕获"),
                 ToolOutput(name="js_bundles", type="array", description="JavaScript文件列表"),
+                ToolOutput(name="dynamic_analysis", type="object", description="动态分析结果 (API调用、签名函数追踪)"),
             ],
             timeout_seconds=300,
             retry_enabled=True,
@@ -241,8 +274,33 @@ class BrowserTool(BaseTool):
                 except Exception as e:
                     log.warning("storage_fetch_failed", error=str(e))
             
-            # 获取 JS bundles
-            js_bundles = self._extract_js_from_html(html_content)
+            # ===== 动态分析 (如果启用) =====
+            dynamic_result = {}
+            if input_data.get("dynamic_analysis") and self._page:
+                try:
+                    log.info("dynamic_analysis_start")
+                    analyzer = DynamicAnalyzer()
+                    target_funcs = input_data.get("target_functions", [])
+                    dynamic_result = await analyzer.analyze(self._page, target_funcs)
+                    log.info("dynamic_analysis_complete",
+                        api_calls=len(dynamic_result.get("api_calls", [])),
+                        signatures=len(dynamic_result.get("signature_calls", [])))
+                except Exception as e:
+                    log.warning("dynamic_analysis_failed", error=str(e))
+                    dynamic_result = {"error": str(e)}
+            
+            # 获取 JS bundles - 从 HTML 和请求中提取
+            js_bundles_html = self._extract_js_from_html(html_content)
+            js_bundles_req = self._extract_js_from_requests(self._captures)
+            
+            # 合并并去重
+            js_bundles = list(set(js_bundles_html + js_bundles_req))
+            
+            log.info("js_bundles_extracted", 
+                from_html=len(js_bundles_html), 
+                from_requests=len(js_bundles_req),
+                total=len(js_bundles)
+            )
             
             # 关闭浏览器
             await self._close_browser()
@@ -256,7 +314,9 @@ class BrowserTool(BaseTool):
                 "local_storage": local_storage,
                 "session_storage": session_storage,
                 "captures": {"requests": self._captures},
+                "observed_requests": self._captures,  # flat list for downstream compatibility
                 "js_bundles": js_bundles,
+                "dynamic_analysis": dynamic_result,  # 动态分析结果
             }
             
             log.info("browser_tool_success", session_id=session_id, url=page_url)
@@ -299,19 +359,20 @@ class BrowserTool(BaseTool):
         )
         # endregion
         
-        # 构建启动参数
+        # 获取 stealth 配置
+        stealth_enabled = input_data.get("stealth", True)  # 默认启用 stealth
+        
+        # 构建启动参数 (使用 stealth 配置)
         launch_options = {
             "headless": headless,
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--no-first-run",
-                "--disable-dev-shm-usage",
-            ],
+            "args": get_stealth_args(),  # 使用 stealth args
         }
         
         if user_agent:
             launch_options["args"].append(f"--user-agent={user_agent}")
+        elif stealth_enabled:
+            # 使用随机 user agent
+            launch_options["args"].append(f"--user-agent={random_user_agent()}")
         
         # 启动浏览器
         browser_type = getattr(self._playwright, settings.browser or "chromium")
@@ -321,16 +382,24 @@ class BrowserTool(BaseTool):
         
         self._driver = await browser_type.launch(**launch_options)
         
-        # 创建 context
-        context_options = {
-            "viewport": {"width": viewport_width, "height": viewport_height},
-            "ignore_https_errors": True,
-        }
+        # 创建 context (使用 stealth 配置)
+        if stealth_enabled:
+            context_options = get_context_options(randomize=True)
+        else:
+            context_options = {
+                "viewport": {"width": viewport_width, "height": viewport_height},
+                "ignore_https_errors": True,
+            }
         
         if user_agent:
             context_options["user_agent"] = user_agent
         
         context = await self._driver.new_context(**context_options)
+        
+        # 注入 stealth 脚本
+        if stealth_enabled and self._page:
+            stealth_scripts = get_all_stealth_scripts()
+            await self._page.evaluateOnNewDocument(stealth_scripts)
         
         # 设置请求拦截
         self._captures = []
@@ -348,10 +417,20 @@ class BrowserTool(BaseTool):
         # 创建页面并导航
         self._page = await context.new_page()
         
-        # 导航到目标 URL
-        url = input_data.get("url")
-        timeout = input_data.get("timeout", 30000)
+        # 注入 stealth 脚本 (必须在导航前)
+        stealth_enabled = input_data.get("stealth", True)
+        if stealth_enabled:
+            stealth_scripts = get_all_stealth_scripts()
+            try:
+                await self._page.add_init_script(stealth_scripts)
+                log.info("stealth_injected", url=input_data.get("url"))
+            except Exception as e:
+                log.warning("stealth_inject_failed", error=str(e))
         
+        url = input_data.get("url")
+        keyword = (input_data.get("keyword") or input_data.get("search_keyword") or "").strip()
+        timeout = input_data.get("timeout", 30000)
+
         try:
             await self._page.goto(url, timeout=timeout, wait_until="domcontentloaded")
         except Exception as e:
@@ -361,8 +440,74 @@ class BrowserTool(BaseTool):
                 await self._page.goto(url, timeout=timeout, wait_until="load")
             except Exception as e2:
                 log.warning("page_navigation_retry_failed", error=str(e2))
-        
+
+        # WAF / Bot-challenge 检测与等待
+        import asyncio as _asyncio
+        try:
+            _content_check = await self._page.content()
+            _WAF_MARKERS = [
+                "awsWafCookieDomainList", "gokuProps",
+                "_cf_chl", "challenge-platform", "cf-browser-verification",
+                "ddos-guard", "人机验证", "verifying you are human",
+            ]
+            if any(m in _content_check for m in _WAF_MARKERS) and len(_content_check) < 25000:
+                log.info("waf_challenge_detected", url=url, content_length=len(_content_check))
+                await _asyncio.sleep(6)
+                try:
+                    await self._page.wait_for_load_state("networkidle", timeout=12000)
+                except Exception:
+                    pass
+                log.info("waf_wait_complete", url=url)
+        except Exception as _waf_err:
+            log.warning("waf_check_failed", error=str(_waf_err))
+
+        # 通用搜索交互（无任何站点硬编码）
+        if keyword:
+            await self._generic_search(self._page, keyword)
+
         return self._page
+
+    async def _generic_search(self, page, keyword: str) -> None:
+        """
+        在当前页面寻找搜索框并输入关键词提交。
+        完全通用，不依赖任何特定站点逻辑。
+        """
+        import asyncio as _asyncio
+        # 按优先级尝试常见搜索输入选择器
+        _search_selectors = [
+            "input[type='search']",
+            "input[name='q']",
+            "input[name='s']",
+            "input[name='query']",
+            "input[name='keyword']",
+            "input[name='search']",
+            "input[name='wd']",
+            "input[name='text']",
+            "input[id*='search' i]",
+            "input[class*='search' i]",
+            "input[placeholder*='search' i]",
+            "input[placeholder*='搜索' i]",
+            "[role='searchbox']",
+            "input[type='text']",  # 最后兜底
+        ]
+        for selector in _search_selectors:
+            try:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    await el.click()
+                    await _asyncio.sleep(0.3)
+                    await el.fill("")
+                    await el.type(keyword, delay=30)
+                    await el.press("Enter")
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    except Exception:
+                        pass
+                    log.info("generic_search_performed", selector=selector, keyword=keyword)
+                    return
+            except Exception:
+                continue
+        log.warning("generic_search_no_box_found", keyword=keyword)
     
     async def _execute_actions(self, page, actions: list[dict]) -> None:
         """执行动作序列"""
@@ -419,7 +564,32 @@ class BrowserTool(BaseTool):
         matches2 = re.findall(pattern2, html, re.IGNORECASE)
         js_files.update(matches2)
         
-        return list(js_files)
+        # 查找内联 script 中的 src= 或 src =
+        pattern3 = r'src\s*=\s*["\']([^"\']+\.js[^"\']*)["\']'
+        matches3 = re.findall(pattern3, html, re.IGNORECASE)
+        js_files.update(matches3)
+        
+        # 过滤掉 data: 和 about: 这样的 URL
+        filtered = [f for f in js_files if f and not f.startswith(('data:', 'about:', 'blob:'))]
+        
+        return filtered[:50]  # 限制数量
+    
+    def _extract_js_from_requests(self, captures: list) -> list[str]:
+        """从捕获的请求中提取 JS 文件 URL"""
+        js_urls = set()
+        
+        for req in captures:
+            url = req.get("url", "")
+            resource_type = req.get("resource_type", "")
+            
+            # 检查资源类型或 URL 结尾
+            if (resource_type == "script" or 
+                url.endswith(".js") or 
+                "/js/" in url or
+                ".js?" in url):  # 包含查询参数的 JS
+                js_urls.add(url)
+        
+        return list(js_urls)[:50]
     
     async def _close_browser(self) -> None:
         """关闭浏览器"""

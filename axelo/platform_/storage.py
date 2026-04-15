@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel import Field, SQLModel, Session, create_engine, select
 
-from axelo.platform.models import (
+from axelo.platform_.models import (
     AccountRecord,
     AccountStatus,
     AdapterVersion,

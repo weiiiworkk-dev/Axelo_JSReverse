@@ -344,7 +344,7 @@ class EnhancedBrowserDriver:
         """Apply enhanced device fingerprint to page."""
         try:
             # Generate fingerprint with browser context
-            fingerprint = self._fingerprint_reinforcer.generate_fingerprint(
+            fingerprint = await self._fingerprint_reinforcer.generate_fingerprint_async(
                 profile=profile,
                 page=page
             )
@@ -424,7 +424,7 @@ class EnhancedBrowserDriver:
             "--disable-component-extensions-with-background-pages",
             "--js-flags=--max-old-space-size=4096",
             
-            # ========== Amazon/eBay等电商专用 ==========
+            # ========== 通用反自动化检测参数 ==========
             "--disable-bot-detection",
             "--disable-hints",
             "--disable-component-update",

@@ -1,18 +1,5 @@
-"""
-Extended Crypto Pattern Database (DEPRECATED)
+"""Extended crypto pattern database and helper exports."""
 
-This module has been moved to axelo.analysis.crypto.
-Please update your imports:
-
-    from axelo.analysis.crypto import CryptoPattern, CryptoPatterns, detect_crypto_usage
-
-This file is kept for backward compatibility and will be removed in a future version.
-
-Version: 2.0 (Deprecated - re-export only)
-Created: 2026-04-06
-"""
-
-import warnings
 import re
 from typing import Optional
 
@@ -27,22 +14,7 @@ from axelo.analysis.crypto import (
     UniversalCryptoDetector,
 )
 
-# Also re-export the helper functions from the original module
-# by defining them here using the new unified detector
-
-warnings.warn(
-    "axelo.analysis.static.crypto_patterns is deprecated. "
-    "Use axelo.analysis.crypto instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
-
-# =============================================================================
-# BACKWARD COMPATIBILITY - Re-export original patterns
-# =============================================================================
-
-# Re-export the pattern classes
+# Re-export the pattern classes.
 CryptoPattern = _CryptoPattern
 CryptoPatterns = _CryptoPatterns
 

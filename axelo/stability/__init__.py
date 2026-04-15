@@ -1,22 +1,5 @@
-"""
-Stability Module (DEPRECATED)
+"""Stability, recovery, and human-like interaction helpers."""
 
-This module has been moved to axelo.platform.
-
-Version: 1.1 (Deprecated)
-Created: 2026-04-07
-"""
-
-import warnings
-
-warnings.warn(
-    "axelo.stability is deprecated. "
-    "Use axelo.platform instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
-# Re-export from original locations for backward compatibility
 from axelo.behavior.mouse_simulator import (
     MouseMovementSimulator,
     KeyboardSimulator,

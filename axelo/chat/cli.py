@@ -1,169 +1,249 @@
 """
-Axelo Chat CLI - 主入口
+Axelo Chat CLI — AI-mediated intake + mission execution.
 
-对话式逆向工程 CLI
+Pre-execution:
+  Left   → Mission Contract panel (live-updating as AI processes chat)
+  Right  → Chat history (user ↔ AI discussion)
+  Footer → Readiness gauge + input
+
+During execution:
+  Existing principal runtime display (EngineTerminalUI full layout)
 """
 from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Optional
 
-# Windows UTF-8 mode
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import structlog
 
-from axelo.chat.messages import Message, MessageType
-from axelo.chat.router import ConversationRouter
-from axelo.chat.ui import SimpleTerminalUI
-from axelo.tools.base import get_registry
+from axelo.engine.runtime import UnifiedEngine
+from axelo.engine.ui import EngineTerminalUI
+from axelo.engine.models import RequirementSheet
 
-# Import tools to register them
-from axelo.tools import (
-    browser_tool,
-    fetch_tool,
-    static_tool,
-    crypto_tool,
-    ai_tool,
-    codegen_tool,
-    verify_tool,
-    flow_tool,
-    honeypot_tool,
-)
-# Import web search tool
-from axelo.tools import web_search_tool
+# Import tools for side-effect registration.
+from axelo import tools as _registered_tools  # noqa: F401
 
 log = structlog.get_logger()
 
+# Words that mean "start the mission now"
+_START_WORDS = {
+    "start", "begin", "go", "run", "execute", "launch", "proceed",
+    "开始", "启动", "执行", "出发", "跑", "ok", "yes", "y",
+}
+
+# Words that exit the CLI
+_EXIT_WORDS = {"quit", "exit", "/quit", "/exit", "q", "退出", "exit()"}
+
 
 class AxeloChatCLI:
-    """Axelo 对话式 CLI"""
-    
-    def __init__(self):
-        self.ui = SimpleTerminalUI()
-        self.router = ConversationRouter()
+    """Mission-driven principal runtime CLI — AI chat intake."""
+
+    def __init__(self) -> None:
+        self.ui = EngineTerminalUI()
+        self.engine = UnifiedEngine()
         self._running = False
-        
-        # 设置思考回调，显示工具调用过程
-        self.router.set_thinking_callback(self._on_thinking)
-    
+        self.engine.set_thinking_callback(self._on_thinking)
+        self.engine.set_event_callback(self._on_event)
+
+    # ── Engine event callbacks ────────────────────────────────────────────────
+
     def _on_thinking(self, thinking: str) -> None:
-        """显示思考过程"""
-        self.ui.print_thinking(thinking)
-    
+        self.ui.push_thought(thinking)
+        tool = ""
+        if thinking.startswith("Running tool: "):
+            tool = thinking[len("Running tool: "):]
+        self.ui.render_running("framing", tool=tool)
+
+    def _on_event(self, kind: str, message: str, payload: dict) -> None:
+        phase = {
+            "mission": "brief-ready",
+            "dispatch": "running",
+            "complete": "complete",
+        }.get(kind, "running")
+        self.ui.update_principal_snapshot(
+            mission_status=str(payload.get("mission_status") or ""),
+            mission_outcome=str(payload.get("mission_outcome") or ""),
+            current_focus=str(payload.get("current_focus") or ""),
+            current_uncertainty=str(payload.get("current_uncertainty") or ""),
+            evidence_count=payload.get("evidence_count") if "evidence_count" in payload else None,
+            hypothesis_count=payload.get("hypothesis_count") if "hypothesis_count" in payload else None,
+            branch_items=payload.get("branch_tree"),
+            coverage=payload.get("coverage"),
+            trust_score=payload.get("trust_score") if "trust_score" in payload else None,
+            trust_level=str(payload.get("trust_level") or ""),
+            trust_summary=str(payload.get("trust_summary") or ""),
+            execution_trust_score=payload.get("execution_trust_score") if "execution_trust_score" in payload else None,
+            execution_trust_level=str(payload.get("execution_trust_level") or ""),
+            execution_trust_summary=str(payload.get("execution_trust_summary") or ""),
+            mechanism_trust_score=payload.get("mechanism_trust_score") if "mechanism_trust_score" in payload else None,
+            mechanism_trust_level=str(payload.get("mechanism_trust_level") or ""),
+            mechanism_trust_summary=str(payload.get("mechanism_trust_summary") or ""),
+            dominant_hypothesis=str(payload.get("dominant_hypothesis") or ""),
+            refuted_hypotheses=payload.get("refuted_hypotheses"),
+            mechanism_blockers=payload.get("mechanism_blockers"),
+            next_action_hint=str(payload.get("next_action_hint") or ""),
+            evidence_delta=str(payload.get("evidence_delta") or ""),
+        )
+        self.ui.push_action(message)
+        self.ui.render_running(
+            phase,
+            step=int(payload.get("step") or 0),
+            max_steps=int(payload.get("max_steps") or 0),
+        )
+
+    # ── Main loop ─────────────────────────────────────────────────────────────
+
     async def start(self) -> None:
-        """启动 CLI"""
         self._running = True
-        
-        # AI 驱动的欢迎信息 - 不再硬编码
-        welcome = await self.router.process_input("你好")
-        self._display_response(welcome)
-        
-        # 主循环
+
         while self._running:
             try:
-                # 等待用户输入
-                user_input = await self._get_input()
+                self.ui.begin_intake()
 
-                if user_input is None:
-                    self.ui.print_system("输入结束，正在退出...")
+                # AI chat intake — returns a MissionContract or None (user quit)
+                contract = await self._run_ai_intake()
+                if contract is None:
                     break
 
-                if not user_input:
-                    self.ui.print_system("请输入内容，或按 Ctrl+C 退出")
+                # Convert to RequirementSheet for engine backwards compat
+                requirements = RequirementSheet(**contract.to_requirement_sheet_kwargs())
+
+                prepared = await self.engine.plan_request(
+                    prompt=requirements.to_prompt(),
+                    url=requirements.target_url,
+                    goal=requirements.objective,
+                    metadata={
+                        "requirements": requirements.to_metadata(),
+                        "contract": contract.model_dump(),
+                    },
+                )
+                # Attach live MissionContract so _populate_field_evidence() works in CLI mode
+                prepared.contract = contract
+
+                self.ui.render_plan(prepared)
+
+                if not self.ui.prompt_confirm("确认并开始执行? [y/N]"):
+                    self.ui.push_action("已取消执行，返回需求收集。")
                     continue
-                
-                # 处理输入
-                response = await self.router.process_input(user_input)
-                
-                # 显示响应
-                self._display_response(response)
-                
+
+                result = await self.engine.execute_prepared(prepared)
+                self.ui.render_result(result)
+
+                if not self.ui.prompt_confirm("开始新任务? [y/N]"):
+                    break
+
             except KeyboardInterrupt:
-                self.ui.print_system("正在退出...")
                 break
             except EOFError:
-                self.ui.print_system("输入结束，正在退出...")
                 break
-            except Exception as e:
-                log.error("cli_error", error=str(e))
-                self.ui.print_error(f"发生错误: {str(e)}")
-        
-        self.ui.print_system("再见！")
-    
+            except Exception as exc:
+                log.error("cli_error", error=str(exc))
+                self.ui.print_error(str(exc))
+
+        self.ui.push_action("Session closed.")
+        self.ui.render_closed()
+
+    # ── AI Chat Intake ────────────────────────────────────────────────────────
+
+    async def _run_ai_intake(self):
+        """
+        AI-mediated intake loop.
+        Shows left=contract, right=chat panels.
+        Returns MissionContract when readiness >= 0.75 and user says 'start'.
+        Returns None if user quits.
+        """
+        from axelo.models.contracts import MissionContract
+        from axelo.engine.principal import IntakeAIProcessor
+
+        intake = IntakeAIProcessor()
+        contract = MissionContract()
+        history: list[dict] = []
+
+        # Initial render
+        self.ui.render_intake_chat(contract, history, contract.readiness_assessment)
+
+        while True:
+            try:
+                raw = self.ui.prompt_input("输入")
+            except (EOFError, KeyboardInterrupt):
+                return None
+
+            text = raw.strip()
+            if not text:
+                continue
+
+            # Exit
+            if text.lower() in _EXIT_WORDS:
+                return None
+
+            # Start command
+            if text.lower() in _START_WORDS:
+                readiness = contract.readiness_assessment
+                if readiness.is_ready:
+                    return contract
+                else:
+                    gaps = readiness.blocking_gaps or ["需求信息不完整"]
+                    self.ui.render_intake_chat(contract, history, readiness)
+                    self.ui.print_error(
+                        "尚未就绪: " + "; ".join(gaps[:2])
+                    )
+                    continue
+
+            # Add user message to history
+            history.append({"role": "user", "content": text})
+
+            # Show waiting state (AI thinking)
+            self.ui.render_intake_chat(contract, history, contract.readiness_assessment, waiting=True)
+
+            # Call AI
+            try:
+                result = await intake.process_message(text, contract, history)
+                contract = result["updated_contract"]
+                ai_reply = result["ai_reply"]
+                history.append({"role": "assistant", "content": ai_reply})
+            except Exception as exc:
+                log.warning("intake_ai_error", error=str(exc))
+                history.append({
+                    "role": "assistant",
+                    "content": f"[连接 AI 出错: {exc}，请检查网络后重试。]",
+                })
+
+            # Re-render with updated contract and AI reply
+            self.ui.render_intake_chat(contract, history, contract.readiness_assessment)
+
+            # Auto-prompt if ready
+            readiness = contract.readiness_assessment
+            if readiness.is_ready and not any(
+                m.get("content", "").lower() in {s.lower() for s in _START_WORDS}
+                for m in history[-3:]
+                if m.get("role") == "assistant"
+            ):
+                pass  # AI reply already prompted user to start
+
+    # ── Non-interactive mode (URL + goal as args) ─────────────────────────────
+
     async def _run_non_interactive(self, url: str, goal: str) -> None:
-        """非交互式运行 - 用于 axelo run 命令"""
-        # Set context and state directly
-        self.router.context.url = url
-        self.router.context.goal = goal
-        self.router._conv_state.url = url
-        self.router._conv_state.goal = goal
-        self.router._conv_state.has_url = True
-        self.router._conv_state.has_goal = True
-        self.router._conv_state.waiting_for_url = False
-        self.router._conv_state.waiting_for_goal = False
-        
-        # Generate and display plan
-        plan_message = await self.router._generate_plan()
-        self._display_response(plan_message)
-        
-        # Auto-confirm and execute
-        self.ui.print_system("\n[自动确认执行...]")
-        result = await self.router.execute_plan()
-        
-        # Display results
-        self.ui.print_system(f"\n执行完成！共执行了 {len(result.get('tools', []))} 个工具")
-        
-        # Show outputs
-        outputs = result.get("outputs", {})
-        if "python_code" in outputs:
-            code = outputs["python_code"]
-            self.ui.print_code(code[:500] + "\n... (truncated)")
-        
-        self._running = False
-    
-    async def _get_input(self) -> Optional[str]:
-        """获取用户输入"""
-        try:
-            return input("\n> You: ").strip()
-        except EOFError:
-            return None
-    
-    def _display_response(self, response: Message) -> None:
-        """显示响应"""
-        if response.type == MessageType.AI:
-            self.ui.print_ai(response.content)
-        elif response.type == MessageType.THINKING:
-            self.ui.print_thinking(response.content)
-        elif response.type == MessageType.PLAN:
-            tools = response.metadata.get("tools", [])
-            self.ui.print_plan(response.content, tools)
-            self.ui.print_confirm("确认执行? (y/n)")
-        elif response.type == MessageType.CONFIRM:
-            self.ui.print_confirm(response.content)
-        elif response.type == MessageType.SYSTEM:
-            self.ui.print_system(response.content)
-        elif response.type == MessageType.ERROR:
-            self.ui.print_error(response.content)
-        else:
-            self.ui.print_ai(response.content)
+        prepared = await self.engine.plan_request(prompt=goal, url=url, goal=goal)
+        self.ui.render_plan(prepared)
+        result = await self.engine.execute_prepared(prepared)
+        self.ui.render_result(result)
+        self.ui.print_system(result.summary)
 
 
-async def main():
-    """异步主入口"""
+async def main() -> None:
     cli = AxeloChatCLI()
     await cli.start()
 
 
-def main_sync():
-    """同步主入口 - 用于 pyproject.toml 入口点"""
+def main_sync() -> None:
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\nGoodbye!")
+        pass
         sys.exit(0)
 
 

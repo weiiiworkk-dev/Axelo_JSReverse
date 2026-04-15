@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import re
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -86,7 +87,7 @@ class CaptureIntent(BaseModel):
         )
 
     @classmethod
-    def from_legacy(
+    def from_request_inputs(
         cls,
         *,
         goal: str,
@@ -200,4 +201,150 @@ class AdapterPackage(BaseModel):
     manifest_ref: str = ""
     adapter_package_ref: str = ""
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Mission Contract — AI-generated execution boundary document
+# Replaces the static RequirementSheet as the contract between intake and engine
+# ---------------------------------------------------------------------------
+
+class FieldSpec(BaseModel):
+    """Specification of a single data field requested by the user."""
+    field_name: str
+    field_alias: str = ""           # user-facing label (what they typed)
+    data_type: str = "string"       # "string" | "number" | "boolean" | "array" | "object"
+    required: bool = True
+    priority: int = 1               # 1=must-have, 2=nice-to-have
+    description: str = ""           # AI-inferred semantics
+    example_hint: str = ""          # e.g. "$999.99" for price
+    validation_hint: str = ""       # e.g. "numeric > 0" for price
+
+
+class FieldEvidence(BaseModel):
+    """Post-execution record mapping a requested field to its extraction evidence."""
+    field_name: str
+    found: bool = False
+    selector: str = ""              # CSS selector
+    extractor: str = ""             # "css" | "xpath" | "json_path" | "regex" | "js_eval"
+    json_path: str = ""             # JSONPath if API response
+    sample_values: list[str] = Field(default_factory=list)   # 3-5 actual values (sanitized)
+    confidence: float = 0.0
+    source_evidence_id: str = ""    # links to EvidenceRecord.evidence_id
+    validation_status: str = "unknown"  # "validated" | "partial" | "missing" | "schema_mismatch"
+    validation_notes: str = ""
+
+
+class ReadinessAssessment(BaseModel):
+    """AI-computed readiness signal for enabling the Start button."""
+    confidence: float = 0.0         # 0.0-1.0; >= 0.75 triggers is_ready
+    is_ready: bool = False
+    missing_info: list[str] = Field(default_factory=list)    # non-blocking gaps
+    blocking_gaps: list[str] = Field(default_factory=list)   # prevent execution
+    suggestions: list[str] = Field(default_factory=list)     # one question max
+    assessed_at: str = ""
+
+
+class ScopeDefinition(BaseModel):
+    mode: str = "domain"            # "single_page" | "domain" | "multi_domain" | "api_endpoint"
+    seed_urls: list[str] = Field(default_factory=list)
+    login_required: bool = False
+    credentials_provided: bool = False
+
+
+class AuthSpec(BaseModel):
+    mechanism: str = "auto"         # "none" | "cookie" | "bearer" | "oauth2" | "hmac" | "api_key" | "auto"
+    login_required: bool = False
+    signing_required: bool = False
+    signing_description: str = ""
+
+
+class ExecutionSpec(BaseModel):
+    stealth_level: str = "medium"   # "low" | "medium" | "high" | "ghost"
+    js_rendering: str = "auto"      # "never" | "auto" | "always"
+    concurrency: int = 1
+    requests_per_sec: float = 1.0
+    max_pages: int = 5
+    timeout_sec: int = 30
+    budget_usd: float = 0.10
+    time_limit_min: int = 15
+
+
+class OutputSpec(BaseModel):
+    format: str = "json"
+    dedup: bool = True
+    dataset_name: str = ""
+    session_label: str = ""
+
+
+class MissionContract(BaseModel):
+    """
+    AI-generated execution boundary document.
+    Created during chat intake, locked when the user presses Start.
+    The engine consumes this instead of the raw RequirementSheet.
+    """
+
+    # Identity
+    contract_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str = ""            # empty until execution starts
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    locked_at: str = ""             # set when Start is pressed
+    contract_version: int = 0       # incremented per AI update
+
+    # Provenance
+    source_chat_turns: int = 0
+    last_updated_by: str = "system"     # "ai_intake" | "user_annotation" | "system"
+    assumptions: list[str] = Field(default_factory=list)
+
+    # Core mission parameters
+    target_url: str = ""
+    objective: str = ""
+    objective_type: str = ""        # "reverse_engineer" | "extract_data" | "monitor" | "crawl"
+    mechanism_required: bool = False  # derived from objective_type by AI
+
+    # Scope
+    target_scope: ScopeDefinition = Field(default_factory=ScopeDefinition)
+    item_limit: int = 50
+    page_limit: int = 0             # 0 = not specified
+
+    # Requested data
+    requested_fields: list[FieldSpec] = Field(default_factory=list)
+
+    # Technical configuration (AI fills with defaults)
+    auth_spec: AuthSpec = Field(default_factory=AuthSpec)
+    execution_spec: ExecutionSpec = Field(default_factory=ExecutionSpec)
+    output_spec: OutputSpec = Field(default_factory=OutputSpec)
+
+    # Constraints from user
+    constraints: list[str] = Field(default_factory=list)
+    exclusions: list[str] = Field(default_factory=list)
+
+    # Intake quality signal
+    readiness_assessment: ReadinessAssessment = Field(default_factory=ReadinessAssessment)
+
+    # Post-execution evidence (written by engine, not intake)
+    field_evidence: list[FieldEvidence] = Field(default_factory=list)
+
+    @property
+    def is_locked(self) -> bool:
+        return bool(self.locked_at)
+
+    def must_have_fields(self) -> list[FieldSpec]:
+        return [f for f in self.requested_fields if f.priority == 1]
+
+    def to_requirement_sheet_kwargs(self) -> dict[str, Any]:
+        """Convert to kwargs for RequirementSheet backwards compat."""
+        field_names = [f.field_name for f in self.requested_fields] or ["auto"]
+        auth_notes = self.auth_spec.signing_description or (
+            "login required" if self.auth_spec.login_required else ""
+        )
+        return {
+            "target_url": self.target_url,
+            "objective": self.objective,
+            "target_scope": self.target_scope.seed_urls[0] if self.target_scope.seed_urls else "",
+            "fields": field_names,
+            "item_limit": self.item_limit,
+            "auth_notes": auth_notes,
+            "constraints": "; ".join(self.constraints),
+            "output_expectation": self.output_spec.format,
+        }
 

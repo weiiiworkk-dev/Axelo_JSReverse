@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv
+venv
+env
+ENV
+
+# Test artifacts and workspace data
+workspace/
+tests/
+docs/
+scripts/
+
+# Node modules (frontend deps are re-installed in Docker)
+axelo/web/ui/node_modules/
+node_modules/
+
+# Frontend source (built in Stage 1, only dist is needed)
+# Note: we DO need axelo/web/ui/src for the build stage
+# so we can't exclude axelo/web/ui/ entirely
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files (inject via Railway Variables)
+.env
+.env.local
+.env.*.local
+
+# Playwright test state
+playwright-report/
+test-results/
+
+# Sisyphus plans
+.sisyphus/
+
+# Logs
+*.log
+logs/

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from axelo.platform.models import BridgeJobSpec, CrawlJobSpec, FrontierSeedRequest, JobType, ReverseJobSpec, SessionRefreshJobSpec
-from axelo.platform.runtime import PlatformRuntime
+from axelo.platform_.models import BridgeJobSpec, CrawlJobSpec, FrontierSeedRequest, JobType, ReverseJobSpec, SessionRefreshJobSpec
+from axelo.platform_.runtime import PlatformRuntime
 
 
 def create_control_app(runtime: PlatformRuntime | None = None):

@@ -12,8 +12,8 @@ from .dual_model_client import (
     ExecutionResult,
     DeepSeekClient,
     DeepSeekV3Client,
-    DualModelOrchestrator,
-    create_orchestrator,
+    DeepSeekExecutionClient,
+    create_execution_client,
     quick_chat,
 )
 
@@ -55,8 +55,8 @@ __all__ = [
     "DeepSeekClient",
     "DeepSeekV3Client",
     "MultiModelAIClient",
-    "DualModelOrchestrator",
+    "DeepSeekExecutionClient",
     # Utilities
-    "create_orchestrator",
+    "create_execution_client",
     "quick_chat",
 ]

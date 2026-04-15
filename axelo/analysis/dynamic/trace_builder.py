@@ -12,7 +12,7 @@ from axelo.models.target import RequestCapture
 
 class TraceBuilder:
     """
-    Combine legacy hook intercepts with taint topology so downstream stages
+    Combine raw hook intercepts with taint topology so downstream analysis
     can consume a single runtime analysis payload.
     """
 

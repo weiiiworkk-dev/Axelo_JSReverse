@@ -1,44 +1,43 @@
 # Axelo JSReverse
 
-Axelo JSReverse is an AI-first reverse engineering and crawling assistant.
+Axelo JSReverse now runs on a single principal-agent runtime.
 
 ## Canonical Runtime
 
-The only supported runtime path is:
+1. Entry starts from `axelo/cli.py`.
+2. Interactive and non-interactive flows both enter `axelo/chat/cli.py`.
+3. `axelo/engine/runtime.py` creates a mission brief and boots a principal state.
+4. `axelo/engine/constitution.py` chooses the next objective from evidence gaps and blockers.
+5. `axelo/engine/subagents.py` dispatches capability agents that may use one or more tools internally.
+6. `axelo/engine/artifacts.py` persists only mission-driven outputs.
 
-1. Start from terminal with `Axelo` (or `axelo`).
-2. CLI enters the AI conversation loop in `axelo/chat/cli.py`.
-3. Router in `axelo/chat/router.py` gathers user intent (target + goal), asks for confirmation, and builds an execution plan.
-4. The confirmed plan is executed through `axelo/chat/executor.py` and registered tools in `axelo/tools/`.
+There is no precomputed task queue, central routing stage, or review-based follow-up chain in the active architecture.
 
-There is no legacy UI/runtime path in the active architecture.
+## Outputs
+
+Each run writes a session under `workspace/sessions/<site-code>/<session-id>` such as `workspace/sessions/AAA/AAA-000001` with:
+
+- `session_request.json`
+- `logs/principal_state.json`
+- `artifacts/agent_runs/*.json`
+- `artifacts/final/mission_brief.json`
+- `artifacts/final/mission_report.json`
+- `artifacts/final/evidence_graph.json`
+- `artifacts/final/artifact_index.json`
+- `artifacts/generated/*` when code or hooks are produced
+
+Removed outputs such as `plan.json`, queue-review logs, `review_*.json`, `reverse_summary.json`, and `crawl_summary.json` are no longer part of the runtime contract.
 
 ## Commands
 
-- `Axelo` / `axelo`: launch interactive AI conversation.
-- `axelo run <url> --goal "<goal>"`: run non-interactive chat flow.
-- `axelo chat`: explicit interactive chat entry.
+- `Axelo` / `axelo`: launch the interactive mission intake flow.
+- `axelo run <url> --goal "<goal>"`: run the non-interactive mission flow.
+- `axelo chat`: explicit interactive entry.
 - `axelo tools`: list registered tools.
-
-## Tooling Flow
-
-Typical AI-driven workflow:
-
-1. Analyze target and requirements
-2. Generate plan with tool sequence
-3. Execute tools (e.g. `browser`, `fetch`, `static`, `crypto`, `ai_analyze`, `codegen`, `verify`)
-4. Return results and generated crawler artifacts
-
-## Requirements
-
-- Python 3.11+
-- Node.js
-- Playwright
-- LLM API key configured in environment
 
 ## Quick Validation
 
 ```bash
 python -m axelo.cli
-pytest
+pytest tests/unit/test_unified_engine.py tests/unit/test_subagent_manager.py tests/unit/test_engine_constitution.py
 ```

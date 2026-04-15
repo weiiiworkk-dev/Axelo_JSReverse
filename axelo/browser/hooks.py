@@ -42,7 +42,7 @@ DEFAULT_HOOK_TARGETS: list[str] = [
 
 class JSHookInjector:
     """
-    Inject a browser-side taint runtime and keep the legacy HookIntercept stream.
+    Inject a browser-side taint runtime and record a HookIntercept stream.
     """
 
     def __init__(self) -> None:

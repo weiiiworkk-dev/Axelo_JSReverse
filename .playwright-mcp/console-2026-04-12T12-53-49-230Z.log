@@ -1,0 +1,5 @@
+[     111ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:7788/:0
+[   17323ms] [LOG] [WS] connected AAA-000001 @ http://127.0.0.1:7788/assets/index-Cs419EW6.js:0
+[  709956ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:7788/ws/sessions/AAA-000001/stream' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:7788/assets/index-Cs419EW6.js:0
+[  709956ms] [WARNING] [WS] error Event @ http://127.0.0.1:7788/assets/index-Cs419EW6.js:0
+[  714964ms] [LOG] [WS] connected AAA-000001 @ http://127.0.0.1:7788/assets/index-Cs419EW6.js:0

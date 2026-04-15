@@ -27,7 +27,7 @@ def test_query_for_url_uses_global_verified_sessions_for_bm25(tmp_path):
     vs = VectorStore(tmp_path / "vectors")
     retriever = MemoryRetriever(db, vs)
 
-    _save_session(db, session_id="global-hmac", domain="legacy.example", summary="hmac sha256 timestamp sign flow")
+    _save_session(db, session_id="global-hmac", domain="prior.example", summary="hmac sha256 timestamp sign flow")
     _save_session(db, session_id="other-flow", domain="other.example", summary="rsa signature exchange flow")
 
     result = retriever.query_for_url("https://brand-new.example/api", "need hmac timestamp sign")

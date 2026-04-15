@@ -15,23 +15,13 @@ from .unified import (
     DeepSeekClient,
     DeepSeekV3Client,
     MultiModelAIClient,
-    DualModelOrchestrator,
-    create_orchestrator,
+    DeepSeekExecutionClient,
+    create_execution_client,
     quick_chat,
 )
 
-# Task routing (kept separate)
-from .task_router import (
-    TaskRouter,
-    TaskType,
-    TaskClassification,
-    PromptBuilder,
-    create_router,
-    quick_classify,
-)
-
 # Agents (consolidated)
-from axelo.agents import (
+from .agents import (
     ScannerAgent, ScanReport,
     HypothesisAgent,
     CodeGenAgent,
@@ -53,16 +43,9 @@ __all__ = [
     "DeepSeekClient",
     "DeepSeekV3Client",
     "MultiModelAIClient",
-    "DualModelOrchestrator",
-    "create_orchestrator",
+    "DeepSeekExecutionClient",
+    "create_execution_client",
     "quick_chat",
-    # Task routing
-    "TaskRouter",
-    "TaskType",
-    "TaskClassification",
-    "PromptBuilder",
-    "create_router",
-    "quick_classify",
     # Agents
     "ScannerAgent",
     "ScanReport",

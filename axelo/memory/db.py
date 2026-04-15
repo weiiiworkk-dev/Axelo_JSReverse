@@ -115,6 +115,16 @@ class MemoryDB:
                 q = q.where(ReverseSession.algorithm_type == algorithm_type)
             return list(s.exec(q.limit(5)).all())
 
+    def get_recent_sessions(self, domain: str, limit: int = 10) -> list[ReverseSession]:
+        with Session(self._engine) as s:
+            q = (
+                select(ReverseSession)
+                .where(ReverseSession.domain == domain)
+                .order_by(ReverseSession.created_at.desc())
+                .limit(limit)
+            )
+            return list(s.exec(q).all())
+
     def list_verified_sessions(
         self,
         domain: str | None = None,

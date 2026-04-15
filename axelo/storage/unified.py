@@ -5,7 +5,6 @@ Consolidated storage:
 - axelo/storage/adapter_registry.py
 - axelo/storage/analysis_cache.py
 - axelo/storage/session_state_store.py
-- axelo/storage/session_store.py
 - axelo/storage/workflow_store.py
 
 Version: 2.0 (Unified)

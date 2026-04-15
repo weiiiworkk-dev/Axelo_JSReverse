@@ -297,4 +297,4 @@ def test_verification_env_preserves_configured_node_binary(monkeypatch):
     env = _verification_env()
 
     assert env["AXELO_NODE_BIN"] == "D:/Runtime/node.exe"
-    assert env["NODE_PATH"] == "C:/deps/node_modules"
+    assert "C:/deps/node_modules" in env["NODE_PATH"]

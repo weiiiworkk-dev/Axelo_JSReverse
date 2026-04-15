@@ -2,32 +2,40 @@
 
 ## Overview
 
-Axelo uses a single AI conversation runtime.
-Users start from terminal (`Axelo` / `axelo`), describe reverse-engineering and crawling requirements, confirm an AI-generated plan, and the system executes tools dynamically.
+The runtime is mission-driven.
 
-## Canonical Flow
+The system no longer builds a fixed tool plan and then executes it. A principal state is created from the request, the constitution evaluates evidence coverage and blockers, and the runtime dispatches the next objective accordingly.
 
-1. Entry: `axelo/cli.py`
-2. Chat loop: `axelo/chat/cli.py`
-3. Router/planning: `axelo/chat/router.py`
-4. Tool execution: `axelo/chat/executor.py`
-5. Tool implementations: `axelo/tools/*.py`
+## Active Flow
 
-## Planning and Execution
+1. `axelo/cli.py`
+2. `axelo/chat/cli.py`
+3. `axelo/engine/runtime.py`
+4. `axelo/engine/principal.py`
+5. `axelo/engine/constitution.py`
+6. `axelo/engine/subagents.py`
+7. `axelo/engine/artifacts.py`
 
-- The router collects required context (target + goal).
-- AI returns a structured task plan and tool sequence.
-- On confirmation, execution prefers the AI-planned tools.
-- Execution results are returned in the same conversation session.
+## Runtime Contract
 
-## Commands
+- Mission framing is stored as a mission brief, not as a precomputed task queue.
+- Next actions are produced from state, not from tool-name follow-up rules.
+- Sub-agents are capability agents.
+- Tools are execution affordances inside an objective, not the top-level workflow definition.
+- Finalization is gated by trust, blockers, and verification evidence.
 
-- `Axelo` or `axelo`: interactive AI conversation.
-- `axelo run <url> --goal "<goal>"`: non-interactive run through chat flow.
-- `axelo chat`: explicit chat command.
-- `axelo tools`: inspect tool registry.
+## Supported Outputs
 
-## Source of Truth
+Only the following outputs are part of the supported contract:
 
-This document and `README.md` define the active architecture.
-Legacy orchestrator/UI paths are not part of the supported runtime contract.
+- `workspace/sessions/AAA/AAA-000001/` style nested site-session directories
+- `session_request.json`
+- `logs/principal_state.json`
+- `artifacts/agent_runs/*.json`
+- `artifacts/final/mission_brief.json`
+- `artifacts/final/mission_report.json`
+- `artifacts/final/evidence_graph.json`
+- `artifacts/final/artifact_index.json`
+- `artifacts/generated/*`
+
+Old queue, review, and stage summary files are intentionally removed from the runtime contract.

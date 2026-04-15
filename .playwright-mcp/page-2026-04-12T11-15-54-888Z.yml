@@ -1,0 +1,369 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: ⬛ AXELO
+    - generic [ref=e5]: Data Intelligence Co.
+    - generic [ref=e7]:
+      - generic [ref=e8]: Session
+      - combobox [ref=e9] [cursor=pointer]:
+        - option "No sessions yet"
+        - option "ui-backend-check / 202a138a-7b9" [selected]
+    - generic [ref=e12]: Live
+  - generic [ref=e13]:
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]: ⬛ AXELO
+        - generic [ref=e17]: Data Intelligence Co.
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - generic [ref=e20]: "1"
+          - text: Target
+        - generic [ref=e21]:
+          - generic [ref=e22]: Entry URL *
+          - textbox "https://api.example.com" [ref=e23]: http://127.0.0.1:7788/
+        - generic [ref=e24]:
+          - generic [ref=e25]: Crawl Scope
+          - generic [ref=e26]:
+            - button "Single Page" [ref=e27] [cursor=pointer]
+            - button "Full Domain" [ref=e28] [cursor=pointer]
+            - button "Multi-Domain" [ref=e29] [cursor=pointer]
+        - generic [ref=e30]:
+          - generic [ref=e31]: Requires Login
+          - generic [ref=e32] [cursor=pointer]:
+            - checkbox
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - generic [ref=e36]: "2"
+          - text: Capture Goals
+        - generic [ref=e37]:
+          - generic [ref=e38]: Data Type *
+          - combobox [ref=e39]:
+            - option "Auth / Sign-in API"
+            - option "Search / Query API"
+            - option "Product / Listing Data"
+            - option "User / Profile Data"
+            - option "Realtime / WebSocket Feed"
+            - option "Custom (describe below)" [selected]
+        - generic [ref=e40]:
+          - generic [ref=e41]: Key Fields to Extract
+          - generic [ref=e42]:
+            - generic [ref=e325]:
+              - generic [ref=e326]:
+                - text: api_key
+                - button "×" [ref=e327] [cursor=pointer]
+              - generic [ref=e328]:
+                - text: signature
+                - button "×" [ref=e329] [cursor=pointer]
+              - generic [ref=e330]:
+                - text: timestamp
+                - button "×" [ref=e331] [cursor=pointer]
+              - generic [ref=e332]:
+                - text: nonce
+                - button "×" [ref=e333] [cursor=pointer]
+              - generic [ref=e334]:
+                - text: token
+                - button "×" [ref=e335] [cursor=pointer]
+              - generic [ref=e336]:
+                - text: response_schema
+                - button "×" [ref=e337] [cursor=pointer]
+            - textbox "e.g. token, signature, user_id — press Enter" [ref=e43]
+        - generic [ref=e44]:
+          - generic [ref=e45]:
+            - generic [ref=e46]: Target Records
+            - spinbutton [ref=e47]: "100"
+          - generic [ref=e48]:
+            - generic [ref=e49]: Sample Size (verify)
+            - spinbutton [ref=e50]: "10"
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - generic [ref=e53]: "3"
+          - text: Protocol
+        - generic [ref=e54]:
+          - generic [ref=e55]: Auth Mechanism
+          - combobox [ref=e56]:
+            - option "Auto-Detect" [selected]
+            - option "None (public)"
+            - option "Cookie Session"
+            - option "Bearer Token"
+            - option "OAuth 2.0"
+            - option "API Key"
+            - option "HMAC Signature"
+        - generic [ref=e57]:
+          - generic [ref=e58]: Stealth Level
+          - generic [ref=e59]:
+            - button "Low" [ref=e60] [cursor=pointer]
+            - button "Medium" [ref=e61] [cursor=pointer]
+            - button "High" [ref=e62] [cursor=pointer]
+            - button "Ghost" [ref=e63] [cursor=pointer]
+        - generic [ref=e64]:
+          - generic [ref=e65]: JS Rendering
+          - generic [ref=e66]:
+            - button "Static Only" [ref=e67] [cursor=pointer]
+            - button "Auto" [ref=e68] [cursor=pointer]
+            - button "Always" [ref=e69] [cursor=pointer]
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]: "4"
+          - text: Execution
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - generic [ref=e75]: Max Pages
+            - spinbutton [ref=e76]: "50"
+          - generic [ref=e77]:
+            - generic [ref=e78]: Req / sec
+            - spinbutton [ref=e79]: "2"
+        - generic [ref=e80]:
+          - generic [ref=e81]:
+            - generic [ref=e82]: Concurrency
+            - spinbutton [ref=e83]: "3"
+          - generic [ref=e84]:
+            - generic [ref=e85]: Timeout (s)
+            - spinbutton [ref=e86]: "30"
+        - generic [ref=e87]:
+          - generic [ref=e88]: Retry on Fail
+          - generic [ref=e89] [cursor=pointer]:
+            - checkbox [checked]
+        - generic [ref=e91]:
+          - generic [ref=e92]: Replay Verification
+          - generic [ref=e93] [cursor=pointer]:
+            - checkbox [checked]
+      - generic [ref=e95]:
+        - generic [ref=e96]:
+          - generic [ref=e97]: "5"
+          - text: Budget
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - generic [ref=e100]: Cost Limit (USD)
+            - generic [ref=e101]:
+              - generic: $
+              - spinbutton [ref=e102]: "5"
+          - generic [ref=e103]:
+            - generic [ref=e104]: Time Limit (min)
+            - generic [ref=e105]:
+              - spinbutton [ref=e106]: "30"
+              - generic: m
+        - generic [ref=e108]:
+          - generic [ref=e109]: Est. cost
+          - generic [ref=e110]: ~$0.80
+      - generic [ref=e113]:
+        - generic [ref=e114]:
+          - generic [ref=e115]: "6"
+          - text: Output
+        - generic [ref=e116]:
+          - generic [ref=e117]: Session Label
+          - textbox "e.g. shopee-auth-2026-04" [ref=e118]: ui-backend-check
+        - generic [ref=e119]:
+          - generic [ref=e120]: Output Format
+          - generic [ref=e121]:
+            - button "SDK Bridge" [ref=e122] [cursor=pointer]
+            - button "JSON Export" [ref=e123] [cursor=pointer]
+            - button "Both" [ref=e124] [cursor=pointer]
+        - generic [ref=e125]:
+          - generic [ref=e126]: Dedup Records
+          - generic [ref=e127] [cursor=pointer]:
+            - checkbox [checked]
+      - generic [ref=e129]:
+        - generic [ref=e130]:
+          - generic [ref=e131]: ✦
+          - text: Leave Goal or Key Fields empty — AI will auto-analyse the target
+        - button "■ Abort" [ref=e338] [cursor=pointer]
+      - generic [ref=e339]:
+        - generic [ref=e340]:
+          - generic [ref=e341]: ✦
+          - text: AI Analysis
+        - generic [ref=e342]:
+          - generic [ref=e343]:
+            - generic [ref=e344]: Goal
+            - generic [ref=e345]: Reverse engineer the API at http://127.0.0.1:7788/ — capture endpoints, parameters, and signature scheme
+          - generic [ref=e346]:
+            - generic [ref=e347]: Type
+            - generic [ref=e348]: custom
+          - generic [ref=e349]:
+            - generic [ref=e350]: Fields
+            - generic [ref=e351]:
+              - generic [ref=e352]: api_key
+              - generic [ref=e353]: signature
+              - generic [ref=e354]: timestamp
+              - generic [ref=e355]: nonce
+              - generic [ref=e356]: token
+              - generic [ref=e357]: response_schema
+          - generic [ref=e358]:
+            - generic [ref=e359]: Stealth
+            - generic [ref=e360]: medium
+      - generic [ref=e361]:
+        - generic [ref=e362]:
+          - generic [ref=e363]: ●
+          - text: Live Status
+        - generic [ref=e364]:
+          - generic [ref=e365]:
+            - generic [ref=e366]: IDLE
+            - generic [ref=e367]: Status
+          - generic [ref=e368]:
+            - generic [ref=e369]: 0/12
+            - generic [ref=e370]: Step
+          - generic [ref=e371]:
+            - generic [ref=e372]: "0"
+            - generic [ref=e373]: Evidence
+          - generic [ref=e374]:
+            - generic [ref=e375]: 0%
+            - generic [ref=e376]: Trust
+      - generic [ref=e134]:
+        - generic [ref=e135]: Agents
+        - generic [ref=e136]:
+          - generic [ref=e137]:
+            - generic [ref=e138]: 🔍
+            - generic [ref=e139]:
+              - generic [ref=e140]: Field Researcher
+              - generic [ref=e141]: idle
+          - generic [ref=e143]:
+            - generic [ref=e144]: 🌐
+            - generic [ref=e145]:
+              - generic [ref=e146]: Network Engineer
+              - generic [ref=e147]: idle
+          - generic [ref=e149]:
+            - generic [ref=e150]: ⚙️
+            - generic [ref=e151]:
+              - generic [ref=e152]: Protocol Analyst
+              - generic [ref=e153]: idle
+          - generic [ref=e155]:
+            - generic [ref=e156]: ⚡
+            - generic [ref=e157]:
+              - generic [ref=e158]: Runtime Specialist
+              - generic [ref=e159]: idle
+          - generic [ref=e161]:
+            - generic [ref=e162]: 📊
+            - generic [ref=e163]:
+              - generic [ref=e164]: Data Architect
+              - generic [ref=e165]: idle
+          - generic [ref=e167]:
+            - generic [ref=e168]: 🔨
+            - generic [ref=e169]:
+              - generic [ref=e170]: SDK Engineer
+              - generic [ref=e171]: idle
+          - generic [ref=e173]:
+            - generic [ref=e174]: ✅
+            - generic [ref=e175]:
+              - generic [ref=e176]: QA Lead
+              - generic [ref=e177]: idle
+          - generic [ref=e179]:
+            - generic [ref=e180]: 🧐
+            - generic [ref=e181]:
+              - generic [ref=e182]: Tech Director
+              - generic [ref=e183]: idle
+          - generic [ref=e185]:
+            - generic [ref=e186]: 🧠
+            - generic [ref=e187]:
+              - generic [ref=e188]: Knowledge Manager
+              - generic [ref=e189]: idle
+      - generic [ref=e191]:
+        - generic [ref=e192] [cursor=pointer]:
+          - text: Log
+          - generic [ref=e193]: "3"
+          - generic [ref=e194]: ▾
+        - generic [ref=e378]:
+          - generic [ref=e379]:
+            - generic [ref=e380]: 19:15:52
+            - generic [ref=e381]: "AI inferred: Reverse engineer the API at http://127.0.0.1:7788/"
+          - generic [ref=e382]:
+            - generic [ref=e383]: 19:15:52
+            - generic [ref=e384]: "Session: 202a138a-7b9"
+          - generic [ref=e385]:
+            - generic [ref=e386]: 19:15:52
+            - generic [ref=e387]: "Launching: http://127.0.0.1:7788/"
+    - generic [ref=e195]:
+      - generic: Drag to pan · Scroll to zoom
+    - generic [ref=e197]:
+      - generic [ref=e198]:
+        - generic [ref=e199]: Mission
+        - generic [ref=e200]: IDLE
+        - generic [ref=e201]: "Outcome: unknown"
+        - generic [ref=e202]:
+          - generic [ref=e203]: Step 0 / 12
+          - generic [ref=e204]: Evidence 0
+          - generic [ref=e205]: Hypotheses 0
+        - generic [ref=e207]:
+          - generic [ref=e208]: Progress
+          - generic [ref=e209]: 0%
+      - generic [ref=e211]:
+        - generic [ref=e212]: Trust
+        - generic [ref=e213]:
+          - generic [ref=e214]: Overall
+          - generic [ref=e216]: 0%
+        - generic [ref=e217]:
+          - generic [ref=e218]: Execution
+          - generic [ref=e220]: 0%
+        - generic [ref=e221]:
+          - generic [ref=e222]: Mechanism
+          - generic [ref=e224]: 0%
+      - generic [ref=e225]:
+        - generic [ref=e226]: Coverage
+        - generic [ref=e227]:
+          - generic [ref=e229]:
+            - generic [ref=e230]: Acquire
+            - generic [ref=e231]: 0%
+          - generic [ref=e234]:
+            - generic [ref=e235]: Protocol
+            - generic [ref=e236]: 0%
+          - generic [ref=e239]:
+            - generic [ref=e240]: Reverse
+            - generic [ref=e241]: 0%
+          - generic [ref=e244]:
+            - generic [ref=e245]: Runtime
+            - generic [ref=e246]: 0%
+          - generic [ref=e249]:
+            - generic [ref=e250]: Schema
+            - generic [ref=e251]: 0%
+          - generic [ref=e254]:
+            - generic [ref=e255]: Extract
+            - generic [ref=e256]: 0%
+          - generic [ref=e259]:
+            - generic [ref=e260]: Build
+            - generic [ref=e261]: 0%
+          - generic [ref=e264]:
+            - generic [ref=e265]: Verify
+            - generic [ref=e266]: 0%
+      - generic [ref=e268]:
+        - generic [ref=e269]: Agents
+        - generic [ref=e270]:
+          - generic [ref=e271]:
+            - generic [ref=e272]: 🔍
+            - generic [ref=e273]: RECON
+            - generic [ref=e274]: idle
+          - generic [ref=e276]:
+            - generic [ref=e277]: 🌐
+            - generic [ref=e278]: TRANSPORT
+            - generic [ref=e279]: idle
+          - generic [ref=e281]:
+            - generic [ref=e282]: ⚙️
+            - generic [ref=e283]: REVERSE
+            - generic [ref=e284]: idle
+          - generic [ref=e286]:
+            - generic [ref=e287]: ⚡
+            - generic [ref=e288]: RUNTIME
+            - generic [ref=e289]: idle
+          - generic [ref=e291]:
+            - generic [ref=e292]: 📊
+            - generic [ref=e293]: SCHEMA
+            - generic [ref=e294]: idle
+          - generic [ref=e296]:
+            - generic [ref=e297]: 🔨
+            - generic [ref=e298]: BUILDER
+            - generic [ref=e299]: idle
+          - generic [ref=e301]:
+            - generic [ref=e302]: ✅
+            - generic [ref=e303]: VERIFIER
+            - generic [ref=e304]: idle
+          - generic [ref=e306]:
+            - generic [ref=e307]: 🧐
+            - generic [ref=e308]: CRITIC
+            - generic [ref=e309]: idle
+          - generic [ref=e311]:
+            - generic [ref=e312]: 🧠
+            - generic [ref=e313]: MEMORY
+            - generic [ref=e314]: idle
+      - generic [ref=e316]:
+        - generic [ref=e317]: Current Focus
+        - generic [ref=e318]: Waiting for mission...
+      - generic [ref=e319]:
+        - generic [ref=e320]: Blockers
+        - generic [ref=e397]: ✓ No blockers
+      - generic [ref=e324]: Event Log

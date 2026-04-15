@@ -12,6 +12,11 @@ from axelo.tools import (
     flow_tool,
     honeypot_tool,
     web_search_tool,
+    deobfuscate_tool,
+    trace_tool,
+    sigverify_tool,
+    captcha_tool,
+    signature_extractor_tool,
 )
 
 # Also import the base module to ensure registry is initialized
@@ -32,4 +37,9 @@ __all__ = [
     "flow_tool",
     "honeypot_tool",
     "web_search_tool",
+    "deobfuscate_tool",
+    "trace_tool",
+    "sigverify_tool",
+    "captcha_tool",
+    "signature_extractor_tool",
 ]

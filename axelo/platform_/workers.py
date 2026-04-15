@@ -11,19 +11,13 @@ from axelo.browser.driver import BrowserDriver
 from axelo.browser.profiles import PROFILES
 from axelo.browser.state_store import BrowserStateStore
 from axelo.config import settings
+from axelo.engine.runtime import UnifiedEngine
 from axelo.models.analysis import AnalysisResult
 from axelo.models.codegen import GeneratedCode
 from axelo.models.contracts import AdapterPackage
 from axelo.models.session_state import SessionState
 from axelo.models.target import TargetSite
-# Lazy import MasterOrchestrator - may not be available
-def _get_orchestrator_class():
-    try:
-        from axelo.orchestrator.master import MasterOrchestrator
-        return MasterOrchestrator
-    except ImportError:
-        return None
-from axelo.platform.models import (
+from axelo.platform_.models import (
     AccountStatus,
     AdapterVersion,
     BridgeJobSpec,
@@ -36,8 +30,8 @@ from axelo.platform.models import (
     WorkerType,
     utc_now,
 )
-from axelo.platform.runtime import PlatformRuntime
-from axelo.platform.topics import TOPIC_PLATFORM_EVENTS
+from axelo.platform_.runtime import PlatformRuntime
+from axelo.platform_.topics import TOPIC_PLATFORM_EVENTS
 from axelo.storage.session_state_store import SessionStateStore
 from axelo.verification.replayer import RequestReplayer
 
@@ -142,93 +136,74 @@ class ReverseWorker(WorkerBase):
         region: str = "global",
     ) -> None:
         super().__init__(runtime, worker_type=WorkerType.REVERSE, queue_name=queue_name, region=region)
-        self._orchestrator_class = _get_orchestrator_class()
 
     async def run_once(self) -> bool:
-        # Check if orchestrator is available
-        if self._orchestrator_class is None:
-            log.error(
-                "orchestrator_not_available",
-                error_code="WORKER_ORCHESTRATOR_UNAVAILABLE",
-                message="MasterOrchestrator is not available. Please ensure the orchestrator module is installed.",
-            )
-            self._heartbeat("error", details={"error": "orchestrator not available"})
-            return False
-
         job = self._runtime.store.acquire_job(JobType.REVERSE, queue=self._queue_name, region=self._region)
         if job is None:
             self._heartbeat("idle")
             return False
         self._heartbeat("running", details={"job_id": job.job_id})
         spec = ReverseJobSpec.model_validate(job.spec.model_dump(mode="json"))
-        browser_profile = PROFILES.get(spec.browser_profile_name, PROFILES["default"]).model_copy(deep=True)
-        
-        # Use orchestrator class to create instance
-        orchestrator = self._orchestrator_class()
-        result = await orchestrator.run(
-            url=spec.url,
-            goal=spec.goal,
-            target_hint=spec.target_hint,
-            use_case=spec.use_case,
-            authorization_status=spec.authorization_status,
-            replay_mode=spec.replay_mode,
-            mode_name="auto",
-            session_id=job.job_id,
-            budget_usd=spec.budget_usd,
-            known_endpoint=spec.known_endpoint,
-            antibot_type=spec.antibot_type,
-            requires_login=spec.requires_login,
-            output_format=spec.output_format,
-            crawl_rate=spec.crawl_rate,
-            intent=spec.intent,
-            browser_profile=browser_profile,
-        )
-        if not result.completed or result.generated is None:
-            self._runtime.store.fail_job(JobType.REVERSE, job.job_id, result.error or "reverse run failed")
-            self._runtime.event_bus.publish(TOPIC_PLATFORM_EVENTS, {"event": "reverse_failed", "job_id": job.job_id, "error": result.error or ""}, key=spec.site_key)
+        try:
+            result, generated, report_path = await self._run_principal_runtime(spec)
+        except Exception as exc:
+            self._runtime.store.fail_job(JobType.REVERSE, job.job_id, str(exc))
+            self._runtime.event_bus.publish(
+                TOPIC_PLATFORM_EVENTS,
+                {"event": "reverse_failed", "job_id": job.job_id, "error": str(exc)},
+                key=spec.site_key,
+            )
+            return True
+        if generated is None:
+            self._runtime.store.fail_job(JobType.REVERSE, job.job_id, "principal runtime did not produce crawler artifacts")
+            self._runtime.event_bus.publish(
+                TOPIC_PLATFORM_EVENTS,
+                {"event": "reverse_failed", "job_id": job.job_id, "error": "principal runtime did not produce crawler artifacts"},
+                key=spec.site_key,
+            )
             return True
 
         report_ref = ""
-        if result.report_path and result.report_path.exists():
+        if report_path and report_path.exists():
             report_ref = self._runtime.object_store.put_file(
-                f"reports/{spec.site_key}/{job.job_id}/run_report.json",
-                result.report_path,
+                f"reports/{spec.site_key}/{job.job_id}/{report_path.name}",
+                report_path,
             )
-        if result.generated.crawler_script_path and result.generated.crawler_script_path.exists():
-            result.generated.crawler_script_path = Path(
+        if generated.crawler_script_path and generated.crawler_script_path.exists():
+            generated.crawler_script_path = Path(
                 self._runtime.object_store.put_file(
                     f"adapters/{spec.site_key}/{job.job_id}/crawler.py",
-                    result.generated.crawler_script_path,
+                    generated.crawler_script_path,
                 )
             )
-        if result.generated.bridge_server_path and result.generated.bridge_server_path.exists():
-            result.generated.bridge_server_path = Path(
+        if generated.bridge_server_path and generated.bridge_server_path.exists():
+            generated.bridge_server_path = Path(
                 self._runtime.object_store.put_file(
                     f"adapters/{spec.site_key}/{job.job_id}/bridge_server.js",
-                    result.generated.bridge_server_path,
+                    generated.bridge_server_path,
                 )
             )
-        if result.generated.manifest_path and result.generated.manifest_path.exists():
-            result.generated.manifest_path = Path(
+        if generated.manifest_path and generated.manifest_path.exists():
+            generated.manifest_path = Path(
                 self._runtime.object_store.put_file(
                     f"adapters/{spec.site_key}/{job.job_id}/crawler_manifest.json",
-                    result.generated.manifest_path,
+                    generated.manifest_path,
                 )
             )
-        if result.generated.adapter_package_path and result.generated.adapter_package_path.exists():
-            result.generated.adapter_package_path = Path(
+        if generated.adapter_package_path and generated.adapter_package_path.exists():
+            generated.adapter_package_path = Path(
                 self._runtime.object_store.put_file(
                     f"adapters/{spec.site_key}/{job.job_id}/adapter_package.json",
-                    result.generated.adapter_package_path,
+                    generated.adapter_package_path,
                 )
             )
         adapter = build_adapter_version(
             site_key=spec.site_key,
             reverse_job_id=job.job_id,
-            generated=result.generated,
-            analysis=result.analysis,
+            generated=generated,
+            analysis=None,
             report_ref=report_ref,
-            verified=result.verified,
+            verified=result.execution_success,
         )
         self._runtime.store.register_adapter_version(adapter)
         self._runtime.store.record_verification(
@@ -236,21 +211,71 @@ class ReverseWorker(WorkerBase):
             site_key=spec.site_key,
             adapter_version=adapter.version,
             reverse_job_id=job.job_id,
-            verified=result.verified,
+            verified=result.execution_success,
             report_ref=report_ref,
-            notes=result.generated.verification_notes if result.generated else "",
+            notes=generated.verification_notes,
         )
         self._runtime.store.complete_job(
             JobType.REVERSE,
             job.job_id,
             {
                 "adapter_version": adapter.version,
-                "verified": result.verified,
+                "verified": result.execution_success,
                 "report_ref": report_ref,
+                "session_id": result.session_id,
             },
         )
         self._runtime.event_bus.publish(TOPIC_PLATFORM_EVENTS, {"event": "reverse_completed", "job_id": job.job_id, "adapter_version": adapter.version}, key=spec.site_key)
         return True
+
+    async def _run_principal_runtime(self, spec: ReverseJobSpec) -> tuple[Any, GeneratedCode | None, Path | None]:
+        engine = UnifiedEngine(workspace=self._runtime.workspace)
+        prepared = await engine.plan_request(
+            prompt=spec.goal,
+            url=spec.url,
+            goal=spec.goal,
+            metadata={
+                "platform": {
+                    "site_key": spec.site_key,
+                    "target_hint": spec.target_hint,
+                    "use_case": spec.use_case,
+                    "authorization_status": spec.authorization_status,
+                    "replay_mode": spec.replay_mode,
+                    "known_endpoint": spec.known_endpoint,
+                    "antibot_type": spec.antibot_type,
+                    "requires_login": spec.requires_login,
+                    "output_format": spec.output_format,
+                    "crawl_rate": spec.crawl_rate,
+                    "browser_profile_name": spec.browser_profile_name,
+                    "budget_usd": spec.budget_usd,
+                    "intent": spec.intent,
+                }
+            },
+        )
+        result = await engine.execute_prepared(prepared)
+        session_root = Path(result.artifact_bundle.root_dir)
+        generated_dir = session_root / "artifacts" / "generated"
+        final_dir = session_root / "artifacts" / "final"
+        crawler_path = generated_dir / "crawler.py"
+        bridge_path = generated_dir / "signature.js"
+        manifest_path = generated_dir / "manifest.json"
+        adapter_package_path = generated_dir / "adapter_package.json"
+        report_path = final_dir / "verify_output.json"
+        if not report_path.exists():
+            report_path = final_dir / "mission_report.json"
+        generated = None
+        if crawler_path.exists() or bridge_path.exists() or manifest_path.exists() or adapter_package_path.exists():
+            generated = GeneratedCode(
+                session_id=result.session_id,
+                output_mode="bridge" if bridge_path.exists() else "standalone",
+                crawler_script_path=crawler_path if crawler_path.exists() else None,
+                bridge_server_path=bridge_path if bridge_path.exists() else None,
+                manifest_path=manifest_path if manifest_path.exists() else None,
+                adapter_package_path=adapter_package_path if adapter_package_path.exists() else None,
+                verified=result.execution_success,
+                verification_notes=result.summary,
+            )
+        return result, generated, report_path if report_path.exists() else None
 
 
 class CrawlWorker(WorkerBase):

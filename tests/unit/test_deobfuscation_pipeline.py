@@ -106,9 +106,8 @@ async def test_timeout_falls_back_to_next_tool(tmp_path: Path):
         "__webpack_require__(1)",
         tmp_path,
         bundle_type="webpack",
-        size_bytes=120_000,
+        size_bytes=60_000,
     )
-
     assert result.success is True
     assert result.tool_used == "babel-manual"
     assert [tool for tool, _ in runner.calls] == ["webcrack", "babel-manual"]

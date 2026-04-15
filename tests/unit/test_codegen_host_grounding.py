@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from axelo.agents.codegen_agent import (
+from axelo.ai.agents.codegen_agent import (
     _preferred_api_base,
     _repair_generated_code_for_target,
     _render_base_crawler_template,
 )
-from axelo.agents.codegen_services import _observed_targets_payload, _safe_default_headers
+from axelo.ai.agents.codegen_services import _observed_targets_payload, _safe_default_headers
 from axelo.config import settings
 from axelo.models.analysis import AIHypothesis
 from axelo.models.target import RequestCapture, TargetSite

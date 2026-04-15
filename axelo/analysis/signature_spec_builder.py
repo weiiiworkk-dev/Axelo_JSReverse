@@ -140,8 +140,8 @@ def _infer_algorithm_id(target: TargetSite, hypothesis: AIHypothesis) -> str:
     notes = (hypothesis.notes or "").lower()
     description = (hypothesis.algorithm_description or "").lower()
     text = " ".join([template_name, notes, description])
-    if "mtop" in text or any("/h5/mtop." in (request.url or "").lower() for request in (target.target_requests or target.captured_requests)):
-        return "mtop"
+    if "cookie_md5" in text or "cookie-bound" in text or ("cookie" in text and "md5" in text):
+        return "cookie_md5"
     if "hmac" in text:
         return "hmac"
     if "md5" in text:

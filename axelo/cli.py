@@ -45,17 +45,17 @@ def default_command(
 @app.command()
 def web(
     port: int = typer.Option(7788, "--port", "-p", help="监听端口"),
-    open_browser: bool = typer.Option(False, "--open", "-o", help="启动后自动在浏览器打开"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="启动后自动在浏览器打开（默认开启）"),
     log_level: str = typer.Option("info", "--log-level", "-l", help="日志级别"),
 ) -> None:
-    """启动 3D 像素办公室可视化 Web 服务。"""
+    """启动 AI 逆向向导 Web 服务。"""
     _setup_logging(log_level)
     console.print(
         Panel(
             f"[white]Web 服务端口:[/white] [cyan]{port}[/cyan]\n"
             f"[white]前端地址:[/white] [green]http://localhost:{port}[/green]\n"
             f"[white]API 文档:[/white] [dim]http://localhost:{port}/docs[/dim]",
-            title="[bold cyan]Axelo Web — 3D 像素办公室[/bold cyan]",
+            title="[bold cyan]Axelo Web — AI 逆向向导[/bold cyan]",
             border_style="cyan",
         )
     )

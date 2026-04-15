@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import random
 from dataclasses import dataclass
 from typing import Any
@@ -92,12 +93,12 @@ class CanvasFingerprintGenerator:
     def _generate_fingerprint_data(self, profile: "BrowserProfile") -> str:
         """Generate fingerprint data from profile."""
         components = [
-            profile.user_agent or "",
-            profile.platform or "",
-            profile.webgl_vendor or "",
-            profile.webgl_renderer or "",
-            profile.timezone or "",
-            str(profile.screen_resolution or ""),
+            getattr(profile, "user_agent", "") or "",
+            getattr(profile, "platform", "") or "",
+            getattr(profile, "webgl_vendor", "") or "",
+            getattr(profile, "webgl_renderer", "") or "",
+            getattr(profile, "timezone", "") or "",
+            str(getattr(profile, "screen_resolution", "") or ""),
         ]
         
         # Add some randomness
@@ -134,7 +135,7 @@ class AudioFingerprintGenerator:
     def _generate_audio_data(self, profile: "BrowserProfile") -> str:
         """Generate audio fingerprint data."""
         components = [
-            profile.platform or "",
+            getattr(profile, "platform", "") or "",
             str(self._random.randint(1000, 10000)),
             self._random.choice(["44100", "48000", "22050"]),
             self._random.choice(["float32", "int16", "int32"]),
@@ -176,64 +177,88 @@ class FontDetector:
             List of detected font names
         """
         if page is not None:
-            return self._detect_in_browser(page)
+            return self._detect_in_browser_sync(page)
         else:
             # Return default common fonts
             return self._get_default_fonts()
     
     async def detect_async(self, page: Any) -> list[str]:
         """Async detection in browser context."""
-        return self._detect_in_browser(page)
+        return await self._detect_in_browser_async(page)
     
-    def _detect_in_browser(self, page: Any) -> list[str]:
-        """Detect fonts by comparing rendered widths."""
+    def _detect_in_browser_sync(self, page: Any) -> list[str]:
+        """Detect fonts in sync-only contexts.
+
+        Playwright's async page API returns awaitables. In sync callers we fall back
+        to a default font set instead of creating un-awaited coroutines.
+        """
         try:
-            detected = page.evaluate("""
-                () => {
-                    const testFonts = [
-                        'Arial', 'Arial Black', 'Calibri', 'Cambria', 'Candara',
-                        'Comic Sans MS', 'Consolas', 'Corbel', 'Courier New',
-                        'Georgia', 'Impact', 'Lucida Console', 'Microsoft Sans Serif',
-                        'Palatino Linotype', 'Segoe UI', 'Tahoma', 'Times New Roman',
-                        'Trebuchet MS', 'Verdana'
-                    ];
-                    
-                    const testString = 'mmmmmmmmmmlli';
-                    const testSize = '72px';
-                    const testDiv = document.createElement('div');
-                    
-                    const defaultWidth = (() => {
-                        testDiv.style.fontFamily = 'sans-serif';
-                        testDiv.style.fontSize = testSize;
-                        testDiv.style.position = 'absolute';
-                        testDiv.style.left = '-9999px';
-                        testDiv.innerHTML = testString;
-                        document.body.appendChild(testDiv);
-                        const width = testDiv.offsetWidth;
-                        document.body.removeChild(testDiv);
-                        return width;
-                    })();
-                    
-                    const available = [];
-                    for (const font of testFonts) {
-                        testDiv.style.fontFamily = `'${font}', sans-serif`;
-                        testDiv.innerHTML = testString;
-                        document.body.appendChild(testDiv);
-                        const width = testDiv.offsetWidth;
-                        document.body.removeChild(testDiv);
-                        
-                        if (width !== defaultWidth) {
-                            available.push(font);
-                        }
-                    }
-                    
-                    return available;
-                }
-            """)
-            return detected
+            evaluate = getattr(page, "evaluate", None)
+            if evaluate is None:
+                return self._get_default_fonts()
+            if inspect.iscoroutinefunction(evaluate):
+                return self._get_default_fonts()
+            detected = evaluate(self._font_probe_script())
+            if inspect.isawaitable(detected):
+                return self._get_default_fonts()
+            return detected or self._get_default_fonts()
         except Exception as e:
             log.warning("font_detection_failed", error=str(e))
             return self._get_default_fonts()
+
+    async def _detect_in_browser_async(self, page: Any) -> list[str]:
+        """Detect fonts by comparing rendered widths."""
+        try:
+            detected = await page.evaluate(self._font_probe_script())
+            return detected or self._get_default_fonts()
+        except Exception as e:
+            log.warning("font_detection_failed", error=str(e))
+            return self._get_default_fonts()
+
+    @staticmethod
+    def _font_probe_script() -> str:
+        return """
+            () => {
+                const testFonts = [
+                    'Arial', 'Arial Black', 'Calibri', 'Cambria', 'Candara',
+                    'Comic Sans MS', 'Consolas', 'Corbel', 'Courier New',
+                    'Georgia', 'Impact', 'Lucida Console', 'Microsoft Sans Serif',
+                    'Palatino Linotype', 'Segoe UI', 'Tahoma', 'Times New Roman',
+                    'Trebuchet MS', 'Verdana'
+                ];
+                
+                const testString = 'mmmmmmmmmmlli';
+                const testSize = '72px';
+                const testDiv = document.createElement('div');
+                
+                const defaultWidth = (() => {
+                    testDiv.style.fontFamily = 'sans-serif';
+                    testDiv.style.fontSize = testSize;
+                    testDiv.style.position = 'absolute';
+                    testDiv.style.left = '-9999px';
+                    testDiv.innerHTML = testString;
+                    document.body.appendChild(testDiv);
+                    const width = testDiv.offsetWidth;
+                    document.body.removeChild(testDiv);
+                    return width;
+                })();
+                
+                const available = [];
+                for (const font of testFonts) {
+                    testDiv.style.fontFamily = `'${font}', sans-serif`;
+                    testDiv.innerHTML = testString;
+                    document.body.appendChild(testDiv);
+                    const width = testDiv.offsetWidth;
+                    document.body.removeChild(testDiv);
+                    
+                    if (width !== defaultWidth) {
+                        available.push(font);
+                    }
+                }
+                
+                return available;
+            }
+        """
     
     def _get_default_fonts(self) -> list[str]:
         """Get default font list (when no browser available)."""
@@ -278,12 +303,33 @@ class DeviceFingerprintReinforcer:
         return DeviceFingerprint(
             canvas_hash=canvas_hash,
             audio_hash=audio_hash,
-            webgl_vendor=profile.webgl_vendor or "",
-            webgl_renderer=profile.webgl_renderer or "",
+            webgl_vendor=getattr(profile, "webgl_vendor", "") or "",
+            webgl_renderer=getattr(profile, "webgl_renderer", "") or "",
             fonts=fonts,
-            timezone=profile.timezone or "UTC",
-            screen_resolution=str(profile.screen_resolution or "1920x1080"),
-            platform=profile.platform or "Win32",
+            timezone=getattr(profile, "timezone", "") or "UTC",
+            screen_resolution=str(getattr(profile, "screen_resolution", "") or "1920x1080"),
+            platform=getattr(profile, "platform", "") or "Win32",
+        )
+
+    async def generate_fingerprint_async(
+        self,
+        profile: "BrowserProfile",
+        page: Any | None = None
+    ) -> DeviceFingerprint:
+        """Generate fingerprint with async browser-aware font detection."""
+        canvas_hash = self._canvas_generator.generate(profile)
+        audio_hash = self._audio_generator.generate(profile)
+        fonts = await self._font_detector.detect_async(page) if page is not None else self._font_detector.detect()
+
+        return DeviceFingerprint(
+            canvas_hash=canvas_hash,
+            audio_hash=audio_hash,
+            webgl_vendor=getattr(profile, "webgl_vendor", "") or "",
+            webgl_renderer=getattr(profile, "webgl_renderer", "") or "",
+            fonts=fonts,
+            timezone=getattr(profile, "timezone", "") or "UTC",
+            screen_resolution=str(getattr(profile, "screen_resolution", "") or "1920x1080"),
+            platform=getattr(profile, "platform", "") or "Win32",
         )
     
     def make_realistic(

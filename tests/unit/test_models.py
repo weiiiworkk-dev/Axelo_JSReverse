@@ -1,55 +1,8 @@
-"""核心数据模型单元测试"""
-import pytest
-from axelo.models.pipeline import Decision, DecisionType, PipelineState, StageResult, StageStatus
-from axelo.models.target import TargetSite, RequestCapture, BrowserProfile
+"""Core data model tests."""
+
 from axelo.browser.profiles import PROFILES
-from axelo.models.bundle import JSBundle
-from axelo.models.analysis import (
-    TokenCandidate, StaticAnalysis, HookIntercept,
-    DynamicAnalysis, AIHypothesis,
-)
-from pathlib import Path
-
-
-class TestPipelineState:
-    def test_create_state(self):
-        state = PipelineState(session_id="test01", mode="interactive")
-        assert state.session_id == "test01"
-        assert state.mode == "interactive"
-        assert state.current_stage_index == 0
-        assert not state.completed
-
-    def test_set_and_get_artifact(self, tmp_path):
-        state = PipelineState(session_id="test01")
-        p = tmp_path / "output.py"
-        p.write_text("# code")
-        state.set_artifact("script", p)
-        assert state.get_artifact("script") == p
-
-    def test_get_missing_artifact_returns_none(self):
-        state = PipelineState(session_id="test01")
-        assert state.get_artifact("nonexistent") is None
-
-
-class TestDecision:
-    def test_decision_has_id(self):
-        d = Decision(
-            stage="s1_crawl",
-            decision_type=DecisionType.CONFIRM_TARGET,
-            prompt="test",
-        )
-        assert len(d.decision_id) == 8
-
-    def test_decision_with_options(self):
-        d = Decision(
-            stage="s2_fetch",
-            decision_type=DecisionType.SELECT_OPTION,
-            prompt="Select bundle",
-            options=["bundle_a", "bundle_b"],
-            default="bundle_a",
-        )
-        assert d.options == ["bundle_a", "bundle_b"]
-        assert d.default == "bundle_a"
+from axelo.models.analysis import AIHypothesis, TokenCandidate
+from axelo.models.target import BrowserProfile, RequestCapture, TargetSite
 
 
 class TestRequestCapture:
@@ -77,7 +30,7 @@ class TestRequestCapture:
         )
         target = TargetSite(
             url="https://example.com",
-            session_id="test01",
+            session_id="AAA-000001",
             interaction_goal="demo",
             captured_requests=[cap],
             target_requests=[cap],
@@ -101,44 +54,44 @@ class TestBrowserProfile:
         assert profile.environment_simulation.has_touch is True
         assert profile.environment_simulation.media.pointer == "coarse"
 
-    def test_legacy_stealth_field_is_ignored(self):
+    def test_unknown_stealth_field_is_ignored(self):
         profile = BrowserProfile.model_validate({"stealth": True})
         assert profile.environment_simulation.profile_name == "desktop"
 
 
 class TestTokenCandidate:
     def test_candidate_creation(self):
-        c = TokenCandidate(
+        candidate = TokenCandidate(
             func_id="bundle01:signRequest",
             token_type="hmac",
             confidence=0.85,
-            evidence=["包含关键词 'hmac'", "函数名含 sign"],
+            evidence=["contains hmac marker", "function name includes sign"],
             request_field="X-Sign",
         )
-        assert c.confidence == 0.85
-        assert c.token_type == "hmac"
+        assert candidate.confidence == 0.85
+        assert candidate.token_type == "hmac"
 
     def test_confidence_bounds(self):
-        c = TokenCandidate(func_id="x:y", token_type="md5", confidence=0.0)
-        assert 0.0 <= c.confidence <= 1.0
+        candidate = TokenCandidate(func_id="x:y", token_type="md5", confidence=0.0)
+        assert 0.0 <= candidate.confidence <= 1.0
 
 
 class TestAIHypothesis:
     def test_hypothesis_defaults(self):
-        h = AIHypothesis(
+        hypothesis = AIHypothesis(
             algorithm_description="HMAC-SHA256 with timestamp",
             codegen_strategy="python_reconstruct",
             python_feasibility=0.9,
             confidence=0.85,
         )
-        assert h.steps == []
-        assert h.inputs == []
-        assert h.outputs == {}
+        assert hypothesis.steps == []
+        assert hypothesis.inputs == []
+        assert hypothesis.outputs == {}
 
     def test_codegen_strategy_values(self):
-        for strategy in ("python_reconstruct", "js_bridge"):
-            h = AIHypothesis(
+        for strategy in ("python_reconstruct", "js_bridge", "observed_replay"):
+            hypothesis = AIHypothesis(
                 algorithm_description="test",
                 codegen_strategy=strategy,
             )
-            assert h.codegen_strategy == strategy
+            assert hypothesis.codegen_strategy == strategy

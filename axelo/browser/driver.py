@@ -54,72 +54,42 @@ class BrowserDriver:
             headless=headless_mode,
             ignore_default_args=["--enable-automation"],
             args=[
-                # ========== 核心隐身参数 ==========
+                # ── 核心反自动化检测 ──────────────────────────────────────
                 "--disable-blink-features=AutomationControlled",
+                "--disable-features=AutomationControlled",
+
+                # ── 浏览器行为伪装 ────────────────────────────────────────
                 "--disable-infobars",
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--password-store=basic",
                 "--use-mock-keychain",
-                
-                # ========== 禁用自动化特征检测 ==========
-                "--disable-features=AutomationControlled,SitePerProcess,IsolateOrigins",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                
-                # ========== 浏览器特征伪装 ==========
+
+                # ── 功能禁用（有效的 Chromium flags）────────────────────
                 "--disable-client-side-phishing-detection",
                 "--disable-extensions",
                 "--disable-translate",
                 "--disable-sync",
-                
-                # ========== 网络行为伪装 ==========
                 "--disable-background-networking",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-default-apps",
                 "--disable-domain-reliability",
                 "--disable-ipc-flooding-protection",
-                "--no-async-dns",
-                "--no-pings",
-                
-                # ========== 性能特征伪装 ==========
                 "--disable-hang-monitor",
                 "--disable-renderer-backgrounding",
-                "--metrics-recording-only",
-                "--no-crash-upload",
-                
-                # ========== 窗口与渲染 ==========
-                "--window-size=1920,1080",
-                "--disable-software-rasterizer",
-                "--disable-gpu-compositing",
-                "--enable-features=NetworkService,NetworkServiceInProcess",
-                "--force-color-profile=srgb",
-                
-                # ========== Cookie与Session伪装 ==========
-                "--disable-coep",
-                "--disable-coep-reporter",
-                "--disable-default-cookie-origin",
-                
-                # ========== 隐私与行为伪装 ==========
-                "--disable-tracking",
-                "--disable-speech",
-                "--disable-webrtc",
-                "--disable-popup-blocking",
-                "--disable-prompt-on-repost",
-                
-                # ========== 实验性参数 ==========
                 "--disable-breakpad",
                 "--disable-component-extensions-with-background-pages",
-                "--js-flags=--max-old-space-size=4096",
-                
-                # ========== Amazon/eBay等电商专用 ==========
-                "--disable-bot-detection",
-                "--disable-hints",
                 "--disable-component-update",
-                
-                # ========== Windows稳定参数 ==========
-                "--disable-web-security",
+                "--no-pings",
+
+                # ── 窗口与渲染 ────────────────────────────────────────────
+                "--window-size=1920,1080",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+
+                # ── 内存配置 ──────────────────────────────────────────────
+                "--js-flags=--max-old-space-size=4096",
             ],
         )
         
@@ -141,9 +111,17 @@ class BrowserDriver:
         if session_state and session_state.cookies and not context_kwargs.get("storage_state"):
             await self._context.add_cookies(session_state.cookies)
 
-        simulation_payload = build_simulation_payload(profile)
-        self._simulation_handles = dict(simulation_payload.get("runtimeHandles") or {})
-        await self._context.add_init_script(render_simulation_init_script(profile, payload=simulation_payload))
+        try:
+            simulation_payload = build_simulation_payload(profile)
+            self._simulation_handles = dict(simulation_payload.get("runtimeHandles") or {})
+            await self._context.add_init_script(render_simulation_init_script(profile, payload=simulation_payload))
+        except Exception as _sim_exc:
+            import structlog as _sl
+            _sl.get_logger().warning(
+                "browser_simulation_payload_failed_falling_back",
+                error=str(_sim_exc),
+            )
+            self._simulation_handles = {}
         
         # =====================================================
         # 大幅度增强反爬机制 - JavaScript层伪装

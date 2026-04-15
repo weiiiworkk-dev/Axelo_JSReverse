@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from axelo.models.contracts import CaptureIntent
-from axelo.platform.models import (
+from axelo.platform_.models import (
     AccountRecord,
     BridgeJobSpec,
     CrawlJobSpec,
@@ -21,8 +21,8 @@ from axelo.platform.models import (
     site_key_from_url,
     utc_now,
 )
-from axelo.platform.storage import FileEventBus, LocalObjectStore, LocalWarehouseSink, PlatformStore
-from axelo.platform.topics import (
+from axelo.platform_.storage import FileEventBus, LocalObjectStore, LocalWarehouseSink, PlatformStore
+from axelo.platform_.topics import (
     TOPIC_FRONTIER_DISCOVERED,
     TOPIC_JOBS_BRIDGE,
     TOPIC_JOBS_CRAWL,

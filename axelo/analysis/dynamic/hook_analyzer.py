@@ -14,7 +14,7 @@ HIGH_VALUE_APIS = {
 
 class HookAnalyzer:
     """
-    Summarize legacy hook intercepts and fold topology-derived sink mapping into
+    Summarize runtime hook intercepts and fold topology-derived sink mapping into
     a compact runtime analysis report.
     """
 

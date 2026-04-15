@@ -86,7 +86,7 @@ class RequestReplayer:
             shutil.copy2(script_path, copied_script)
 
             # Locate the bridge server — it may be plain "bridge_server.js" or
-            # prefixed with the run-id (e.g. "run_0004_bridge_server.js").
+            # prefixed with the session-id (e.g. "AAA-000004_bridge_server.js").
             # Always copy it into temp_dir as "bridge_server.js" so the
             # crawler template's hardcoded BRIDGE_PATH = "bridge_server.js" resolves.
             sibling_bridge = script_path.parent / "bridge_server.js"

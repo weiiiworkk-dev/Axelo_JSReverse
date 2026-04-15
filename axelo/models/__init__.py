@@ -25,7 +25,6 @@ from .contracts import (
     VerificationProfile,
 )
 from .execution import ExecutionPlan, ExecutionTier, VerificationMode
-from .pipeline import Decision, DecisionType, PipelineState, StageRecord, StageResult, StageStatus
 from .run_config import AntiBotType, CrawlRate, OutputFormat, RunConfig, RunMode
 from .session_state import SessionState
 from .signature import SignatureSpec
@@ -44,7 +43,16 @@ from .target import (
 )
 from .trace import TraceArtifact, WorkflowCheckpoint
 # Memory exports (consolidated)
-from axelo.memory import MemoryDB, VectorStore, MemoryRetriever, MemoryWriter
+try:
+    from axelo.memory.db import MemoryDB
+    from axelo.memory.vector_store import VectorStore
+    from axelo.memory.retriever import MemoryRetriever
+    from axelo.memory.writer import MemoryWriter
+except Exception:  # pragma: no cover - compatibility path for partial imports
+    MemoryDB = None
+    VectorStore = None
+    MemoryRetriever = None
+    MemoryWriter = None
 
 __all__ = [
     # Original models
@@ -63,8 +71,6 @@ __all__ = [
     "ExecutionTier",
     "CrawlRate",
     "DatasetContract",
-    "Decision",
-    "DecisionType",
     "DeobfuscationResult",
     "DynamicAnalysis",
     "EvidenceBundle",
@@ -78,7 +84,6 @@ __all__ = [
     "MediaSimulation",
     "NetworkInformationSimulation",
     "OutputFormat",
-    "PipelineState",
     "PointerPathSimulation",
     "RequestContract",
     "RequestCapture",
@@ -87,9 +92,6 @@ __all__ = [
     "SessionState",
     "SignatureSpec",
     "SiteProfile",
-    "StageRecord",
-    "StageResult",
-    "StageStatus",
     "StaticAnalysis",
     "TargetSite",
     "TaintEvent",

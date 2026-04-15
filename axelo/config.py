@@ -2,6 +2,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from axelo.utils.session_catalog import session_dir_for_id
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_WORKSPACE = _PROJECT_ROOT / "workspace"
 
@@ -155,12 +157,8 @@ class Settings(BaseSettings):
     def has_deepseek_api_key(self) -> bool:
         return bool(self.deepseek_api_key and self.deepseek_api_key.strip())
 
-    @property
-    def run_counter_path(self) -> Path:
-        return self.workspace / "run_counter.json"
-
     def session_dir(self, session_id: str) -> Path:
-        return self.sessions_dir / session_id
+        return session_dir_for_id(self.sessions_dir, session_id)
 
 
 settings = Settings()

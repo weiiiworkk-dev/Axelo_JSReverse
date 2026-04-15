@@ -252,7 +252,7 @@ AI 不再负责：
 
 优先级从高到低：
 
-1. 新增 `target_hint` 的 CLI/编排约束已经落地，下一步要让 planner 在缺 hint 时自动降级到 `interactive`
+1. 新增 `target_hint` 的 CLI/编排约束已经落地，下一步要让 principal runtime 在缺 hint 时自动降级到 `interactive`
 2. 新增 `SignatureFamilyDetector`，先覆盖 Lazada/MTOP、淘宝/MTOP、常见 HMAC 站
 3. 新增模板化 codegen，已知家族不再走 AI codegen
 4. 新增 `verification diff -> patch` 的局部修复链路

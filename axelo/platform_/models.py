@@ -136,7 +136,7 @@ class ReverseJobSpec(BaseJobSpec):
         if not self.site_key:
             self.site_key = site_key_from_url(self.url)
         if not self.intent:
-            intent = CaptureIntent.from_legacy(
+            intent = CaptureIntent.from_request_inputs(
                 goal=self.goal,
                 target_hint=self.target_hint,
                 known_endpoint=self.known_endpoint,

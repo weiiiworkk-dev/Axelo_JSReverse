@@ -99,6 +99,8 @@ class ToolState:
     """Tool 执行状态存储"""
     results: dict[str, ToolResult] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
+    _context_history: list[dict[str, Any]] = field(default_factory=list)  # 新增: 历史记录
+    _context_diff_enabled: bool = False  # 新增: diff追踪开关
     
     def save_result(self, result: ToolResult) -> None:
         """保存 tool 执行结果"""
@@ -120,6 +122,51 @@ class ToolState:
     def get_context(self, key: str, default: Any = None) -> Any:
         """获取上下文数据"""
         return self.context.get(key, default)
+    
+    def enable_context_diff(self, enabled: bool = True) -> None:
+        """启用/禁用上下文diff追踪"""
+        self._context_diff_enabled = enabled
+    
+    def save_context_snapshot(self, tool_name: str) -> None:
+        """保存当前上下文快照 (在tool执行前调用)"""
+        if self._context_diff_enabled:
+            self._context_history.append({
+                "tool": tool_name,
+                "context": dict(self.context),  # 浅拷贝
+                "timestamp": datetime.now().isoformat(),
+            })
+    
+    def get_context_diff(self, before_tool: str, after_tool: str) -> dict[str, tuple[Any, Any]]:
+        """获取两个tool之间的上下文变化
+        
+        Returns:
+            {key: (old_value, new_value)} - 变化的键值对
+        """
+        before_ctx = None
+        after_ctx = None
+        
+        for snapshot in self._context_history:
+            if snapshot["tool"] == before_tool:
+                before_ctx = snapshot["context"]
+            if snapshot["tool"] == after_tool:
+                after_ctx = snapshot["context"]
+        
+        if not before_ctx or not after_ctx:
+            return {}
+        
+        diff = {}
+        all_keys = set(before_ctx.keys()) | set(after_ctx.keys())
+        for key in all_keys:
+            old_val = before_ctx.get(key)
+            new_val = after_ctx.get(key)
+            if old_val != new_val:
+                diff[key] = (old_val, new_val)
+        
+        return diff
+    
+    def get_context_history(self) -> list[dict]:
+        """获取上下文历史"""
+        return list(self._context_history)
 
 
 # ============================================================
@@ -212,6 +259,58 @@ class BaseTool(ABC):
             if inp.required and inp.name not in input_data:
                 return False, f"Missing required input: {inp.name}"
         return True, ""
+    
+    def validate_output(self, output: dict[str, Any]) -> tuple[bool, list[str]]:
+        """
+        验证输出参数符合 schema
+        
+        Returns:
+            (is_valid, list of warnings)
+        """
+        warnings = []
+        
+        for out_field in self.schema.output_schema:
+            if out_field.name not in output:
+                if out_field.name in ["success", "errors", "warnings"]:
+                    # 这些是核心字段，如果没有给出警告
+                    warnings.append(f"Output missing recommended field: {out_field.name}")
+                # 非必需字段不报错
+        
+        # 检查实际输出中是否有额外的未声明字段 (可选警告)
+        declared_fields = {f.name for f in self.schema.output_schema}
+        for key in output.keys():
+            if key not in declared_fields:
+                warnings.append(f"Output contains undeclared field: {key}")
+        
+        return True, warnings
+    
+    def sanitize_output(self, output: dict[str, Any]) -> dict[str, Any]:
+        """
+        清理和规范化输出
+        
+        - 移除 None 值
+        - 确保必需字段存在
+        """
+        cleaned = {}
+        
+        for key, value in output.items():
+            # 跳过 None 值
+            if value is None:
+                continue
+            
+            # 递归处理 dict
+            if isinstance(value, dict):
+                cleaned[key] = self.sanitize_output(value)
+            # 处理 list 中的 dict
+            elif isinstance(value, list):
+                cleaned[key] = [
+                    self.sanitize_output(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                cleaned[key] = value
+        
+        return cleaned
 
 
 # ============================================================

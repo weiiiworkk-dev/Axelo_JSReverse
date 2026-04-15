@@ -146,7 +146,7 @@ def test_signature_spec_prefers_topology_and_bridge_candidates():
         generator_func_ids=["bundle:sign"],
         steps=["guess 1", "guess 2"],
         inputs=["body"],
-        outputs={"legacy-sign": "old field"},
+        outputs={"prior-sign": "old field"},
         codegen_strategy="python_reconstruct",
         confidence=0.7,
     )

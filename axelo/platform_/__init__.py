@@ -1,5 +1,5 @@
-from axelo.platform.control_api import create_control_app
-from axelo.platform.models import (
+from axelo.platform_.control_api import create_control_app
+from axelo.platform_.models import (
     AccountRecord,
     AdapterVersion,
     BridgeJobSpec,
@@ -13,8 +13,8 @@ from axelo.platform.models import (
     SessionRefreshJobSpec,
     WorkerHeartbeat,
 )
-from axelo.platform.runtime import PlatformRuntime
-from axelo.platform.workers import worker_from_type
+from axelo.platform_.runtime import PlatformRuntime
+from axelo.platform_.workers import worker_from_type
 
 # Cost exports
 from axelo.cost import CostGovernor, CostRecord, CostBudget

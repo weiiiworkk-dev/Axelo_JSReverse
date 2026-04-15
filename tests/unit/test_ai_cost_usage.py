@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from axelo.agents.scanner import ScanReport, ScannerAgent
+from axelo.ai.agents.scanner import ScanReport, ScannerAgent
 from axelo.ai.client import AIResponse
 from axelo.cost import CostBudget, CostRecord
 from axelo.models.analysis import StaticAnalysis
@@ -11,7 +11,7 @@ from axelo.models.target import TargetSite
 
 class _DummyAIClient:
     def __init__(self) -> None:
-        self._model = "claude-haiku-4-5"
+        self._model = "deepseek-chat"
 
     async def analyze(self, **kwargs):
         return AIResponse(
@@ -25,7 +25,7 @@ class _DummyAIClient:
                 quick_verdict="ok",
                 estimated_difficulty="medium",
             ),
-            model="claude-haiku-4-5",
+            model="deepseek-chat",
             input_tokens=11,
             output_tokens=7,
             response_id="resp_test",

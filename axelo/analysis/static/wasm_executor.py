@@ -211,9 +211,9 @@ class WASMExecutor:
                         memory_pages = export.memory().initial
                         
                 return memory_pages, table_elements
-            except:
+            except Exception:
                 pass
-        
+
         # Fallback: look for memory section in binary
         # Memory section type is 0x05, table section is 0x04
         # This is very simplified
@@ -461,7 +461,7 @@ class WASMSignatureExtractor:
                 try:
                     if base64.b64decode(output_str.encode()).decode() == observed:
                         return True
-                except:
+                except Exception:
                     pass
         
         return False

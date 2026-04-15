@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from axelo.agents.codegen_agent import _render_base_bridge_template, _render_base_crawler_template
+from axelo.ai.agents.codegen_agent import _render_base_bridge_template, _render_base_crawler_template
 from axelo.browser.simulation import build_context_options, build_simulation_payload, render_simulation_init_script
 from axelo.models.target import BrowserProfile, TargetSite
 

@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "AI-powered web JS reverse engineering system"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.40.0",
     "playwright>=1.48.0",
     "httpx>=0.27.0",
     "pydantic>=2.9.0",
@@ -42,6 +41,12 @@ dev = [
 platform = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
+]
+test-e2e = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "playwright>=1.48.0",
+    "httpx>=0.27.0",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -25,9 +25,11 @@ from axelo.tools.base import (
     ToolCategory,
 )
 
+from axelo.config import settings
+
 log = structlog.get_logger()
-DEBUG_LOG_PATH = Path("E:/Test_Project/Axelo_JSReverse/debug-8ca886.log")
-DEBUG_SESSION_ID = "8ca886"
+DEBUG_LOG_PATH = settings.workspace / "debug.log"
+DEBUG_SESSION_ID = "default"
 
 
 def _debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
@@ -179,6 +181,8 @@ class StaticTool(BaseTool):
                     "api_endpoints": output.api_endpoints,
                     "signature_candidates": output.signature_candidates,
                     "crypto_usage": output.crypto_usage,
+                    # 新增: 原始端点列表供下游使用
+                    "endpoints": output.api_endpoints,
                 },
             )
             
@@ -191,11 +195,11 @@ class StaticTool(BaseTool):
             )
     
     def _extract_endpoints(self, code: str) -> list[str]:
-        """提取 API 端点"""
+        """提取 API 端点 - 增强版"""
         endpoints = []
         
-        # 匹配 fetch/XHR 调用
-        patterns = [
+        # 匹配 fetch/XHR 调用 - 基础模式
+        basic_patterns = [
             r'fetch\s*\(\s*["\']([^"\']+)["\']',
             r'XHR\s*\(\s*["\']([^"\']+)["\']',
             r'axios\.[get|post|put|delete]\s*\(\s*["\']([^"\']+)["\']',
@@ -203,36 +207,119 @@ class StaticTool(BaseTool):
             r'await\s+fetch\s*\(\s*["\']([^"\']+)["\']',
         ]
         
-        for pattern in patterns:
+        # 扩展模式 - 检测更多 API 调用
+        extended_patterns = [
+            # XMLHttpRequest
+            r'new\s+XMLHttpRequest\(\)[\s\S]{0,200}\.open\s*\(\s*["\'][A-Z]+["\']\s*,\s*["\']([^"\']+)["\']',
+            # URL 构造
+            r'(?:baseURL|apiBase|apiUrl)\s*[:=]\s*["\']([^"\']+)["\']',
+            # REST API 常见路径
+            r'["\']\/api\/[v\d]+\/[^"\']+["\']',
+            # 搜索端点常见模式
+            r'["\']\/search["\'].*?["\']\/([^"\']+)["\']',
+            # encodeURIComponent 包裹的端点
+            r'encodeURIComponent\s*\(\s*["\']([^"\']+)["\']',
+        ]
+        
+        # 基础模式匹配
+        for pattern in basic_patterns:
             matches = re.finditer(pattern, code, re.IGNORECASE)
             for match in matches:
                 url = match.group(1)
                 if url and url.startswith("/"):
                     endpoints.append(url)
         
-        return list(set(endpoints))[:50]
+        # 扩展模式匹配
+        for pattern in extended_patterns:
+            matches = re.finditer(pattern, code, re.IGNORECASE)
+            for match in matches:
+                url = match.group(1) if match.lastindex else match.group(0)
+                if url and ("/api/" in url or url.startswith("/")):
+                    endpoints.append(url)
+        
+        # 额外模式：搜索页面常用的 API 端点模式
+        search_patterns = [
+            # 通用搜索端点模式
+            r's.*\?.*k=',
+            r'/gp/search/',
+            r'/ajax/search',
+            # 标准搜索路径
+            r'/search\?',
+            r'/products\?',
+            r'/items\?',
+            r'/search',
+        ]
+        
+        # 从 URL 参数中提取可能的端点
+        url_param_pattern = r'(?:url|endpoint|path|api)\s*[:=]\s*["\']([^"\']+)["\']'
+        matches = re.finditer(url_param_pattern, code, re.IGNORECASE)
+        for match in matches:
+            url = match.group(1)
+            if url and (url.startswith("/") or "api" in url.lower()):
+                endpoints.append(url)
+        
+        # 去重并返回
+        unique_endpoints = list(set(endpoints))[:50]
+        
+        # 如果没有找到端点，添加一些常见的搜索端点作为候选
+        if not unique_endpoints:
+            common_endpoints = [
+                "/search",
+                "/api/search",
+                "/products/search",
+                "/ajax/search",
+            ]
+            return common_endpoints[:5]
+        
+        return unique_endpoints
     
     def _extract_signatures(self, code: str) -> list[dict]:
-        """提取签名候选"""
+        """提取签名候选 - 增强版"""
         candidates = []
         
-        # 签名相关模式
+        # 签名相关模式 - 更全面
         patterns = {
-            "sign": r'(?:sign|Sign)\s*\([^)]*\)',
-            "signature": r'(?:signature|Signature)\s*[:=]\s*[^,;]+',
-            "token": r'(?:token|Token)\s*[:=]\s*[^,;]+',
-            "hash": r'(?:hash|Hash)\s*\([^)]*\)',
-            "hmac": r'(?:hmac|HMAC)\s*\([^)]*\)',
-            "encrypt": r'(?:encrypt|Encrypt)\s*\([^)]*\)',
+            "sign": r'(?:function\s+)?(?:sign|Sign)\s*(?:\([^)]*\)|\w+)\s*[{=>]?\s*[^}]*',
+            "signature": r'(?:function\s+)?(?:signature|Signature)\s*(?:\([^)]*\)|\w+)\s*[{=>]?\s*[^}]*',
+            "hash": r'(?:function\s+)?(?:hash|Hash)\s*(?:\([^)]*\)|\w+)\s*[{=>]?\s*[^}]*',
+            "hmac": r'(?:function\s+)?(?:hmac|HMAC)\s*(?:\([^)]*\)|\w+)\s*[{=>]?\s*[^}]*',
+            "encrypt": r'(?:function\s+)?(?:encrypt|Encrypt)\s*(?:\([^)]*\)|\w+)\s*[{=>]?\s*[^}]*',
+            "md5": r'(?:MD5|md5)\s*\([^)]*\)',
+            "sha": r'(?:SHA(?:1|256|512)?|sha(?:1|256|512)?)\s*\([^)]*\)',
+            "base64": r'(?:Base64|base64)\s*\([^)]*\)',
         }
         
         for name, pattern in patterns.items():
             matches = re.finditer(pattern, code, re.IGNORECASE)
             for match in matches:
+                # 计算行号
+                line_num = code[:match.start()].count("\n") + 1
+                # 提取函数体预览
+                code_snippet = match.group(0)[:200]
+                
                 candidates.append({
                     "type": name,
+                    "code": code_snippet,
+                    "line": line_num,
+                    "preview": code_snippet[:100],
+                })
+        
+        # 额外的签名变量检测
+        signature_vars = [
+            r'(?:signature|sign|token|hash)\s*[:=]\s*(?:[a-zA-Z_][a-zA-Z0-9_]*\.)*[a-zA-Z_][a-zA-Z0-9_]*\s*\(',
+            r'getSignature\s*\(',
+            r'generateSignature\s*\(',
+            r'createSignature\s*\(',
+        ]
+        
+        for pattern in signature_vars:
+            matches = re.finditer(pattern, code, re.IGNORECASE)
+            for match in matches:
+                line_num = code[:match.start()].count("\n") + 1
+                candidates.append({
+                    "type": "signature_call",
                     "code": match.group(0)[:200],
-                    "line": code[:match.start()].count("\n") + 1,
+                    "line": line_num,
                 })
         
         return candidates[:30]

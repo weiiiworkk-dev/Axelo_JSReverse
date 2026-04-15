@@ -1,0 +1,3 @@
+[     171ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://127.0.0.1:7788/:0
+[   41898ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:7788/api/sessions/202a138a-7b9:0
+[   41904ms] [LOG] [WS] connected 202a138a-7b9 @ http://127.0.0.1:7788/assets/index-Cs419EW6.js:0

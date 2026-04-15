@@ -176,7 +176,7 @@ class UniversalInputAdapter:
             try:
                 await page.evaluate("window.scrollBy(0, 500)")
                 await asyncio.sleep(1)
-            except:
+            except Exception:
                 pass
             
             # Extract traffic
@@ -223,7 +223,7 @@ class UniversalInputAdapter:
                 """)
                 # Note: Would need to fetch these separately
                 log.info("found_scripts", count=len(scripts))
-            except:
+            except Exception:
                 pass
             
             # Cleanup

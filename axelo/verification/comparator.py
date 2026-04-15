@@ -21,7 +21,7 @@ class TokenComparator:
     }
     
     # GENERIC: Ignored fields (used by ALL sites) - 只保留真正可选的字段
-    # 移除了cookie/host/user-agent/referer - 这些是关键字段
+    # 移除了host/user-agent/referer - 这些是关键字段
     IGNORED_GENERATED_FIELDS = {
         "content-length",
         "connection",
@@ -29,6 +29,7 @@ class TokenComparator:
         "transfer-encoding",
         "accept-language",
         "origin",
+        "cookie",
     }
     
     # GENERIC: Key fields that MUST be present (used by ALL sites)
@@ -88,6 +89,15 @@ class TokenComparator:
                 results.append(FieldResult(field=field, status=status, message=msg, gen=gen_value, gt=gt_value))
                 if ok:
                     matched_fields.append(field)
+
+        # GENERIC: Also check for extra fields in generated that are NOT in GT
+        # This is important for detecting when generated code adds useless or wrong headers
+        for field, gen_value in generated.items():
+            field_lower = field.lower()
+            if field_lower not in gt_headers and field_lower not in self.IGNORED_GENERATED_FIELDS:
+                # This field is extra in generated
+                missing_fields.append(field_lower)
+                results.append(FieldResult(field=field_lower, status="extra", message="生成的请求包含了原请求中没有的字段", gen=gen_value))
 
         # GENERIC: Calculate score based on matched vs total ground truth fields (not generated)
         # This is more accurate - we score based on how many ground truth fields we can reproduce

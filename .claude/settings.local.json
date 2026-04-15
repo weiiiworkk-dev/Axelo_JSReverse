@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /e/Test_Project/Axelo_JSReverse/axelo/**/*.py)",
+      "Bash(python -c \"from axelo.analysis.family_detector import detect_signature_family; print\\('family_detector OK'\\)\")",
+      "Bash(python -c \"from axelo.analysis.signature_spec_builder import build_signature_spec; print\\('signature_spec_builder OK'\\)\")",
+      "Bash(python -c \"from axelo.orchestration.intent_classifier import IntentClassifier; print\\('intent_classifier OK'\\)\")",
+      "Bash(python -c \"from axelo.orchestration.planner import Planner; print\\('planner OK'\\)\")",
+      "Bash(python:*)",
+      "Bash(dir \"E:\\\\Test_Project\\\\Axelo_JSReverse\\\\workspace\")",
+      "Read(//e/Test_Project/Axelo_JSReverse/workspace/**)",
+      "Read(//e/Test_Project/Axelo_JSReverse/workspace/sessions$dir/**)"
+    ]
+  }
+}

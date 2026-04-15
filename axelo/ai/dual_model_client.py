@@ -1,4 +1,4 @@
-"""DeepSeek-only orchestrator client."""
+"""DeepSeek-only execution client."""
 from __future__ import annotations
 
 import os
@@ -213,7 +213,7 @@ class DeepSeekV3Client(BaseAPIClient):
 # ORCHESTRATOR
 # =============================================================================
 
-class DualModelOrchestrator:
+class DeepSeekExecutionClient:
     """
     Unified DeepSeek orchestration with optional R1 fallback.
     """
@@ -244,7 +244,7 @@ class DualModelOrchestrator:
         
         self._enable_fallback = enable_fallback
         
-        log.info("orchestrator_initialized",
+        log.info("deepseek_execution_client_initialized",
                 deepseek_v3=bool(self._deepseek_v3),
                 deepseek_r1=bool(self._deepseek_r1))
     
@@ -532,11 +532,11 @@ Include:
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 
-def create_orchestrator(
+def create_execution_client(
     deepseek_key: str = "",
-) -> DualModelOrchestrator:
-    """Create deepseek orchestrator."""
-    return DualModelOrchestrator(
+) -> DeepSeekExecutionClient:
+    """Create the DeepSeek execution client."""
+    return DeepSeekExecutionClient(
         deepseek_key=deepseek_key,
     )
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from axelo.config import settings
-from axelo.platform.services import ControlPlaneService, FrontierService, IngestService, ResourceManager, SchedulerService
-from axelo.platform.storage import FileEventBus, LocalObjectStore, LocalWarehouseSink, PlatformStore
+from axelo.platform_.services import ControlPlaneService, FrontierService, IngestService, ResourceManager, SchedulerService
+from axelo.platform_.storage import FileEventBus, LocalObjectStore, LocalWarehouseSink, PlatformStore
 
 
 class PlatformRuntime:

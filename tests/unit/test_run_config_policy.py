@@ -26,7 +26,7 @@ def test_run_config_valid():
         crawl_item_limit=300,
         crawl_page_limit=12,
     )
-    kwargs = cfg.orchestrator_kwargs()
+    kwargs = cfg.runtime_kwargs()
     assert kwargs["target_hint"] == "iphone 15"
     assert kwargs["use_case"] == "partner"
     assert kwargs["authorization_status"] == "authorized"

@@ -574,23 +574,23 @@ class __AXELO_CRAWLER_CLASS__:
         session_profile: dict[str, Any] | None,
         bridge_environment: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        legacy_environment = dict(bridge_environment or self.DEFAULT_ENVIRONMENT or {})
+        environment_defaults = dict(bridge_environment or self.DEFAULT_ENVIRONMENT or {})
         default_profile = _deep_merge_dicts(
             dict(self.DEFAULT_SESSION_PROFILE or {}),
             {
                 "locale": self.BRIDGE_LOCALE,
                 "timezoneId": self.BRIDGE_TIMEZONE,
-                "colorScheme": legacy_environment.get("colorScheme", "light"),
-                "reducedMotion": legacy_environment.get("reducedMotion", "no-preference"),
-                "deviceScaleFactor": legacy_environment.get("deviceScaleFactor", 1.0),
-                "hasTouch": legacy_environment.get("hasTouch", False),
-                "isMobile": legacy_environment.get("isMobile", False),
-                "battery": legacy_environment.get("battery", {}),
-                "deviceMemory": legacy_environment.get("media", {}).get("deviceMemory", 8),
-                "hardwareConcurrency": legacy_environment.get("media", {}).get("hardwareConcurrency", 8),
-                "maxTouchPoints": legacy_environment.get("media", {}).get("maxTouchPoints", 0),
-                "connection": legacy_environment.get("media", {}).get("connection", {}),
-                "webgl": legacy_environment.get("webgl", {}),
+                "colorScheme": environment_defaults.get("colorScheme", "light"),
+                "reducedMotion": environment_defaults.get("reducedMotion", "no-preference"),
+                "deviceScaleFactor": environment_defaults.get("deviceScaleFactor", 1.0),
+                "hasTouch": environment_defaults.get("hasTouch", False),
+                "isMobile": environment_defaults.get("isMobile", False),
+                "battery": environment_defaults.get("battery", {}),
+                "deviceMemory": environment_defaults.get("media", {}).get("deviceMemory", 8),
+                "hardwareConcurrency": environment_defaults.get("media", {}).get("hardwareConcurrency", 8),
+                "maxTouchPoints": environment_defaults.get("media", {}).get("maxTouchPoints", 0),
+                "connection": environment_defaults.get("media", {}).get("connection", {}),
+                "webgl": environment_defaults.get("webgl", {}),
             },
         )
         return _deep_merge_dicts(default_profile, session_profile)
