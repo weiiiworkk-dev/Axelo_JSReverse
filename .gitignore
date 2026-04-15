@@ -12,4 +12,4 @@ workspace/
 axelo/js_tools/scripts/node_modules/
 .tmp_pytest/
 axelo_test_*/
-axelo/web/ui/src/generated/
+# axelo/web/ui/src/generated/ — committed intentionally (auto-generated TS contracts)

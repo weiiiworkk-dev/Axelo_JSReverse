@@ -26,6 +26,9 @@ dependencies = [
     "numpy>=1.26.0",
     # 验证层
     "deepdiff>=8.0.0",
+    # Web 服务（axelo web 命令所必需）
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
 ]
 
 [project.scripts]
@@ -39,6 +42,7 @@ dev = [
     "pytest-mock>=3.14.0",
 ]
 platform = [
+    # 保留向后兼容，核心依赖已移至 [project.dependencies]
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
 ]

@@ -23,24 +23,21 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps required by Playwright Chromium
+# Minimal system utilities only (Playwright --with-deps handles browser libs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget curl gnupg ca-certificates \
-    libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libxcomposite1 \
-    libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-    libpango-1.0-0 libcairo2 libatspi2.0-0 libgtk-3-0 \
-    fonts-liberation fonts-noto-cjk \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python project metadata first for caching
+# Copy Python project metadata first for dependency caching
 COPY pyproject.toml ./
 COPY axelo/ ./axelo/
 
 # Install Python dependencies (core + platform extras)
 RUN pip install --no-cache-dir -e ".[platform]"
 
-# Install Playwright + Chromium browser with all system dependencies
-RUN playwright install chromium --with-deps
+# Install Playwright Chromium — let --with-deps resolve all system libs
+# This avoids hard-coding apt package names that change between Debian releases
+RUN playwright install --with-deps chromium
 
 # Copy built frontend from Stage 1
 COPY --from=frontend-builder /app/axelo/web/ui/dist ./axelo/web/ui/dist
@@ -52,7 +49,7 @@ RUN mkdir -p /app/workspace
 ENV AXELO_WORKSPACE=/app/workspace
 ENV AXELO_HEADLESS=true
 ENV AXELO_BROWSER=chromium
-# Unset channel so it uses Playwright's bundled Chromium (not system Chrome)
+# Unset channel so Playwright uses its bundled Chromium
 ENV AXELO_BROWSER_CHANNEL=
 ENV AXELO_MODEL=deepseek-v3
 ENV AXELO_LOG_LEVEL=info

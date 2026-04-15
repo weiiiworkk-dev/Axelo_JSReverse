@@ -1,13 +1,15 @@
 /**
- * App entry — phase-based 2-panel routing.
+ * App 入口 — 双面板路由 + 底部全宽输入栏。
  *
- * Pre-execution (welcome / discussing / contract_ready):
- *   Left   → MissionContractPanel (live contract view)
- *   Right  → ChatPanel (requirement discussion)
+ * 预执行阶段（welcome / discussing / contract_ready）：
+ *   Left   → MissionContractPanel（实时合约视图）
+ *   Right  → ChatPanel（需求讨论）
+ *   Bottom → 就绪度进度条 + 输入栏
  *
- * During execution (executing / complete / failed):
- *   Left   → MissionContractPanel (locked)
- *   Right  → ExecutionTimelinePanel (replaces ChatPanel)
+ * 执行阶段（executing / complete / failed）：
+ *   Left   → MissionContractPanel（锁定）
+ *   Right  → ExecutionTimelinePanel（替换 ChatPanel）
+ *   Bottom → 就绪度行隐藏，输入栏改为批注模式
  */
 
 import { ChatPanel }              from './ui/ChatPanel'
@@ -17,11 +19,20 @@ import { intakeStore, type IntakePhase } from './store/intakeStore'
 import { missionStore }           from './store/missionStore'
 import { WsClient }               from './ws/client'
 
-// ── DOM refs ─────────────────────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────────────────────────
 const leftEl  = document.getElementById('left-panel')  as HTMLElement
 const rightEl = document.getElementById('right-panel') as HTMLElement
 
-// ── Chat container (lives inside right panel) ─────────────────────────────
+// ── Bottom bar refs ───────────────────────────────────────────────────────────
+const readinessLabel  = document.getElementById('readiness-label')  as HTMLElement
+const readinessFill   = document.getElementById('readiness-bar-fill') as HTMLElement
+const readinessStatus = document.getElementById('readiness-status') as HTMLElement
+const mainStartBtn    = document.getElementById('main-start-btn')   as HTMLButtonElement
+const mainInput       = document.getElementById('main-input')       as HTMLTextAreaElement
+const mainSendBtn     = document.getElementById('main-send-btn')    as HTMLButtonElement
+const readinessRow    = document.getElementById('readiness-row')    as HTMLElement
+
+// ── Chat container ────────────────────────────────────────────────────────────
 const chatEl = document.createElement('div')
 chatEl.id = 'chat-container'
 chatEl.style.cssText = 'flex:1; display:flex; flex-direction:column; overflow:hidden;'
@@ -48,18 +59,36 @@ function onPhaseChange(phase: IntakePhase): void {
   } else {
     hideExecutionTimeline()
   }
+
+  // Bottom bar: hide readiness row during execution
+  if (readinessRow) {
+    readinessRow.style.display = (phase === 'executing' || phase === 'complete' || phase === 'failed')
+      ? 'none'
+      : 'flex'
+  }
+
+  // Show/hide start button based on phase
+  const isDiscussing = phase === 'discussing' || phase === 'contract_ready'
+  if (mainStartBtn) {
+    mainStartBtn.style.display = isDiscussing ? 'inline-block' : 'none'
+  }
+
+  // Input placeholder
+  if (mainInput) {
+    mainInput.placeholder = phase === 'executing'
+      ? '添加批注或备注到当前任务...'
+      : '告诉 Axelo 你想爬取什么，或者想逆向分析哪个网站...'
+  }
 }
 
 function showExecutionTimeline(): void {
-  if (timelineEl) return  // already visible
+  if (timelineEl) return
 
-  // Hide chat panel
   chatEl.style.display = 'none'
 
-  // Create timeline container filling the right panel
   timelineEl = document.createElement('div')
   timelineEl.id = 'timeline-container'
-  timelineEl.style.cssText = 'flex:1; display:flex; flex-direction:column; overflow:hidden; background:#0a0a14;'
+  timelineEl.style.cssText = 'flex:1; display:flex; flex-direction:column; overflow:hidden;'
   rightEl.appendChild(timelineEl)
 
   timelinePanel = new ExecutionTimelinePanel(timelineEl)
@@ -72,9 +101,79 @@ function hideExecutionTimeline(): void {
     timelineEl.remove()
     timelineEl = null
   }
-  // Restore chat panel
   chatEl.style.display = 'flex'
 }
+
+// ── Bottom bar — readiness wiring ─────────────────────────────────────────────
+intakeStore.subscribe((state) => {
+  onPhaseChange(state.phase)
+
+  const conf = state.readiness?.confidence ?? 0
+  const pct = Math.round(conf * 100)
+  const blockingGaps = state.readiness?.blocking_gaps ?? []
+  const isReady = state.readiness?.is_ready ?? false
+
+  // Readiness label
+  if (readinessLabel) {
+    readinessLabel.textContent = `就绪度：${pct}%`
+  }
+
+  // Progress bar fill + color
+  if (readinessFill) {
+    readinessFill.style.width = `${pct}%`
+    readinessFill.style.background = blockingGaps.length === 0 && pct > 0
+      ? 'var(--success)'
+      : pct >= 50
+        ? 'var(--warn)'
+        : 'var(--danger)'
+  }
+
+  // Status text
+  if (readinessStatus) {
+    if (isReady) {
+      readinessStatus.textContent = '可以开始'
+      readinessStatus.style.color = 'var(--success)'
+    } else if (blockingGaps.length > 0) {
+      readinessStatus.textContent = `${blockingGaps.length} 项未满足`
+      readinessStatus.style.color = 'var(--danger)'
+    } else {
+      readinessStatus.textContent = '需要更多信息'
+      readinessStatus.style.color = 'var(--warn)'
+    }
+  }
+
+  // Start button
+  if (mainStartBtn) {
+    mainStartBtn.disabled = !isReady || state.isWaitingForAI || state.phase === 'executing'
+  }
+
+  // Send button
+  if (mainSendBtn) {
+    mainSendBtn.disabled = state.isWaitingForAI
+  }
+  if (mainInput) {
+    mainInput.disabled = state.isWaitingForAI
+  }
+})
+
+// ── Bottom bar — input wiring ──────────────────────────────────────────────────
+async function doSend(): Promise<void> {
+  const msg = mainInput.value.trim()
+  if (!msg) return
+  mainInput.value = ''
+  await chatPanel.handleSend(msg)
+}
+
+mainSendBtn?.addEventListener('click', () => { void doSend() })
+
+mainInput?.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    void doSend()
+  }
+})
+
+mainStartBtn?.addEventListener('click', () => { void chatPanel.handleStart() })
 
 // ── Mission start event ───────────────────────────────────────────────────────
 window.addEventListener('axelo:mission-started', (e: Event) => {
@@ -82,12 +181,10 @@ window.addEventListener('axelo:mission-started', (e: Event) => {
   const sessionId = detail.sessionId
   if (!sessionId) return
 
-  // Connect WebSocket for live events
   if (wsClient) wsClient.disconnect()
   wsClient = new WsClient(sessionId)
   wsClient.connect()
 
-  // Update header session select
   const select = document.getElementById('session-select') as HTMLSelectElement
   if (select) {
     const opt = document.createElement('option')
@@ -98,12 +195,7 @@ window.addEventListener('axelo:mission-started', (e: Event) => {
   }
 })
 
-// ── Subscribe to intake phase changes ────────────────────────────────────────
-intakeStore.subscribe((state) => {
-  onPhaseChange(state.phase)
-})
-
-// ── Session selector (for loading existing sessions) ─────────────────────────
+// ── Session selector ──────────────────────────────────────────────────────────
 const sessionSelect = document.getElementById('session-select') as HTMLSelectElement
 sessionSelect?.addEventListener('change', async () => {
   const sessionId = sessionSelect.value
@@ -114,7 +206,7 @@ sessionSelect?.addEventListener('change', async () => {
   wsClient.connect()
 })
 
-// ── Load session list on startup ─────────────────────────────────────────────
+// ── Load session list on startup ──────────────────────────────────────────────
 async function loadSessionList(): Promise<void> {
   try {
     const resp = await fetch('/api/sessions')
@@ -142,10 +234,10 @@ missionStore.subscribe((state) => {
   const dot   = document.getElementById('conn-dot')
   const label = document.getElementById('conn-label')
   if (dot)   dot.classList.toggle('live', state.connected)
-  if (label) label.textContent = state.connected ? 'Live' : 'Offline'
+  if (label) label.textContent = state.connected ? '实时' : '离线'
 })
 
-// ── Cleanup ────────────────────────────────────────────────────────────────────
+// ── Cleanup ───────────────────────────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {
   chatPanel.dispose()
   contractPanel.dispose()

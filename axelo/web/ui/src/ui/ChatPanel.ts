@@ -1,7 +1,6 @@
 /**
- * ChatPanel — AI requirement discussion chat interface (right panel).
- * Pre-execution: full chat mode for requirement intake.
- * Post-start: annotation mode only.
+ * ChatPanel — 右侧对话面板（仅显示消息）。
+ * 输入栏和就绪度栏已移至 index.html 底部全宽区域，由 main.ts 统一管理。
  */
 
 import {
@@ -14,16 +13,10 @@ import {
 } from '../store/intakeStore'
 import { missionStore } from '../store/missionStore'
 
-const PLACEHOLDER_DISCUSSING = 'Describe what you want to crawl or reverse engineer...'
-const PLACEHOLDER_EXECUTING  = 'Add a note or annotation to the current mission...'
-
 export class ChatPanel {
   private el: HTMLElement
   private messagesEl!: HTMLElement
-  private inputEl!: HTMLTextAreaElement
-  private sendBtn!: HTMLButtonElement
   private phaseBarEl!: HTMLElement
-  private startBtnEl!: HTMLButtonElement
   private unsubIntake: (() => void) | null = null
 
   constructor(el: HTMLElement) {
@@ -37,71 +30,42 @@ export class ChatPanel {
     this.el.innerHTML = `
       <div class="cp-root">
         <div class="cp-header">
-          <div class="cp-title">💬 Requirements</div>
-          <div class="cp-phase-badge" id="cp-phase-badge">Welcome</div>
+          <div class="cp-title">对话</div>
+          <div class="cp-phase-badge" id="cp-phase-badge">欢迎</div>
         </div>
         <div class="cp-messages" id="cp-messages">
           <div class="cp-welcome-msg">
-            <div class="cp-welcome-icon">🤖</div>
+            <span class="cp-welcome-icon">🤖</span>
             <div class="cp-welcome-text">
-              Hello! I'm your intake specialist.<br>
-              Describe what you want to crawl or reverse engineer, and I'll build a structured mission plan.
+              你好！我是 Axelo 需求助手。<br>
+              请描述你想爬取什么，或者想逆向分析哪个网站，我会为你构建结构化的任务计划。<br><br>
+              示例：<br>
+              &nbsp;&nbsp;'从 amazon.com 获取 iPhone 15 商品列表'<br>
+              &nbsp;&nbsp;'抓取 linkedin.com 上的招聘信息'<br>
+              &nbsp;&nbsp;'逆向分析 example.com 的搜索 API'
             </div>
           </div>
-        </div>
-        <div class="cp-readiness-bar" id="cp-readiness-bar" style="display:none">
-          <div class="cp-readiness-fill" id="cp-readiness-fill" style="width:0%"></div>
-          <span class="cp-readiness-label" id="cp-readiness-label">0% ready</span>
-        </div>
-        <div class="cp-missing" id="cp-missing" style="display:none"></div>
-        <div class="cp-start-row" id="cp-start-row" style="display:none">
-          <button class="cp-start-btn" id="cp-start-btn" disabled>Start Mission</button>
-        </div>
-        <div class="cp-input-row">
-          <textarea class="cp-input" id="cp-input" rows="2" placeholder="${PLACEHOLDER_DISCUSSING}"></textarea>
-          <button class="cp-send-btn" id="cp-send-btn">Send</button>
         </div>
         <div class="cp-ai-spinner" id="cp-ai-spinner" style="display:none">
           <span class="cp-spinner-dot"></span>
           <span class="cp-spinner-dot"></span>
           <span class="cp-spinner-dot"></span>
-          <span style="font-size:10px;color:#888;margin-left:6px">AI is thinking…</span>
+          <span style="font-size:10px;color:#888;margin-left:6px">AI 思考中…</span>
         </div>
         <div class="cp-error" id="cp-error" style="display:none"></div>
       </div>
     `
 
-    this.messagesEl  = this.el.querySelector('#cp-messages')!
-    this.inputEl     = this.el.querySelector('#cp-input')!
-    this.sendBtn     = this.el.querySelector('#cp-send-btn')!
-    this.phaseBarEl  = this.el.querySelector('#cp-phase-badge')!
-    this.startBtnEl  = this.el.querySelector('#cp-start-btn')!
-
-    this.sendBtn.addEventListener('click', () => this.handleSend())
-    this.inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        this.handleSend()
-      }
-    })
-    this.startBtnEl.addEventListener('click', () => this.handleStart())
+    this.messagesEl = this.el.querySelector('#cp-messages')!
+    this.phaseBarEl = this.el.querySelector('#cp-phase-badge')!
   }
 
   private bindStore(): void {
     this.unsubIntake = intakeStore.subscribe((state) => {
       this.updatePhase(state.phase)
-      this.updateReadiness(
-        state.readiness?.confidence ?? 0,
-        state.readiness?.blocking_gaps ?? [],
-        state.readiness?.missing_info ?? [],
-      )
-      // Gate is driven by is_ready (backend deterministic gates), NOT confidence threshold
-      this.startBtnEl.disabled = !state.readiness?.is_ready || state.isWaitingForAI || state.phase === 'executing'
 
       const spinner = this.el.querySelector('#cp-ai-spinner') as HTMLElement
       spinner.style.display = state.isWaitingForAI ? 'flex' : 'none'
-      this.sendBtn.disabled = state.isWaitingForAI || state.phase === 'executing'
-      this.inputEl.disabled = state.isWaitingForAI
 
       const errEl = this.el.querySelector('#cp-error') as HTMLElement
       if (state.error) {
@@ -118,30 +82,27 @@ export class ChatPanel {
       const intakeId = await createIntakeSession()
       intakeStore.setIntakeId(intakeId)
       intakeStore.setPhase('welcome')
-    } catch (e) {
-      intakeStore.setError('Failed to connect to server. Please refresh.')
+    } catch {
+      intakeStore.setError('无法连接服务器，请刷新页面重试。')
     }
   }
 
-  private async handleSend(): Promise<void> {
-    const msg = this.inputEl.value.trim()
-    if (!msg) return
+  /** 由底部输入栏（main.ts）调用 */
+  async handleSend(msg: string): Promise<void> {
+    if (!msg.trim()) return
 
     const state = intakeStore.getState()
     if (!state.intakeId) return
 
-    this.inputEl.value = ''
     const tmpId = Date.now().toString()
 
     if (state.phase === 'executing') {
-      // Annotation mode
       this.appendMessage('user', msg, tmpId)
       await sendAnnotation(state.intakeId, msg, 'note')
-      this.appendMessage('assistant', `Noted: ${msg}. The mission will continue with the current plan.`, tmpId + '_ack')
+      this.appendMessage('assistant', `已记录：${msg}。当前任务将继续按原计划执行。`, tmpId + '_ack')
       return
     }
 
-    // Normal intake mode — call AI
     intakeStore.appendUserMessage(msg, tmpId)
     this.appendMessage('user', msg, tmpId)
     intakeStore.setWaiting(true)
@@ -160,7 +121,8 @@ export class ChatPanel {
     }
   }
 
-  private async handleStart(): Promise<void> {
+  /** 由底部「开始任务」按钮（main.ts）调用 */
+  async handleStart(): Promise<void> {
     const state = intakeStore.getState()
     if (!state.intakeId || !state.readiness?.is_ready) return
 
@@ -169,7 +131,6 @@ export class ChatPanel {
     try {
       const result = await startMissionFromContract(state.intakeId)
       intakeStore.setExecuting(result.session_id)
-      // Notify missionStore to connect WS
       missionStore.selectSession(result.session_id)
       window.dispatchEvent(new CustomEvent('axelo:mission-started', { detail: { sessionId: result.session_id } }))
     } catch (err: any) {
@@ -194,77 +155,23 @@ export class ChatPanel {
 
   private updatePhase(phase: IntakePhase): void {
     const labels: Record<IntakePhase, string> = {
-      welcome:         'Welcome',
-      discussing:      'Discussing',
-      contract_ready:  'Ready',
-      executing:       'Executing',
-      complete:        'Complete',
-      failed:          'Failed',
+      welcome:        '欢迎',
+      discussing:     '讨论中',
+      contract_ready: '已就绪',
+      executing:      '执行中',
+      complete:       '已完成',
+      failed:         '失败',
     }
     const colors: Record<IntakePhase, string> = {
-      welcome:         '#8a7e6e',
-      discussing:      '#e0a030',
-      contract_ready:  '#4cad6e',
-      executing:       '#5b8dd9',
-      complete:        '#4cad6e',
-      failed:          '#d95555',
+      welcome:        '#555555',
+      discussing:     '#cc7700',
+      contract_ready: '#00aa55',
+      executing:      '#5b8dd9',
+      complete:       '#00aa55',
+      failed:         '#cc3333',
     }
     this.phaseBarEl.textContent = labels[phase] || phase
-    this.phaseBarEl.style.background = colors[phase] || '#8a7e6e'
-
-    // Show/hide start row
-    const startRow = this.el.querySelector('#cp-start-row') as HTMLElement
-    const readinessBar = this.el.querySelector('#cp-readiness-bar') as HTMLElement
-    if (phase === 'welcome') {
-      startRow.style.display = 'none'
-      readinessBar.style.display = 'none'
-    } else if (phase === 'discussing' || phase === 'contract_ready') {
-      startRow.style.display = 'flex'
-      readinessBar.style.display = 'flex'
-    } else if (phase === 'executing') {
-      startRow.style.display = 'none'
-      readinessBar.style.display = 'none'
-      this.inputEl.placeholder = PLACEHOLDER_EXECUTING
-    }
-  }
-
-  private updateReadiness(confidence: number, blockingGaps: string[], missingInfo: string[]): void {
-    const pct = Math.round(confidence * 100)
-    const fillEl = this.el.querySelector('#cp-readiness-fill') as HTMLElement
-    const labelEl = this.el.querySelector('#cp-readiness-label') as HTMLElement
-    const missingEl = this.el.querySelector('#cp-missing') as HTMLElement
-
-    if (fillEl) {
-      fillEl.style.width = `${pct}%`
-      // Bar color based on is_ready, not confidence threshold
-      fillEl.style.background = blockingGaps.length === 0 ? '#4cad6e' : pct >= 50 ? '#e0a030' : '#d95555'
-    }
-    // Label: show gate status, confidence is secondary/decorative
-    if (labelEl) {
-      if (blockingGaps.length === 0) {
-        labelEl.textContent = `Ready (${pct}%)`
-      } else {
-        labelEl.textContent = `${pct}% — ${blockingGaps.length} issue${blockingGaps.length > 1 ? 's' : ''} blocking`
-      }
-    }
-
-    if (missingEl) {
-      const items: string[] = []
-      // Show blocking gaps first (hard gates), then non-blocking missing info
-      if (blockingGaps.length > 0) {
-        items.push('<span class="cp-gap-header">Cannot start:</span>')
-        items.push(...blockingGaps.map(g => `<span class="cp-blocking-item">✗ ${escHtml(g)}</span>`))
-      }
-      if (missingInfo.length > 0) {
-        items.push(...missingInfo.map(m => `<span class="cp-missing-item">• ${escHtml(m)}</span>`))
-      }
-      if (items.length > 0) {
-        missingEl.style.display = 'block'
-        missingEl.innerHTML = items.join('')
-      } else {
-        missingEl.style.display = 'none'
-      }
-    }
+    this.phaseBarEl.style.background = colors[phase] || '#555555'
   }
 
   dispose(): void {

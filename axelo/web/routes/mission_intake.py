@@ -44,7 +44,7 @@ def _evict_stale_sessions() -> None:
         sid for sid, s in _intake_sessions.items()
         if s.get("phase") not in ("executing",)
         and (now - _time.mktime(
-            __import__("datetime").datetime.fromisoformat(
+            datetime.fromisoformat(
                 s.get("created_at", "2000-01-01T00:00:00")
             ).timetuple()
         )) > _SESSION_TTL_SECONDS
