@@ -55,11 +55,18 @@ ENV AXELO_MODEL=deepseek-v3
 ENV AXELO_LOG_LEVEL=info
 ENV AXELO_PLATFORM_ENVIRONMENT=prod
 
+# PORT: Railway reads this ENV to know which port to health-check and proxy.
+# Railway will override this value if it injects its own PORT.
+# Must be set here so Railway's health check probes the correct port.
+ENV PORT=7788
+
 EXPOSE 7788
 
-# Health check — uses $PORT (Railway) or falls back to 7788
+# Health check for local `docker run` — Railway ignores this directive entirely
+# and instead probes the PORT env var. Shell form expands ${PORT:-7788}.
 HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -sf http://localhost:${PORT:-7788}/ || exit 1
 
-# Use shell form so ${PORT:-7788} is expanded at runtime
+# Shell form: ${PORT:-7788} expands at container start.
+# ENV PORT=7788 above ensures Railway knows which port to route traffic to.
 CMD axelo web --port ${PORT:-7788} --no-open
