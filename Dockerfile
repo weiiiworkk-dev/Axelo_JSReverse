@@ -57,8 +57,9 @@ ENV AXELO_PLATFORM_ENVIRONMENT=prod
 
 EXPOSE 7788
 
-# Health check — waits for server to respond on /
+# Health check — uses $PORT (Railway) or falls back to 7788
 HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -sf http://localhost:7788/ || exit 1
+    CMD curl -sf http://localhost:${PORT:-7788}/ || exit 1
 
-CMD ["axelo", "web", "--port", "7788", "--no-open"]
+# Use shell form so ${PORT:-7788} is expanded at runtime
+CMD axelo web --port ${PORT:-7788} --no-open
