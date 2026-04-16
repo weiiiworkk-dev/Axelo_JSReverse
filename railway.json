@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "axelo web --port 7788 --no-open",
-    "healthcheckPath": "/",
-    "healthcheckTimeout": 60,
+    "startCommand": "axelo web --port ${PORT:-7788} --no-open",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
 import structlog
@@ -44,7 +45,7 @@ def default_command(
 
 @app.command()
 def web(
-    port: int = typer.Option(7788, "--port", "-p", help="监听端口"),
+    port: int = typer.Option(int(os.environ.get("PORT") or "7788"), "--port", "-p", help="监听端口"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="启动后自动在浏览器打开（默认开启）"),
     log_level: str = typer.Option("info", "--log-level", "-l", help="日志级别"),
 ) -> None:

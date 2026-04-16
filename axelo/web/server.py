@@ -58,6 +58,11 @@ def create_app() -> FastAPI:
     # Inject deps into WS router
     ws_router.init(broadcaster, watcher)
 
+    # ── Health check (always first, no filesystem dependency) ─────
+    @app.get("/health", include_in_schema=False)
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     # ── Register all API routers FIRST ────────────────────────────
     # Must come before any static file mounts or catch-all routes
     # so that POST /api/... routes are found correctly.
