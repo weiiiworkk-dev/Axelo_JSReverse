@@ -8,7 +8,7 @@ from axelo.behavior.mouse_simulator import (
     create_behavior_simulator,
 )
 
-from axelo.detection.honeypot_detector import (
+from axelo.detection.unified import (
     HoneypotDetector,
     HoneypotReport,
     HoneypotAwareActionRunner,
