@@ -70,6 +70,6 @@ EXPOSE 7788
 HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
     CMD ["sh", "-c", "curl -sf http://localhost:${PORT:-7788}/ || exit 1"]
 
-# exec form + sh -c：${PORT:-7788} 在容器启动时展开，2>&1 将 stderr 合并到 stdout，
-# 确保 Railway 能捕获所有崩溃日志。
-CMD ["sh", "-c", "exec axelo web --port ${PORT:-7788} --no-open 2>&1"]
+# 2>&1 将 stderr 合并到 stdout，确保 Railway 能捕获所有崩溃日志。
+# PORT 由 Python CLI 从环境变量读取，无需在命令行传递。
+CMD ["sh", "-c", "exec axelo web --no-open 2>&1"]
