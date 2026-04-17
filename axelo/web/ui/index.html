@@ -15,7 +15,7 @@
       :root {
         --bg:          #ffffff;
         --welcome-bg:  #f5f4f0;
-        --sidebar-bg:  #f7f6f2;
+        --sidebar-bg:  #f9f9f7;
         --panel-bg:    #fafaf8;
         --border:      #e8e8e4;
         --border2:     #f0efec;
@@ -23,15 +23,16 @@
         --accent-soft: #ede9ff;
         --text:        #1a1919;
         --text2:       #6b6b6b;
-        --text3:       #a0a0a0;
+        --text3:       #a8a8a8;
         --success:     #16a34a;
         --warn:        #ca8a04;
         --danger:      #dc2626;
-        --hover:       rgba(0,0,0,0.045);
-        --active-bg:   rgba(0,0,0,0.075);
+        --hover:       rgba(0,0,0,0.05);
+        --active-bg:   rgba(0,0,0,0.08);
         --font:        'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         --mono:        'Courier New', Courier, monospace;
-        --sb-width:    210px;
+        --sb-width:    220px;
+        --rc-width:    260px;
       }
 
       html, body { height: 100%; overflow: hidden; background: var(--bg); }
@@ -44,7 +45,7 @@
       }
 
       /* ════════════════════════════════════════════
-         SIDEBAR
+         SIDEBAR — exact match to screenshot
       ════════════════════════════════════════════ */
       #sidebar {
         width: var(--sb-width);
@@ -57,42 +58,22 @@
         flex-shrink: 0;
       }
 
-      .sb-topnav {
+      /* ── Top "Chat" heading row ── */
+      .sb-head {
         display: flex;
         align-items: center;
-        padding: 8px 8px 6px;
-        gap: 1px;
+        padding: 12px 14px 6px;
+        gap: 6px;
         flex-shrink: 0;
       }
 
-      .sb-icon-btn {
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        background: transparent;
-        cursor: pointer;
-        border-radius: 7px;
-        color: var(--text2);
-        transition: background 0.12s;
+      .sb-head-chat-icon {
+        width: 18px; height: 18px;
+        color: var(--text);
         flex-shrink: 0;
       }
 
-      .sb-icon-btn:hover { background: var(--hover); }
-      .sb-icon-btn svg { width: 15px; height: 15px; }
-      .sb-topnav-spacer { flex: 1; }
-
-      .sb-chat-head {
-        display: flex;
-        align-items: center;
-        padding: 2px 10px 4px;
-        flex-shrink: 0;
-        gap: 2px;
-      }
-
-      .sb-chat-title {
+      .sb-head-title {
         font-size: 14.5px;
         font-weight: 600;
         color: var(--text);
@@ -100,218 +81,185 @@
         letter-spacing: -0.01em;
       }
 
-      .sb-icon-btn-sm {
-        width: 26px;
-        height: 26px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        background: transparent;
-        cursor: pointer;
-        border-radius: 6px;
-        color: var(--text2);
-        transition: background 0.12s;
-        flex-shrink: 0;
+      .sb-head-btn {
+        width: 26px; height: 26px;
+        display: flex; align-items: center; justify-content: center;
+        border: none; background: transparent; cursor: pointer;
+        border-radius: 6px; color: var(--text2);
+        transition: background 0.12s; flex-shrink: 0;
       }
 
-      .sb-icon-btn-sm svg { width: 13px; height: 13px; }
-      .sb-icon-btn-sm:hover { background: var(--hover); }
+      .sb-head-btn:hover { background: var(--hover); }
+      .sb-head-btn svg { width: 14px; height: 14px; }
 
+      /* ── New chat button ── */
       #new-session-btn {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin: 4px 8px;
+        display: flex; align-items: center;
+        gap: 10px;
+        margin: 6px 8px 2px;
         padding: 7px 10px;
-        border: none;
-        background: transparent;
-        cursor: pointer;
-        border-radius: 8px;
-        color: var(--text);
-        font-family: var(--font);
-        font-size: 13.5px;
-        font-weight: 400;
+        border: none; background: transparent;
+        cursor: pointer; border-radius: 8px;
+        color: var(--text); font-family: var(--font);
+        font-size: 13.5px; font-weight: 400;
         transition: background 0.12s;
-        text-align: left;
-        flex-shrink: 0;
+        text-align: left; flex-shrink: 0;
       }
 
       #new-session-btn:hover { background: var(--hover); }
-      #new-session-btn svg { width: 14px; height: 14px; color: var(--text2); flex-shrink: 0; }
 
-      .sb-nav { padding: 0 8px; flex-shrink: 0; }
+      .sb-new-icon {
+        width: 16px; height: 16px;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text2); flex-shrink: 0;
+      }
+
+      .sb-new-icon svg { width: 14px; height: 14px; }
+
+      /* ── Nav items ── */
+      .sb-nav { padding: 2px 8px 0; flex-shrink: 0; }
 
       .sb-nav-item {
-        display: flex;
-        align-items: center;
-        gap: 9px;
+        display: flex; align-items: center;
+        gap: 10px;
         padding: 6px 9px;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 13.5px;
-        color: var(--text);
+        border-radius: 8px; cursor: pointer;
+        font-size: 13.5px; color: var(--text);
         text-decoration: none;
-        transition: background 0.12s;
-        user-select: none;
+        transition: background 0.12s; user-select: none;
       }
 
       .sb-nav-item:hover { background: var(--hover); }
-      .sb-nav-item svg { width: 15px; height: 15px; color: var(--text2); flex-shrink: 0; }
 
+      .sb-nav-icon {
+        width: 16px; height: 16px;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text2); flex-shrink: 0;
+      }
+
+      .sb-nav-icon svg { width: 15px; height: 15px; }
+
+      /* ── Section labels ── */
       .sb-section-label {
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 11px; font-weight: 500;
         color: var(--text3);
-        padding: 10px 16px 3px;
-        letter-spacing: 0.02em;
+        padding: 12px 18px 4px;
+        letter-spacing: 0.01em;
         flex-shrink: 0;
       }
 
+      /* ── Drag to pin placeholder ── */
+      .sb-drag-pin {
+        display: flex; align-items: center;
+        gap: 10px;
+        padding: 5px 18px;
+        font-size: 13px; color: var(--text3);
+        flex-shrink: 0; cursor: default;
+      }
+
+      .sb-drag-pin svg { width: 13px; height: 13px; }
+
+      /* ── Session list ── */
       .sb-recents {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        padding: 0 8px 6px;
+        flex: 1; overflow-y: auto; overflow-x: hidden;
+        padding: 2px 8px 6px;
       }
 
       .sb-recents::-webkit-scrollbar { width: 3px; }
       .sb-recents::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
       * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 
-      #session-list { display: flex; flex-direction: column; gap: 1px; }
+      #session-list { display: flex; flex-direction: column; gap: 0; }
 
       .sb-session-item {
-        display: flex;
-        align-items: center;
-        padding: 5px 9px;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background 0.12s;
-        min-width: 0;
+        display: flex; align-items: center;
+        padding: 4px 10px;
+        border-radius: 6px; cursor: pointer;
+        transition: background 0.12s; min-width: 0;
       }
 
       .sb-session-item:hover { background: var(--hover); }
       .sb-session-item.active { background: var(--active-bg); }
 
       .sb-session-id {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 12.5px;
-        color: var(--text2);
+        flex: 1; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
+        font-size: 13px; color: var(--text);
+        line-height: 1.4;
       }
 
+      /* ── Footer ── */
       .sb-footer {
         flex-shrink: 0;
         border-top: 1px solid var(--border);
-        padding: 9px 10px;
-        display: flex;
-        align-items: center;
-        gap: 9px;
+        padding: 10px 14px;
+        display: flex; align-items: center; gap: 9px;
       }
 
-      .sb-user-avatar {
-        width: 27px;
-        height: 27px;
-        border-radius: 50%;
-        background: var(--accent-soft);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--accent);
-        flex-shrink: 0;
+      .sb-user-icon {
+        width: 26px; height: 26px;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--text2); flex-shrink: 0;
       }
+
+      .sb-user-icon svg { width: 22px; height: 22px; }
 
       .sb-user-name {
-        flex: 1;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        flex: 1; font-size: 13px; font-weight: 500;
+        color: var(--text); overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
       }
 
-      .conn-dot {
-        width: 7px; height: 7px;
-        border-radius: 50%;
-        background: var(--border);
-        transition: background 0.3s;
-        flex-shrink: 0;
+      .sb-download-btn {
+        width: 26px; height: 26px;
+        display: flex; align-items: center; justify-content: center;
+        border: none; background: transparent;
+        cursor: pointer; border-radius: 5px; color: var(--text2);
+        transition: background 0.12s; flex-shrink: 0;
       }
 
-      .conn-dot.live { background: var(--success); box-shadow: 0 0 5px var(--success); }
+      .sb-download-btn:hover { background: var(--hover); }
+      .sb-download-btn svg { width: 14px; height: 14px; }
+
+      /* Connection dot (hidden, keep for JS) */
+      .conn-dot { display: none; }
+      .conn-dot.live { display: none; }
 
       /* ════════════════════════════════════════════
          WORKSPACE
       ════════════════════════════════════════════ */
       #workspace {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        background: var(--bg);
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column;
+        overflow: hidden; background: var(--bg);
         position: relative;
       }
 
       /* ════════════════════════════════════════════
-         WELCOME VIEW  (shown when phase === welcome)
+         WELCOME VIEW
       ════════════════════════════════════════════ */
       #welcome-view {
-        position: absolute;
-        inset: 0;
-        z-index: 10;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        position: absolute; inset: 0; z-index: 10;
+        display: flex; align-items: center; justify-content: center;
         background: var(--welcome-bg);
       }
 
       .wv-center {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 20px;
-        width: 100%;
-        max-width: 640px;
-        padding: 0 24px;
-      }
-
-      /* ── Logo ── */
-      .wv-logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .wv-star {
-        width: 34px;
-        height: 34px;
-        color: #cb5a3c;
-        flex-shrink: 0;
+        display: flex; flex-direction: column;
+        align-items: center; gap: 20px;
+        width: 100%; max-width: 640px; padding: 0 24px;
       }
 
       .wv-title {
-        font-size: 28px;
-        font-weight: 400;
-        color: var(--text);
-        letter-spacing: -0.02em;
-        line-height: 1;
+        font-size: 28px; font-weight: 400;
+        color: var(--text); letter-spacing: -0.02em; line-height: 1;
       }
 
       /* ── Big input box ── */
       .wv-input-box {
-        width: 100%;
-        background: var(--bg);
-        border: 1px solid #dddbd7;
-        border-radius: 14px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        overflow: hidden;
+        width: 100%; background: var(--bg);
+        border: 1px solid #dddbd7; border-radius: 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;
         transition: box-shadow 0.15s;
       }
 
@@ -321,268 +269,197 @@
       }
 
       #welcome-textarea {
-        display: block;
-        width: 100%;
-        font-family: var(--font);
-        font-size: 15px;
-        color: var(--text);
-        background: transparent;
-        border: none;
-        outline: none;
-        resize: none;
+        display: block; width: 100%;
+        font-family: var(--font); font-size: 15px;
+        color: var(--text); background: transparent;
+        border: none; outline: none; resize: none;
         padding: 16px 18px 10px;
-        line-height: 1.55;
-        min-height: 58px;
-        max-height: 200px;
+        line-height: 1.55; min-height: 58px; max-height: 200px;
         overflow-y: auto;
       }
 
       #welcome-textarea::placeholder { color: var(--text3); }
 
       .wv-input-toolbar {
-        display: flex;
-        align-items: center;
-        padding: 8px 12px 10px;
-        gap: 8px;
+        display: flex; align-items: center;
+        padding: 8px 12px 10px; gap: 8px;
         border-top: 1px solid var(--border2);
       }
 
       .wv-add-btn {
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--border);
-        border-radius: 50%;
-        background: transparent;
-        cursor: pointer;
-        color: var(--text2);
-        font-size: 18px;
-        line-height: 1;
-        transition: background 0.12s;
-        flex-shrink: 0;
+        width: 28px; height: 28px;
+        display: flex; align-items: center; justify-content: center;
+        border: 1px solid var(--border); border-radius: 50%;
+        background: transparent; cursor: pointer;
+        color: var(--text2); font-size: 18px; line-height: 1;
+        transition: background 0.12s; flex-shrink: 0;
       }
 
       .wv-add-btn:hover { background: var(--hover); }
-
       .wv-toolbar-spacer { flex: 1; }
 
       .wv-model-btn {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        border: none;
-        background: transparent;
-        cursor: pointer;
-        font-family: var(--font);
-        font-size: 13px;
-        color: var(--text2);
-        padding: 4px 6px;
-        border-radius: 6px;
-        transition: background 0.12s;
+        display: flex; align-items: center; gap: 4px;
+        border: none; background: transparent; cursor: pointer;
+        font-family: var(--font); font-size: 13px; color: var(--text2);
+        padding: 4px 6px; border-radius: 6px; transition: background 0.12s;
       }
 
       .wv-model-btn:hover { background: var(--hover); }
-
-      .wv-model-chevron {
-        width: 12px;
-        height: 12px;
-        opacity: 0.6;
-      }
+      .wv-model-chevron { width: 12px; height: 12px; opacity: 0.6; }
 
       .wv-mic-btn {
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        background: transparent;
-        cursor: pointer;
-        border-radius: 50%;
-        color: var(--text2);
-        transition: background 0.12s;
-        flex-shrink: 0;
+        width: 30px; height: 30px;
+        display: flex; align-items: center; justify-content: center;
+        border: none; background: transparent; cursor: pointer;
+        border-radius: 50%; color: var(--text2); transition: background 0.12s;
       }
 
       .wv-mic-btn:hover { background: var(--hover); }
       .wv-mic-btn svg { width: 16px; height: 16px; }
 
-      /* ── Action buttons row ── */
+      /* ── Action buttons ── */
       .wv-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: center;
+        display: flex; align-items: center;
+        gap: 8px; flex-wrap: wrap; justify-content: center;
       }
 
       .wv-action-btn {
-        display: flex;
-        align-items: center;
-        gap: 6px;
+        display: flex; align-items: center; gap: 6px;
         padding: 7px 14px;
-        border: 1px solid var(--border);
-        border-radius: 100px;
-        background: var(--bg);
-        cursor: pointer;
-        font-family: var(--font);
-        font-size: 13px;
-        color: var(--text);
-        transition: background 0.12s, border-color 0.12s;
-        white-space: nowrap;
+        border: 1px solid var(--border); border-radius: 100px;
+        background: var(--bg); cursor: pointer;
+        font-family: var(--font); font-size: 13px; color: var(--text);
+        transition: background 0.12s, border-color 0.12s; white-space: nowrap;
       }
 
-      .wv-action-btn:hover {
-        background: var(--hover);
-        border-color: #ccc8c3;
-      }
-
+      .wv-action-btn:hover { background: var(--hover); border-color: #ccc8c3; }
       .wv-action-btn svg { width: 14px; height: 14px; color: var(--text2); flex-shrink: 0; }
 
       /* ════════════════════════════════════════════
-         PANELS (shown when phase !== welcome)
+         PANELS ROW
       ════════════════════════════════════════════ */
       #main {
-        flex: 1;
-        display: none;   /* shown by JS when phase changes */
-        overflow: hidden;
-        min-height: 0;
+        flex: 1; display: none;
+        overflow: hidden; min-height: 0;
       }
 
-      /* ── Center panel (chat / timeline) — flex:1, leftmost ── */
+      /* ── Center panel (chat) ── */
       #right-panel {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        background: var(--bg);
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column;
+        overflow: hidden; background: var(--bg);
         font-family: var(--font);
       }
 
-      /* ── Right panel (contract) — fixed width, rightmost ── */
-      #left-panel {
-        width: 280px;
-        min-width: 240px;
-        background: var(--panel-bg);
+      /* ── Right card wrapper ── */
+      #right-card {
+        width: var(--rc-width);
+        min-width: 220px;
+        background: var(--sidebar-bg);
         border-left: 1px solid var(--border);
-        overflow-y: auto;
-        overflow-x: hidden;
-        flex-shrink: 0;
-        display: flex;
-        flex-direction: column;
+        display: flex; flex-direction: column;
+        overflow: hidden; flex-shrink: 0;
         font-family: var(--font);
-        order: 2;   /* forces it to appear after right-panel */
       }
 
-      #left-panel::-webkit-scrollbar { width: 4px; }
+      /* Right card header — matches sidebar style */
+      .rc-head {
+        display: flex; align-items: center;
+        padding: 12px 14px 6px; gap: 6px; flex-shrink: 0;
+      }
+
+      .rc-head-icon { width: 18px; height: 18px; color: var(--text); flex-shrink: 0; }
+
+      .rc-head-title {
+        font-size: 14.5px; font-weight: 600;
+        color: var(--text); flex: 1; letter-spacing: -0.01em;
+      }
+
+      .rc-head-btn {
+        width: 26px; height: 26px;
+        display: flex; align-items: center; justify-content: center;
+        border: none; background: transparent; cursor: pointer;
+        border-radius: 6px; color: var(--text2); transition: background 0.12s;
+      }
+
+      .rc-head-btn:hover { background: var(--hover); }
+      .rc-head-btn svg { width: 14px; height: 14px; }
+
+      /* Right card section labels — same as sidebar */
+      .rc-section-label {
+        font-size: 11px; font-weight: 500;
+        color: var(--text3); padding: 10px 16px 4px;
+        letter-spacing: 0.01em; flex-shrink: 0;
+      }
+
+      /* Inner scrollable area */
+      #left-panel {
+        flex: 1; overflow-y: auto; overflow-x: hidden;
+        display: flex; flex-direction: column;
+        font-family: var(--font);
+      }
+
+      #left-panel::-webkit-scrollbar { width: 3px; }
       #left-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
       /* ════════════════════════════════════════════
-         BOTTOM BAR (shown when phase !== welcome)
+         BOTTOM BAR
       ════════════════════════════════════════════ */
       #bottom {
-        flex-shrink: 0;
-        background: var(--bg);
+        flex-shrink: 0; background: var(--bg);
         border-top: 1px solid var(--border);
-        display: none;   /* shown by JS when phase changes */
+        display: none;
       }
 
       #readiness-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 5px 16px;
-        border-bottom: 1px solid var(--border2);
-        font-size: 11.5px;
-        background: var(--panel-bg);
+        display: flex; align-items: center; gap: 10px;
+        padding: 5px 16px; border-bottom: 1px solid var(--border2);
+        font-size: 11.5px; background: var(--panel-bg);
       }
 
-      #readiness-label {
-        white-space: nowrap;
-        min-width: 80px;
-        color: var(--text2);
-        font-size: 11.5px;
-      }
+      #readiness-label { white-space: nowrap; min-width: 80px; color: var(--text2); font-size: 11.5px; }
 
       #readiness-bar-bg {
-        flex: 1;
-        height: 4px;
-        background: var(--border);
-        border-radius: 2px;
-        overflow: hidden;
+        flex: 1; height: 4px; background: var(--border);
+        border-radius: 2px; overflow: hidden;
       }
 
       #readiness-bar-fill {
-        height: 100%;
-        width: 0%;
-        border-radius: 2px;
-        transition: width 0.5s, background 0.5s;
-        background: var(--danger);
+        height: 100%; width: 0%; border-radius: 2px;
+        transition: width 0.5s, background 0.5s; background: var(--danger);
       }
 
-      #readiness-status {
-        white-space: nowrap;
-        min-width: 100px;
-        font-size: 11.5px;
-        color: var(--warn);
-      }
+      #readiness-status { white-space: nowrap; min-width: 100px; font-size: 11.5px; color: var(--warn); }
 
       #main-start-btn {
-        font-family: var(--font);
-        font-size: 12px;
-        font-weight: 500;
-        background: var(--accent);
-        color: #fff;
-        border: none;
-        padding: 5px 16px;
-        cursor: pointer;
-        border-radius: 7px;
-        white-space: nowrap;
-        flex-shrink: 0;
-        display: none;
-        transition: opacity 0.15s;
+        font-family: var(--font); font-size: 12px; font-weight: 500;
+        background: var(--accent); color: #fff; border: none;
+        padding: 5px 16px; cursor: pointer; border-radius: 7px;
+        white-space: nowrap; flex-shrink: 0; display: none; transition: opacity 0.15s;
       }
 
       #main-start-btn:disabled { opacity: 0.45; cursor: not-allowed; }
       #main-start-btn:not(:disabled):hover { opacity: 0.88; }
 
       #input-row {
-        display: flex;
-        align-items: center;
-        padding: 8px 16px;
-        gap: 10px;
-        background: var(--bg);
+        display: flex; align-items: center;
+        padding: 8px 16px; gap: 10px; background: var(--bg);
       }
 
       #main-input {
-        flex: 1;
-        font-family: var(--font);
-        font-size: 13.5px;
-        border: none;
-        outline: none;
-        background: transparent;
-        color: var(--text);
-        resize: none;
-        padding: 0;
-        line-height: 1.55;
+        flex: 1; font-family: var(--font); font-size: 13.5px;
+        border: none; outline: none; background: transparent;
+        color: var(--text); resize: none; padding: 0; line-height: 1.55;
       }
 
       #main-input::placeholder { color: var(--text3); }
 
       #main-send-btn {
-        font-family: var(--font);
-        font-size: 12px;
-        font-weight: 500;
-        background: transparent;
-        color: var(--text2);
-        border: 1px solid var(--border);
-        padding: 5px 16px;
-        cursor: pointer;
-        flex-shrink: 0;
-        border-radius: 7px;
+        font-family: var(--font); font-size: 12px; font-weight: 500;
+        background: transparent; color: var(--text2);
+        border: 1px solid var(--border); padding: 5px 16px;
+        cursor: pointer; flex-shrink: 0; border-radius: 7px;
         transition: background 0.12s;
       }
 
@@ -595,46 +472,30 @@
       .cp-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
       .cp-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 9px 16px;
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-        background: var(--bg);
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 9px 16px; border-bottom: 1px solid var(--border);
+        flex-shrink: 0; background: var(--bg);
       }
 
       .cp-title { font-size: 12px; font-weight: 600; color: var(--text); }
 
       .cp-phase-badge {
-        font-size: 10px;
-        font-weight: 600;
-        padding: 2px 10px;
-        color: var(--accent);
-        background: var(--accent-soft);
-        border-radius: 100px;
+        font-size: 10px; font-weight: 600; padding: 2px 10px;
+        color: var(--accent); background: var(--accent-soft); border-radius: 100px;
       }
 
       .cp-messages {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px 20px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+        flex: 1; overflow-y: auto; padding: 16px 20px;
+        display: flex; flex-direction: column; gap: 10px;
       }
 
       .cp-messages::-webkit-scrollbar { width: 3px; }
       .cp-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
       .cp-welcome-msg {
-        padding: 14px 16px;
-        border-radius: 10px;
-        background: var(--panel-bg);
-        border: 1px solid var(--border);
-        font-size: 13px;
-        color: var(--text2);
-        line-height: 1.75;
+        padding: 14px 16px; border-radius: 10px;
+        background: var(--panel-bg); border: 1px solid var(--border);
+        font-size: 13px; color: var(--text2); line-height: 1.75;
       }
 
       .cp-welcome-icon { font-size: 22px; margin-bottom: 8px; display: block; }
@@ -649,20 +510,13 @@
       .cp-msg-ai-bubble   { background: #f4f4f2; color: var(--text); }
 
       .cp-ai-spinner {
-        display: flex;
-        align-items: center;
-        padding: 6px 20px;
-        gap: 4px;
-        flex-shrink: 0;
-        font-size: 11px;
-        color: var(--text3);
+        display: flex; align-items: center; padding: 6px 20px;
+        gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text3);
       }
 
       .cp-spinner-dot {
-        width: 5px; height: 5px;
-        border-radius: 50%;
-        background: var(--accent);
-        animation: cp-bounce 1.2s infinite;
+        width: 5px; height: 5px; border-radius: 50%;
+        background: var(--accent); animation: cp-bounce 1.2s infinite;
       }
 
       .cp-spinner-dot:nth-child(2) { animation-delay: 0.2s; }
@@ -671,12 +525,8 @@
       @keyframes cp-bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
 
       .cp-error {
-        padding: 6px 20px;
-        font-size: 11px;
-        color: var(--danger);
-        background: #fff5f5;
-        border-top: 1px solid #ffe4e4;
-        flex-shrink: 0;
+        padding: 6px 20px; font-size: 11px; color: var(--danger);
+        background: #fff5f5; border-top: 1px solid #ffe4e4; flex-shrink: 0;
       }
 
       .cp-gap-header    { font-size: 11px; font-weight: 700; color: var(--danger); display: block; margin-bottom: 2px; }
@@ -684,74 +534,42 @@
       .cp-missing-item  { font-size: 11px; color: var(--warn);   display: block; padding-left: 6px; }
 
       /* ════════════════════════════════════════════
-         MISSION CONTRACT PANEL
+         MISSION CONTRACT PANEL (in right card)
       ════════════════════════════════════════════ */
-      .mcp-root { display: flex; flex-direction: column; height: 100%; font-family: var(--font); }
+      .mcp-root { display: flex; flex-direction: column; min-height: 0; font-family: var(--font); }
       .mcp-locked { opacity: 0.85; }
 
-      .mcp-header {
-        background: var(--panel-bg);
-        padding: 9px 14px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .mcp-logo    { color: var(--accent); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; }
-      .mcp-subtitle { color: var(--text3); font-size: 9.5px; margin-top: 1px; }
-
-      .mcp-version-badge {
-        font-size: 9.5px;
-        color: var(--text3);
-        border: 1px solid var(--border);
-        padding: 1px 7px;
-        border-radius: 4px;
-        background: var(--bg);
-      }
+      /* suppress the old mcp header (right card has its own) */
+      .mcp-header { display: none; }
 
       .mcp-conf-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 7px 14px;
-        border-bottom: 1px solid var(--border2);
-        flex-shrink: 0;
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 14px; border-bottom: 1px solid var(--border2); flex-shrink: 0;
       }
 
       .mcp-conf-bar-bg { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
       .mcp-conf-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
       .mcp-conf-label { font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--text2); }
 
-      .mcp-section { padding: 10px 14px; border-bottom: 1px solid var(--border2); }
+      .mcp-section { padding: 9px 14px; border-bottom: 1px solid var(--border2); }
       .mcp-section.mcp-delta { animation: mcp-flash 1.5s ease-out; }
       @keyframes mcp-flash { 0%,100%{background:transparent} 30%{background:rgba(124,58,237,0.05)} }
       .mcp-section-warn { background: #fffdf0; }
 
       .mcp-section-title {
-        font-size: 9px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--text3);
-        margin-bottom: 5px;
+        font-size: 9px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.08em; color: var(--text3); margin-bottom: 5px;
       }
 
-      .mcp-val       { font-size: 12px; color: var(--text);  line-height: 1.5; }
+      .mcp-val       { font-size: 12px; color: var(--text); line-height: 1.5; }
       .mcp-url       { font-family: var(--mono); font-size: 11px; word-break: break-all; color: var(--accent); }
       .mcp-meta      { font-size: 10px; color: var(--text3); margin-top: 2px; }
-      .mcp-objective { font-size: 12px; color: var(--text);  line-height: 1.6; }
+      .mcp-objective { font-size: 12px; color: var(--text); line-height: 1.6; }
 
       .mcp-badge {
-        display: inline-block;
-        font-size: 9px;
-        font-weight: 700;
-        text-transform: uppercase;
-        padding: 2px 7px;
-        margin-top: 4px;
-        border: 1px solid;
-        border-radius: 4px;
+        display: inline-block; font-size: 9px; font-weight: 700;
+        text-transform: uppercase; padding: 2px 7px; margin-top: 4px;
+        border: 1px solid; border-radius: 4px;
       }
 
       .mcp-badge-extract_data     { border-color: var(--accent);  color: var(--accent);  }
@@ -773,70 +591,43 @@
       .mcp-gap        { font-size: 11px; color: var(--warn);  line-height: 1.55; }
 
       .mcp-placeholder {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 28px;
-        gap: 14px;
+        flex: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        padding: 24px; gap: 12px;
       }
 
-      .mcp-ph-icon  { font-size: 26px; opacity: 0.35; }
+      .mcp-ph-icon  { font-size: 24px; opacity: 0.3; }
       .mcp-ph-text  { font-size: 12px; color: var(--text3); text-align: center; line-height: 1.8; }
       .mcp-empty-section { opacity: 0.5; }
       .mcp-empty-hint    { font-size: 11px; color: var(--text3); font-style: italic; }
 
       .mcp-locked-banner {
-        text-align: center;
-        padding: 8px 14px;
-        font-size: 11px;
-        color: var(--accent);
-        border-top: 1px solid var(--border2);
-        flex-shrink: 0;
-        background: var(--accent-soft);
+        text-align: center; padding: 8px 14px; font-size: 11px;
+        color: var(--accent); border-top: 1px solid var(--border2);
+        flex-shrink: 0; background: var(--accent-soft);
       }
 
       .mcp-ready-line {
-        padding: 9px 14px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--accent);
-        border-top: 1px solid var(--border2);
+        padding: 9px 14px; font-size: 11px; font-weight: 600;
+        color: var(--accent); border-top: 1px solid var(--border2);
         background: var(--accent-soft);
       }
 
       /* ════════════════════════════════════════════
-         EXECUTION TIMELINE PANEL
+         EXECUTION TIMELINE (in right card)
       ════════════════════════════════════════════ */
       .etp-root {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        color: var(--text);
-        font-family: var(--font);
-        background: var(--bg);
+        display: flex; flex-direction: column;
+        color: var(--text); font-family: var(--font); background: transparent;
       }
 
-      .etp-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 9px 16px;
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-      }
-
-      .etp-title      { font-size: 12px; font-weight: 600; color: var(--text); }
-      .etp-step-badge { font-size: 10px; border: 1px solid var(--border); color: var(--text2); padding: 2px 9px; border-radius: 100px; }
+      /* suppress the old etp header */
+      .etp-header { display: none; }
 
       .etp-coverage-strip {
-        display: grid;
-        grid-template-columns: repeat(4,1fr);
-        gap: 4px 8px;
-        padding: 8px 16px;
-        border-bottom: 1px solid var(--border2);
-        flex-shrink: 0;
+        display: grid; grid-template-columns: repeat(4,1fr);
+        gap: 4px 8px; padding: 8px 14px;
+        border-bottom: 1px solid var(--border2); flex-shrink: 0;
       }
 
       .etp-cov-item    { display: flex; flex-direction: column; gap: 3px; }
@@ -845,14 +636,7 @@
       .etp-cov-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
       .etp-cov-pct     { font-size: 9px; color: var(--text2); }
 
-      .etp-trust-row {
-        display: flex;
-        gap: 10px;
-        padding: 6px 16px;
-        border-bottom: 1px solid var(--border2);
-        flex-shrink: 0;
-      }
-
+      .etp-trust-row { display: flex; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--border2); flex-shrink: 0; }
       .etp-trust-item    { flex: 1; display: flex; align-items: center; gap: 6px; }
       .etp-trust-lbl     { font-size: 9px; color: var(--text3); width: 30px; flex-shrink: 0; }
       .etp-trust-bar-bg  { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
@@ -860,59 +644,46 @@
       .etp-trust-pct     { font-size: 9px; color: var(--text2); width: 24px; text-align: right; }
 
       .etp-timeline {
-        flex: 1;
-        overflow-y: auto;
-        padding: 10px 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        overflow-y: auto; padding: 8px 10px;
+        display: flex; flex-direction: column; gap: 5px;
       }
 
       .etp-timeline::-webkit-scrollbar { width: 3px; }
       .etp-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-      .etp-empty-hint { font-size: 12px; color: var(--text3); text-align: center; padding: 28px; }
+      .etp-empty-hint { font-size: 12px; color: var(--text3); text-align: center; padding: 20px; }
 
       .etp-entry {
-        display: flex;
-        gap: 10px;
-        padding: 8px 12px;
-        border: 1px solid var(--border);
-        border-radius: 9px;
-        background: var(--bg);
+        display: flex; gap: 8px; padding: 7px 10px;
+        border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
       }
 
       .etp-entry-active { border-color: var(--accent); background: var(--accent-soft); }
       .etp-entry-done   { border-color: var(--success); background: #f0fdf4; }
       .etp-entry-failed { border-color: var(--danger);  background: #fff5f5; }
 
-      .etp-entry-status { font-size: 13px; flex-shrink: 0; width: 16px; text-align: center; color: var(--text2); }
+      .etp-entry-status { font-size: 12px; flex-shrink: 0; width: 14px; text-align: center; color: var(--text2); }
       .etp-entry-active .etp-entry-status { color: var(--accent); animation: etp-spin 1.5s linear infinite; }
       .etp-entry-done   .etp-entry-status { color: var(--success); }
       .etp-entry-failed .etp-entry-status { color: var(--danger);  }
 
       @keyframes etp-spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
 
-      .etp-entry-body   { flex: 1; min-width: 0; }
-      .etp-entry-header { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
-      .etp-entry-icon   { font-size: 13px; flex-shrink: 0; }
-      .etp-entry-obj    { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; }
-      .etp-entry-role   { font-size: 10px; color: var(--text3); white-space: nowrap; }
+      .etp-entry-body    { flex: 1; min-width: 0; }
+      .etp-entry-header  { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+      .etp-entry-icon    { font-size: 12px; flex-shrink: 0; }
+      .etp-entry-obj     { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; }
+      .etp-entry-role    { font-size: 10px; color: var(--text3); white-space: nowrap; }
       .etp-entry-summary { font-size: 11px; color: var(--text2); line-height: 1.5; }
-      .etp-entry-risk    { font-size: 11px; color: var(--warn); margin-top: 3px; }
+      .etp-entry-risk    { font-size: 11px; color: var(--warn); margin-top: 2px; }
 
       .etp-verdict-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        padding: 10px 14px;
-        border: 2px solid;
-        border-radius: 10px;
-        background: var(--bg);
-        margin-top: 6px;
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 8px 10px; border: 2px solid; border-radius: 9px;
+        background: var(--bg); margin-top: 5px;
       }
 
-      .etp-verdict-icon { font-size: 18px; flex-shrink: 0; }
-      .etp-verdict-tier { font-size: 13px; font-weight: 700; }
+      .etp-verdict-icon { font-size: 16px; flex-shrink: 0; }
+      .etp-verdict-tier { font-size: 12px; font-weight: 700; }
       .etp-verdict-msg  { font-size: 11px; color: var(--text2); margin-top: 2px; line-height: 1.5; }
     </style>
     <script type="module" src="/src/main.ts"></script>
@@ -922,102 +693,118 @@
 
       <!-- ════════════════ SIDEBAR ════════════════ -->
       <div id="sidebar">
-        <div class="sb-topnav">
-          <button class="sb-icon-btn" title="菜单">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <line x1="2" y1="4.5"  x2="14" y2="4.5"/>
-              <line x1="2" y1="8"    x2="14" y2="8"/>
-              <line x1="2" y1="11.5" x2="14" y2="11.5"/>
-            </svg>
-          </button>
-          <button class="sb-icon-btn" title="所有任务">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <rect x="2" y="2" width="5" height="5" rx="1"/>
-              <rect x="9" y="2" width="5" height="5" rx="1"/>
-              <rect x="2" y="9" width="5" height="5" rx="1"/>
-              <rect x="9" y="9" width="5" height="5" rx="1"/>
-            </svg>
-          </button>
-          <button class="sb-icon-btn" title="搜索">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <circle cx="7"  cy="7"  r="4"/>
-              <line   x1="10.5" y1="10.5" x2="14" y2="14"/>
-            </svg>
-          </button>
-          <div class="sb-topnav-spacer"></div>
-          <button class="sb-icon-btn" title="后退">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <polyline points="10,3 5,8 10,13"/>
-            </svg>
-          </button>
-          <button class="sb-icon-btn" title="前进">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <polyline points="6,3 11,8 6,13"/>
-            </svg>
-          </button>
-        </div>
 
-        <div class="sb-chat-head">
-          <span class="sb-chat-title">Chat</span>
-          <button class="sb-icon-btn-sm" title="整理">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <line x1="2"  y1="5"  x2="14" y2="5"/>
-              <line x1="4"  y1="8"  x2="12" y2="8"/>
-              <line x1="6"  y1="11" x2="10" y2="11"/>
-            </svg>
-          </button>
-          <button class="sb-icon-btn-sm" title="筛选">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <polyline points="2,3 14,3 9,9 9,14 7,14 7,9"/>
-            </svg>
-          </button>
-        </div>
-
-        <button id="new-session-btn">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-            <line x1="8" y1="2" x2="8" y2="14"/>
-            <line x1="2" y1="8" x2="14" y2="8"/>
+        <!-- Chat heading row -->
+        <div class="sb-head">
+          <!-- Speech bubble icon -->
+          <svg class="sb-head-chat-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M2 3.5 C2 2.67 2.67 2 3.5 2 H14.5 C15.33 2 16 2.67 16 3.5 V11.5 C16 12.33 15.33 13 14.5 13 H6 L3 16 V13 H3.5 C2.67 13 2 12.33 2 11.5 Z"/>
           </svg>
-          新会话
+          <span class="sb-head-title">Chat</span>
+          <!-- Sort icon -->
+          <button class="sb-head-btn" title="整理">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <line x1="2" y1="4" x2="9" y2="4"/>
+              <line x1="2" y1="8" x2="12" y2="8"/>
+              <line x1="2" y1="12" x2="7" y2="12"/>
+              <polyline points="11,6 13,4 15,6"/>
+              <line x1="13" y1="4" x2="13" y2="12"/>
+            </svg>
+          </button>
+          <!-- Code brackets icon -->
+          <button class="sb-head-btn" title="代码视图">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="5,4 2,8 5,12"/>
+              <polyline points="11,4 14,8 11,12"/>
+              <line x1="9" y1="3" x2="7" y2="13"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- New chat -->
+        <button id="new-session-btn">
+          <span class="sb-new-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+              <line x1="8" y1="2" x2="8" y2="14"/>
+              <line x1="2" y1="8" x2="14" y2="8"/>
+            </svg>
+          </span>
+          New chat
         </button>
 
+        <!-- Nav links -->
         <div class="sb-nav">
           <div class="sb-nav-item">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <rect x="2" y="2" width="12" height="12" rx="2"/>
-              <line x1="5" y1="8" x2="11" y2="8"/>
-              <line x1="8" y1="5" x2="8"  y2="11"/>
-            </svg>
-            任务档案
+            <span class="sb-nav-icon">
+              <!-- Folder icon -->
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M2 5 C2 4.45 2.45 4 3 4 H6 L7.5 5.5 H13 C13.55 5.5 14 5.95 14 6.5 V12 C14 12.55 13.55 13 13 13 H3 C2.45 13 2 12.55 2 12 Z"/>
+              </svg>
+            </span>
+            Projects
           </div>
           <div class="sb-nav-item">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <circle cx="8" cy="8" r="5"/>
-              <circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/>
-            </svg>
-            配置
+            <span class="sb-nav-icon">
+              <!-- Sliders/customize icon -->
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="3" y1="4" x2="13" y2="4"/>
+                <circle cx="6" cy="4" r="1.5" fill="currentColor" stroke="none"/>
+                <line x1="3" y1="8" x2="13" y2="8"/>
+                <circle cx="10" cy="8" r="1.5" fill="currentColor" stroke="none"/>
+                <line x1="3" y1="12" x2="13" y2="12"/>
+                <circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            Customize
           </div>
           <div class="sb-nav-item">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <rect x="2" y="4" width="12" height="9" rx="1.5"/>
-              <polyline points="5,4 8,2 11,4"/>
-            </svg>
-            分析结果
+            <span class="sb-nav-icon">
+              <!-- Diamond/artifact icon -->
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polygon points="8,2 14,8 8,14 2,8"/>
+              </svg>
+            </span>
+            Artifacts
           </div>
         </div>
 
+        <!-- Pinned -->
         <div class="sb-section-label">Pinned</div>
-        <div class="sb-section-label">Recents</div>
+        <div class="sb-drag-pin">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M7 1 C7 1 11 5 11 8 A4 4 0 0 1 3 8 C3 5 7 1 7 1 Z"/>
+            <line x1="7" y1="12" x2="7" y2="14"/>
+          </svg>
+          Drag to pin
+        </div>
 
+        <!-- Recents -->
+        <div class="sb-section-label">Recents</div>
         <div class="sb-recents">
           <div id="session-list"></div>
         </div>
 
+        <!-- Footer -->
         <div class="sb-footer">
-          <div class="sb-user-avatar">A</div>
+          <!-- Person icon -->
+          <span class="sb-user-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="9"  r="3"/>
+              <path d="M6 20.5 C6 17.5 9 15 12 15 C15 15 18 17.5 18 20.5"/>
+            </svg>
+          </span>
           <span class="sb-user-name">Axelo</span>
-          <div class="conn-dot" id="conn-dot" title="连接状态"></div>
+          <!-- Download icon -->
+          <button class="sb-download-btn" title="导出">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <line x1="8"  y1="2"  x2="8"  y2="10"/>
+              <polyline points="5,7 8,11 11,7"/>
+              <path d="M3 13 H13"/>
+            </svg>
+          </button>
         </div>
+
       </div>
       <!-- /SIDEBAR -->
 
@@ -1028,17 +815,8 @@
         <div id="welcome-view">
           <div class="wv-center">
 
-            <!-- Logo -->
-            <div class="wv-logo">
-              <!-- 8-arm starburst matching Claude.ai asterisk style -->
-              <svg class="wv-star" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <line x1="16" y1="1"    x2="16" y2="31"   stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
-                <line x1="1"  y1="16"   x2="31" y2="16"   stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
-                <line x1="5.5" y1="5.5" x2="26.5" y2="26.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
-                <line x1="26.5" y1="5.5" x2="5.5" y2="26.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
-              </svg>
-              <h1 class="wv-title">Axelo</h1>
-            </div>
+            <!-- Title only (no logo) -->
+            <h1 class="wv-title">Axelo</h1>
 
             <!-- Big input box -->
             <div class="wv-input-box">
@@ -1067,7 +845,7 @@
               </div>
             </div>
 
-            <!-- Quick action buttons -->
+            <!-- Quick actions -->
             <div class="wv-actions">
               <button class="wv-action-btn">
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1108,10 +886,37 @@
         </div>
         <!-- /Welcome View -->
 
-        <!-- ── Panels (chat center + contract right) ── -->
+        <!-- ── Panels row ── -->
         <div id="main">
-          <div id="right-panel"></div>   <!-- chat / timeline — center -->
-          <div id="left-panel"></div>    <!-- contract — right -->
+          <!-- Center: chat -->
+          <div id="right-panel"></div>
+
+          <!-- Right card: AI planning & execution -->
+          <div id="right-card">
+            <!-- Header matching sidebar style -->
+            <div class="rc-head">
+              <!-- Brain/plan icon -->
+              <svg class="rc-head-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M7 3 C7 3 4 4 4 7 C4 10 7 11 7 11 L7 15"/>
+                <path d="M11 3 C11 3 14 4 14 7 C14 10 11 11 11 11 L11 15"/>
+                <line x1="7" y1="7" x2="11" y2="7"/>
+                <line x1="7" y1="11" x2="11" y2="11"/>
+                <line x1="6" y1="15" x2="12" y2="15"/>
+              </svg>
+              <span class="rc-head-title">AI 规划</span>
+              <!-- Collapse button -->
+              <button class="rc-head-btn" title="收起">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <polyline points="11,4 14,8 11,12"/>
+                  <line x1="2" y1="8" x2="14" y2="8"/>
+                </svg>
+              </button>
+            </div>
+
+            <div class="rc-section-label">合约规划</div>
+            <!-- MissionContractPanel injects here -->
+            <div id="left-panel"></div>
+          </div>
         </div>
 
         <!-- ── Bottom bar ── -->
@@ -1140,6 +945,7 @@
       <!-- Hidden elements for JS wiring -->
       <select id="session-select" style="display:none"><option value="">-- 选择 --</option></select>
       <span   id="conn-label"    style="display:none">离线</span>
+      <div    id="conn-dot"      style="display:none"></div>
 
     </div>
   </body>
