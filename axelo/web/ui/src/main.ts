@@ -187,12 +187,16 @@ window.addEventListener('axelo:mission-started', (e: Event) => {
 
   const select = document.getElementById('session-select') as HTMLSelectElement
   if (select) {
-    const opt = document.createElement('option')
-    opt.value = sessionId
-    opt.textContent = sessionId
-    select.appendChild(opt)
+    if (!select.querySelector(`option[value="${sessionId}"]`)) {
+      const opt = document.createElement('option')
+      opt.value = sessionId
+      opt.textContent = sessionId
+      select.appendChild(opt)
+    }
     select.value = sessionId
   }
+  addSidebarSession(sessionId)
+  activateSidebarSession(sessionId)
 })
 
 // ── Session selector ──────────────────────────────────────────────────────────
@@ -206,6 +210,33 @@ sessionSelect?.addEventListener('change', async () => {
   wsClient.connect()
 })
 
+// ── Sidebar session list helpers ──────────────────────────────────────────────
+const sidebarSessionList = document.getElementById('session-list') as HTMLElement
+
+function addSidebarSession(sid: string): void {
+  if (!sidebarSessionList) return
+  if (sidebarSessionList.querySelector(`[data-sid="${sid}"]`)) return
+  const item = document.createElement('div')
+  item.className = 'sb-session-item'
+  item.dataset.sid = sid
+  const label = document.createElement('span')
+  label.className = 'sb-session-id'
+  label.textContent = sid
+  item.appendChild(label)
+  item.addEventListener('click', () => activateSidebarSession(sid))
+  sidebarSessionList.appendChild(item)
+}
+
+function activateSidebarSession(sid: string): void {
+  const select = document.getElementById('session-select') as HTMLSelectElement
+  if (!select) return
+  select.value = sid
+  select.dispatchEvent(new Event('change'))
+  sidebarSessionList.querySelectorAll('.sb-session-item').forEach(el =>
+    el.classList.toggle('active', (el as HTMLElement).dataset.sid === sid)
+  )
+}
+
 // ── Load session list on startup ──────────────────────────────────────────────
 async function loadSessionList(): Promise<void> {
   try {
@@ -218,11 +249,13 @@ async function loadSessionList(): Promise<void> {
     for (const s of sessions.slice(0, 20)) {
       const sid = s.session_id || s.id || String(s)
       if (!sid) continue
-      if (select.querySelector(`option[value="${sid}"]`)) continue
-      const opt = document.createElement('option')
-      opt.value = sid
-      opt.textContent = sid
-      select.appendChild(opt)
+      if (!select.querySelector(`option[value="${sid}"]`)) {
+        const opt = document.createElement('option')
+        opt.value = sid
+        opt.textContent = sid
+        select.appendChild(opt)
+      }
+      addSidebarSession(sid)
     }
   } catch { /* ignore */ }
 }
@@ -235,6 +268,12 @@ missionStore.subscribe((state) => {
   const label = document.getElementById('conn-label')
   if (dot)   dot.classList.toggle('live', state.connected)
   if (label) label.textContent = state.connected ? '实时' : '离线'
+})
+
+// ── New session button ────────────────────────────────────────────────────────
+document.getElementById('new-session-btn')?.addEventListener('click', () => {
+  if (wsClient) wsClient.disconnect()
+  window.location.reload()
 })
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
