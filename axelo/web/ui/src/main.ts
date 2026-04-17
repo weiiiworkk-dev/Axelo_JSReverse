@@ -47,12 +47,26 @@ let timelinePanel: ExecutionTimelinePanel | null = null
 let timelineEl: HTMLElement | null = null
 let wsClient: WsClient | null = null
 
+// ── Welcome view / panels toggle ─────────────────────────────────────────────
+const welcomeView  = document.getElementById('welcome-view')  as HTMLElement | null
+const mainArea     = document.getElementById('main')          as HTMLElement | null
+const bottomBar    = document.getElementById('bottom')        as HTMLElement | null
+
+function setWelcomeVisible(show: boolean): void {
+  if (welcomeView) welcomeView.style.display  = show ? 'flex'  : 'none'
+  if (mainArea)    mainArea.style.display     = show ? 'none'  : 'flex'
+  if (bottomBar)   bottomBar.style.display    = show ? 'none'  : 'block'
+}
+
 // ── Phase routing ─────────────────────────────────────────────────────────────
 let currentPhase: IntakePhase = 'welcome'
 
 function onPhaseChange(phase: IntakePhase): void {
   if (phase === currentPhase) return
   currentPhase = phase
+
+  // Toggle welcome vs panels
+  setWelcomeVisible(phase === 'welcome')
 
   if (phase === 'executing' || phase === 'complete' || phase === 'failed') {
     showExecutionTimeline()
@@ -77,7 +91,7 @@ function onPhaseChange(phase: IntakePhase): void {
   if (mainInput) {
     mainInput.placeholder = phase === 'executing'
       ? '添加批注或备注到当前任务...'
-      : '告诉 Axelo 你想爬取什么，或者想逆向分析哪个网站...'
+      : '继续告诉 Axelo 更多细节...'
   }
 }
 
@@ -116,6 +130,12 @@ intakeStore.subscribe((state) => {
   // Readiness label
   if (readinessLabel) {
     readinessLabel.textContent = `就绪度：${pct}%`
+  }
+
+  // Welcome view model button shows readiness
+  const welcomeModelBtn = document.getElementById('welcome-model-btn')
+  if (welcomeModelBtn) {
+    welcomeModelBtn.childNodes[0]!.textContent = `就绪度 ${pct}%`
   }
 
   // Progress bar fill + color
@@ -170,6 +190,25 @@ mainInput?.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     void doSend()
+  }
+})
+
+// ── Welcome textarea wiring ────────────────────────────────────────────────────
+const welcomeTextarea = document.getElementById('welcome-textarea') as HTMLTextAreaElement | null
+
+async function doWelcomeSend(): Promise<void> {
+  if (!welcomeTextarea) return
+  const msg = welcomeTextarea.value.trim()
+  if (!msg) return
+  welcomeTextarea.value = ''
+  mainInput.value = msg
+  await chatPanel.handleSend(msg)
+}
+
+welcomeTextarea?.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    void doWelcomeSend()
   }
 })
 
