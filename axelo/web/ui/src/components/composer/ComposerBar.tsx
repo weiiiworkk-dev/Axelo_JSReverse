@@ -18,6 +18,14 @@ function IconSend() {
   )
 }
 
+function IconPlay() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  )
+}
+
 function IconChevron() {
   return (
     <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -55,24 +63,47 @@ function Spinner() {
   )
 }
 
+// "开始执行" 按钮 — 当 AI 确认任务就绪且尚未开始运行时显示
+function StartButton({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1.5 px-3 py-[5px] rounded-[8px] text-[12px] font-semibold transition-all ${
+        disabled
+          ? 'bg-[#e5e7eb] text-[#aaa] cursor-not-allowed'
+          : 'bg-lavender-500 text-white hover:bg-lavender-600 cursor-pointer shadow-sm'
+      }`}
+    >
+      <IconPlay />
+      开始执行
+    </button>
+  )
+}
+
 export function ComposerBar() {
-  const { state, sendMessage, createSession } = useApp()
+  const { state, sendMessage, createSession, startRun } = useApp()
   const [text, setText] = useState('')
   const [planMode, setPlanMode] = useState(false)
+  const [starting, setStarting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const canSend = text.trim().length > 0 && !state.sending
+  const canSend = text.trim().length > 0 && !state.sending && state.runStatus === 'idle'
+  const showStart = state.isReady && state.runStatus === 'idle' && !!state.activeSessionId
 
   const handleSend = async () => {
     if (!canSend) return
     const msg = text.trim()
     setText('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-
-    if (!state.activeSessionId) {
-      await createSession()
-    }
+    if (!state.activeSessionId) await createSession()
     await sendMessage(msg)
+  }
+
+  const handleStart = async () => {
+    if (starting) return
+    setStarting(true)
+    try { await startRun() } finally { setStarting(false) }
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -89,6 +120,8 @@ export function ComposerBar() {
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
   }
 
+  const isExecuting = state.runStatus === 'running'
+
   return (
     <div className="absolute bottom-0 left-0 right-0 px-[52px] pb-[18px] pt-6 bg-gradient-to-t from-white via-white/90 to-transparent pointer-events-none">
       <div className="pointer-events-auto w-full bg-white border border-[#e0e0e0] rounded-[14px] shadow-[0_2px_14px_rgba(0,0,0,0.09),0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
@@ -101,12 +134,16 @@ export function ComposerBar() {
             onChange={(e) => setText(e.target.value)}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder="Describe a task or ask a question"
-            className="flex-1 resize-none bg-transparent outline-none text-[13.5px] text-[#111827] placeholder:text-[#9ca3af] leading-relaxed max-h-[120px] overflow-y-auto"
+            placeholder={isExecuting ? '执行中，请稍候…' : 'Describe a task or ask a question'}
+            disabled={isExecuting}
+            className="flex-1 resize-none bg-transparent outline-none text-[13.5px] text-[#111827] placeholder:text-[#9ca3af] leading-relaxed max-h-[120px] overflow-y-auto disabled:opacity-50"
             style={{ minHeight: '22px' }}
           />
           <div className="flex items-center gap-1.5 flex-shrink-0 mb-[1px]">
-            <button className="w-[27px] h-[27px] rounded-md flex items-center justify-center text-[#c8c8c8] hover:bg-lavender-50 hover:text-lavender-500 transition-colors">
+            <button
+              disabled={isExecuting}
+              className="w-[27px] h-[27px] rounded-md flex items-center justify-center text-[#c8c8c8] hover:bg-lavender-50 hover:text-lavender-500 transition-colors disabled:opacity-40"
+            >
               <IconAttach />
             </button>
             <button
@@ -136,6 +173,11 @@ export function ComposerBar() {
           </button>
 
           <div className="ml-auto flex items-center gap-2.5">
+            {/* "开始执行" 按钮 — 就绪且未开始时显示 */}
+            {showStart && (
+              <StartButton onClick={handleStart} disabled={starting} />
+            )}
+
             <label className="flex items-center gap-1.5 text-[12px] text-[#6b7280] cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -147,7 +189,7 @@ export function ComposerBar() {
             </label>
             <div className="flex items-center gap-1.5 text-[12px] text-[#6b7280] font-medium">
               Sonnet 4.6
-              {state.sending ? <Spinner /> : (
+              {state.sending || starting ? <Spinner /> : (
                 <div className="w-3 h-3 rounded-full border-[1.5px] border-[#d1d5db]" />
               )}
             </div>

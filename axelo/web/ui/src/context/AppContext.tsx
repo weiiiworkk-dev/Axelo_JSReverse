@@ -15,7 +15,28 @@ export interface ThreadMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   ts: string
+  actor?: string  // 'router' | 'agent-xxx' — 用于聊天气泡标签
 }
+
+export interface PlanStep {
+  id: string
+  label: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked'
+  agentId?: string
+  note?: string
+}
+
+// 标准 8 步流水线（与后端 OBJECTIVE_TITLES 对应）
+const DEFAULT_STEPS: PlanStep[] = [
+  { id: 'discover_surface',          label: '检测目标结构',    status: 'pending' },
+  { id: 'recover_transport',         label: '恢复传输路径',    status: 'pending' },
+  { id: 'recover_static_mechanism',  label: '分析静态机制',    status: 'pending' },
+  { id: 'recover_runtime_mechanism', label: '检测运行时机制',  status: 'pending' },
+  { id: 'recover_response_schema',   label: '映射响应结构',    status: 'pending' },
+  { id: 'build_artifacts',           label: '构建爬虫产物',    status: 'pending' },
+  { id: 'verify_execution',          label: '验证执行结果',    status: 'pending' },
+  { id: 'challenge_findings',        label: '复核发现项',      status: 'pending' },
+]
 
 interface AppState {
   sessions: SessionSummary[]
@@ -24,7 +45,13 @@ interface AppState {
   phase: string
   sending: boolean
   wsConnected: boolean
-  streamingText: string | null  // null = 不在流式中；'' 或文字 = 正在流式
+  streamingText: string | null
+  // 执行面板
+  isReady: boolean
+  runId: string | null
+  runStatus: 'idle' | 'running' | 'completed' | 'failed'
+  planSteps: PlanStep[]
+  rightPanelOpen: boolean
 }
 
 type Action =
@@ -38,6 +65,12 @@ type Action =
   | { type: 'SET_PHASE'; phase: string }
   | { type: 'SET_STREAMING'; text: string }
   | { type: 'COMMIT_STREAMING'; id: string; ts: string }
+  | { type: 'SET_READY'; isReady: boolean }
+  | { type: 'OPEN_PANEL' }
+  | { type: 'CLOSE_PANEL' }
+  | { type: 'SET_RUN'; runId: string }
+  | { type: 'SET_RUN_STATUS'; status: AppState['runStatus'] }
+  | { type: 'UPDATE_STEP'; objective: string; status: PlanStep['status']; agentId?: string; note?: string }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -54,7 +87,13 @@ function reducer(state: AppState, action: Action): AppState {
     case 'PREPEND_SESSION':
       return { ...state, sessions: [action.session, ...state.sessions] }
     case 'CLEAR_ACTIVE':
-      return { ...state, activeSessionId: null, thread: [], phase: '', wsConnected: false, streamingText: null }
+      return {
+        ...state, activeSessionId: null, thread: [], phase: '',
+        wsConnected: false, streamingText: null,
+        isReady: false, runId: null, runStatus: 'idle',
+        planSteps: DEFAULT_STEPS.map(s => ({ ...s })),
+        rightPanelOpen: false,
+      }
     case 'SET_PHASE':
       return { ...state, phase: action.phase }
     case 'SET_STREAMING':
@@ -64,6 +103,25 @@ function reducer(state: AppState, action: Action): AppState {
       const msg: ThreadMessage = { id: action.id, role: 'assistant', content: state.streamingText, ts: action.ts }
       return { ...state, streamingText: null, thread: [...state.thread, msg] }
     }
+    case 'SET_READY':
+      return { ...state, isReady: action.isReady }
+    case 'OPEN_PANEL':
+      return { ...state, rightPanelOpen: true }
+    case 'CLOSE_PANEL':
+      return { ...state, rightPanelOpen: false }
+    case 'SET_RUN':
+      return { ...state, runId: action.runId, runStatus: 'running' }
+    case 'SET_RUN_STATUS':
+      return { ...state, runStatus: action.status }
+    case 'UPDATE_STEP':
+      return {
+        ...state,
+        planSteps: state.planSteps.map(s =>
+          s.id === action.objective
+            ? { ...s, status: action.status, agentId: action.agentId ?? s.agentId, note: action.note ?? s.note }
+            : s
+        ),
+      }
     default:
       return state
   }
@@ -77,6 +135,11 @@ const initialState: AppState = {
   sending: false,
   wsConnected: false,
   streamingText: null,
+  isReady: false,
+  runId: null,
+  runStatus: 'idle',
+  planSteps: DEFAULT_STEPS.map(s => ({ ...s })),
+  rightPanelOpen: false,
 }
 
 interface AppContextValue {
@@ -85,32 +148,26 @@ interface AppContextValue {
   openSession: (sessionId: string) => Promise<void>
   createSession: () => Promise<void>
   sendMessage: (text: string) => Promise<void>
+  startRun: () => Promise<void>
   clearActive: () => void
+  closePanel: () => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
 
 const API = ''
 
-// 将后端返回的历史数组（ChatThreadItem 或旧 history 格式）统一映射为 ThreadMessage
 function historyToThread(
   history: Array<{
-    role?: string
-    actor_type?: string
-    content?: string
-    turn_id?: string
-    item_id?: string
-    ts?: string
-    created_at?: string
+    role?: string; actor_type?: string; content?: string
+    turn_id?: string; item_id?: string; ts?: string; created_at?: string
   }>
 ): ThreadMessage[] {
   return history.map((h, i) => {
     const role =
-      h.role === 'user' || h.actor_type === 'user'
-        ? 'user'
-        : h.role === 'assistant' || h.actor_type === 'router' || h.actor_type === 'agent'
-        ? 'assistant'
-        : 'system'
+      h.role === 'user' || h.actor_type === 'user' ? 'user'
+      : h.role === 'assistant' || h.actor_type === 'router' || h.actor_type === 'agent' ? 'assistant'
+      : 'system'
     return {
       id: h.turn_id ?? h.item_id ?? String(i),
       role,
@@ -120,7 +177,6 @@ function historyToThread(
   })
 }
 
-// 逐字符流式显示 AI 回复，模拟打字效果
 async function streamAiReply(
   text: string,
   dispatch: React.Dispatch<Action>,
@@ -128,29 +184,29 @@ async function streamAiReply(
 ): Promise<void> {
   const id = crypto.randomUUID()
   const ts = new Date().toISOString()
-  const CHUNK = 4   // 每次显示字符数
-  const DELAY = 18  // ms 间隔，约 220 字符/秒
+  const CHUNK = 4
+  const DELAY = 18
 
   dispatch({ type: 'SET_STREAMING', text: '' })
-
   for (let i = CHUNK; i < text.length; i += CHUNK) {
     if (abortRef.current) return
     dispatch({ type: 'SET_STREAMING', text: text.slice(0, i) })
     await new Promise(r => setTimeout(r, DELAY))
   }
-
   if (abortRef.current) return
   dispatch({ type: 'SET_STREAMING', text })
   await new Promise(r => setTimeout(r, DELAY))
-  if (!abortRef.current) {
-    dispatch({ type: 'COMMIT_STREAMING', id, ts })
-  }
+  if (!abortRef.current) dispatch({ type: 'COMMIT_STREAMING', id, ts })
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
-  const wsRef = useRef<WebSocket | null>(null)
+  const wsRef = useRef<WebSocket | null>(null)      // intake WS (不接收 run 事件)
+  const runWsRef = useRef<WebSocket | null>(null)   // run WS
   const streamAbortRef = useRef(false)
+  // 用 ref 访问最新 state（避免闭包陈旧值）
+  const stateRef = useRef(state)
+  useEffect(() => { stateRef.current = state }, [state])
 
   const loadSessions = async () => {
     try {
@@ -158,7 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!res.ok) return
       const data: SessionSummary[] = await res.json()
       dispatch({ type: 'SET_SESSIONS', sessions: data })
-    } catch { /* network error */ }
+    } catch { /* ignore */ }
   }
 
   const openSession = async (sessionId: string) => {
@@ -166,11 +222,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${API}/api/sessions/${sessionId}`)
       if (!res.ok) return
       const data = await res.json()
-      // 兼容 thread_items（ChatThreadItem）和旧 history 两种格式
       const rawHistory = data.thread_items ?? data.history ?? []
       const thread = historyToThread(rawHistory)
       dispatch({ type: 'SET_ACTIVE', sessionId, thread, phase: data.status ?? data.phase ?? '' })
-      connectWs(sessionId)
+      const isReady = Boolean(data.ready_to_run)
+      dispatch({ type: 'SET_READY', isReady })
+      if (isReady) dispatch({ type: 'OPEN_PANEL' })
+      connectIntakeWs(sessionId)
     } catch { /* ignore */ }
   }
 
@@ -182,23 +240,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const sessionId = data.session_id
       dispatch({ type: 'PREPEND_SESSION', session: data as SessionSummary })
       dispatch({ type: 'SET_ACTIVE', sessionId, thread: [], phase: 'welcome' })
-      connectWs(sessionId)
+      connectIntakeWs(sessionId)
     } catch { /* ignore */ }
   }
 
   const sendMessage = async (text: string) => {
-    if (!state.activeSessionId || state.sending) return
+    const sessionId = stateRef.current.activeSessionId
+    if (!sessionId || stateRef.current.sending) return
     streamAbortRef.current = false
     dispatch({ type: 'SET_SENDING', value: true })
-    const userMsg: ThreadMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: text,
-      ts: new Date().toISOString(),
-    }
+    const userMsg: ThreadMessage = { id: crypto.randomUUID(), role: 'user', content: text, ts: new Date().toISOString() }
     dispatch({ type: 'APPEND_MESSAGES', messages: [userMsg] })
     try {
-      const res = await fetch(`${API}/api/sessions/${state.activeSessionId}/messages`, {
+      const res = await fetch(`${API}/api/sessions/${sessionId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text }),
@@ -206,12 +260,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json()
         const aiReply: string = data.ai_reply ?? ''
-        // 先关闭 loading，再流式显示
         dispatch({ type: 'SET_SENDING', value: false })
-        if (aiReply) {
-          await streamAiReply(aiReply, dispatch, streamAbortRef)
+        if (aiReply) await streamAiReply(aiReply, dispatch, streamAbortRef)
+
+        // 解析 readiness：面板首次就绪时弹出
+        const isReady = Boolean(data.session?.ready_to_run ?? data.readiness?.is_ready)
+        if (isReady && !stateRef.current.isReady) {
+          dispatch({ type: 'SET_READY', isReady: true })
+          dispatch({ type: 'OPEN_PANEL' })
         }
-        // 只更新 phase，不重置 thread
         const newPhase = data.session?.phase ?? data.phase ?? ''
         if (newPhase) dispatch({ type: 'SET_PHASE', phase: newPhase })
       }
@@ -220,66 +277,125 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const connectWs = (sessionId: string) => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const ws = new WebSocket(`${proto}//${host}/ws/sessions/${sessionId}/stream`)
-    wsRef.current = ws
+  const startRun = async () => {
+    const sessionId = stateRef.current.activeSessionId
+    if (!sessionId) return
+    try {
+      const res = await fetch(`${API}/api/sessions/${sessionId}/runs`, { method: 'POST' })
+      if (!res.ok) return
+      const data = await res.json()
+      const runId: string = data.run?.run_id ?? ''
+      if (!runId) return
+      dispatch({ type: 'SET_RUN', runId })
+      dispatch({ type: 'SET_PHASE', phase: 'executing' })
+      // 重置步骤为 pending 再开始
+      DEFAULT_STEPS.forEach(s => dispatch({ type: 'UPDATE_STEP', objective: s.id, status: 'pending' }))
+      connectRunWs(runId)
+      // 系统提示消息
+      const sysMsg: ThreadMessage = {
+        id: crypto.randomUUID(), role: 'system',
+        content: '▶ 任务已启动，Router AI 开始规划执行路径…', ts: new Date().toISOString(),
+      }
+      dispatch({ type: 'APPEND_MESSAGES', messages: [sysMsg] })
+    } catch { /* ignore */ }
+  }
 
+  const connectIntakeWs = (sessionId: string) => {
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/sessions/${sessionId}/stream`)
+    wsRef.current = ws
     ws.onopen = () => dispatch({ type: 'SET_WS_CONNECTED', value: true })
     ws.onclose = () => dispatch({ type: 'SET_WS_CONNECTED', value: false })
     ws.onerror = () => dispatch({ type: 'SET_WS_CONNECTED', value: false })
+    ws.onmessage = (ev: MessageEvent) => handleRunEvent(ev.data)
+  }
 
-    ws.onmessage = (ev: MessageEvent) => {
-      try {
-        const event = JSON.parse(ev.data as string) as Record<string, unknown>
-        const kind = String(event.kind ?? '')
-        const payload = (event.payload ?? {}) as Record<string, unknown>
-        const message = String(payload.message ?? event.message ?? '')
-
-        // 运行阶段：router/agent 活动消息追加到对话
-        if ((kind === 'router.message' || kind === 'agent.activity') && message) {
-          const msg: ThreadMessage = {
-            id: String(event.event_id ?? crypto.randomUUID()),
-            role: 'assistant',
-            content: message,
-            ts: String(event.ts ?? new Date().toISOString()),
-          }
-          dispatch({ type: 'APPEND_MESSAGES', messages: [msg] })
-        }
-
-        // 运行结束
-        if (kind === 'run.completed' || kind === 'run.failed') {
-          const phase = kind === 'run.completed' ? 'completed' : 'failed'
-          dispatch({ type: 'SET_PHASE', phase })
-        }
-      } catch { /* ignore malformed events */ }
+  const connectRunWs = (runId: string) => {
+    if (runWsRef.current) { runWsRef.current.close(); runWsRef.current = null }
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/sessions/${runId}/stream`)
+    runWsRef.current = ws
+    ws.onclose = () => {
+      // 如果还在运行则尝试重连
+      if (stateRef.current.runStatus === 'running') {
+        setTimeout(() => {
+          const currentRunId = stateRef.current.runId
+          if (currentRunId) connectRunWs(currentRunId)
+        }, 3000)
+      }
     }
+    ws.onmessage = (ev: MessageEvent) => handleRunEvent(ev.data)
+  }
+
+  const handleRunEvent = (raw: string) => {
+    try {
+      const event = JSON.parse(raw) as Record<string, unknown>
+      const kind = String(event.kind ?? '')
+      const payload = (event.payload ?? {}) as Record<string, unknown>
+      const message = String(payload.message ?? event.message ?? '')
+      const objective = String(payload.objective ?? '')
+      const objectiveLabel = String(payload.objective_label ?? objective)
+      const actorId = String(event.actor_id ?? '')
+      const status = String(payload.status ?? '')
+      const ts = String(event.ts ?? new Date().toISOString())
+      const eventId = String(event.event_id ?? crypto.randomUUID())
+
+      // 更新流水线步骤
+      if (objective) {
+        const stepStatus: PlanStep['status'] =
+          status === 'completed' ? 'completed'
+          : status === 'failed' ? 'failed'
+          : status === 'blocked' ? 'blocked'
+          : kind === 'agent.activity' ? 'running'
+          : 'pending'
+        dispatch({ type: 'UPDATE_STEP', objective, status: stepStatus, agentId: actorId, note: message || undefined })
+      }
+
+      // 聊天区消息
+      if (kind === 'router.message' && message) {
+        dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: eventId, role: 'assistant', content: message, ts, actor: 'router' }] })
+      } else if (kind === 'agent.activity' && message && !payload.transient) {
+        const label = objectiveLabel ? `[${objectiveLabel}] ` : ''
+        dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: eventId, role: 'assistant', content: `${label}${message}`, ts, actor: actorId }] })
+      } else if (kind === 'run.completed') {
+        dispatch({ type: 'SET_RUN_STATUS', status: 'completed' })
+        dispatch({ type: 'SET_PHASE', phase: 'completed' })
+        // 把剩余 pending 步骤标为 completed
+        stateRef.current.planSteps.forEach(s => {
+          if (s.status === 'pending' || s.status === 'running') {
+            dispatch({ type: 'UPDATE_STEP', objective: s.id, status: 'completed' })
+          }
+        })
+        dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '✅ 执行完成', ts, actor: 'system' }] })
+      } else if (kind === 'run.failed') {
+        dispatch({ type: 'SET_RUN_STATUS', status: 'failed' })
+        dispatch({ type: 'SET_PHASE', phase: 'failed' })
+        dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '❌ 执行失败', ts, actor: 'system' }] })
+      }
+    } catch { /* ignore */ }
   }
 
   const clearActive = () => {
     streamAbortRef.current = true
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
+    if (runWsRef.current) { runWsRef.current.close(); runWsRef.current = null }
     dispatch({ type: 'CLEAR_ACTIVE' })
   }
+
+  const closePanel = () => dispatch({ type: 'CLOSE_PANEL' })
 
   useEffect(() => {
     loadSessions()
     return () => {
       streamAbortRef.current = true
       if (wsRef.current) wsRef.current.close()
+      if (runWsRef.current) runWsRef.current.close()
     }
   }, [])
 
   return (
-    <AppContext.Provider value={{ state, loadSessions, openSession, createSession, sendMessage, clearActive }}>
+    <AppContext.Provider value={{ state, loadSessions, openSession, createSession, sendMessage, startRun, clearActive, closePanel }}>
       {children}
     </AppContext.Provider>
   )
