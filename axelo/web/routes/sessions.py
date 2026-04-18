@@ -42,6 +42,81 @@ class CheckpointResolutionRequest(BaseModel):
     approved: bool
 
 
+@router.get("/stats")
+async def get_stats() -> dict[str, Any]:
+    sessions = list_workbench_sessions()
+    total_sessions = len(sessions)
+    total_messages = 0
+    active_days: set[str] = set()
+    hour_counts: dict[int, int] = {}
+
+    intake_base = Path(settings.workspace) / "intake"
+    if intake_base.exists():
+        for session_dir in intake_base.iterdir():
+            if not session_dir.is_dir():
+                continue
+            history_path = session_dir / "history.jsonl"
+            if history_path.exists():
+                lines = history_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        total_messages += 1
+                        ts = record.get("ts", "")
+                        if ts:
+                            dt = datetime.fromisoformat(ts)
+                            active_days.add(dt.strftime("%Y-%m-%d"))
+                            hour_counts[dt.hour] = hour_counts.get(dt.hour, 0) + 1
+                    except Exception:
+                        continue
+
+    peak_hour = max(hour_counts, key=lambda h: hour_counts[h]) if hour_counts else None
+    peak_hour_str = f"{peak_hour:02d}:00" if peak_hour is not None else "—"
+
+    sorted_days = sorted(active_days)
+    current_streak = 0
+    longest_streak = 0
+    if sorted_days:
+        streak = 1
+        longest_streak = 1
+        for i in range(1, len(sorted_days)):
+            a = datetime.strptime(sorted_days[i - 1], "%Y-%m-%d")
+            b = datetime.strptime(sorted_days[i], "%Y-%m-%d")
+            if (b - a).days == 1:
+                streak += 1
+                longest_streak = max(longest_streak, streak)
+            else:
+                streak = 1
+        today = datetime.now().strftime("%Y-%m-%d")
+        yesterday = (datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)).__class__.fromordinal(
+            datetime.now().toordinal() - 1
+        ).strftime("%Y-%m-%d")
+        if sorted_days[-1] in (today, yesterday):
+            rev = list(reversed(sorted_days))
+            current_streak = 1
+            for i in range(1, len(rev)):
+                a = datetime.strptime(rev[i], "%Y-%m-%d")
+                b = datetime.strptime(rev[i - 1], "%Y-%m-%d")
+                if (b - a).days == 1:
+                    current_streak += 1
+                else:
+                    break
+
+    return {
+        "sessions": total_sessions if total_sessions else "—",
+        "messages": total_messages if total_messages else "—",
+        "total_tokens": "—",
+        "active_days": len(active_days) if active_days else "—",
+        "current_streak": f"{current_streak}d" if current_streak else "—",
+        "longest_streak": f"{longest_streak}d" if longest_streak else "—",
+        "peak_hour": peak_hour_str,
+        "favorite_model": "claude-sonnet-4-6",
+    }
+
+
 @router.get("/sessions")
 async def list_sessions() -> list[dict[str, Any]]:
     return list_workbench_sessions()

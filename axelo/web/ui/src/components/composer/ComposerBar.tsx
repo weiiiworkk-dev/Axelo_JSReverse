@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useRef, KeyboardEvent } from 'react'
+import { useApp } from '../../context/AppContext'
 
 function IconAttach() {
   return (
@@ -55,22 +56,69 @@ function Spinner() {
 }
 
 export function ComposerBar() {
+  const { state, sendMessage, createSession } = useApp()
+  const [text, setText] = useState('')
   const [planMode, setPlanMode] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const canSend = text.trim().length > 0 && !state.sending
+
+  const handleSend = async () => {
+    if (!canSend) return
+    const msg = text.trim()
+    setText('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+
+    if (!state.activeSessionId) {
+      await createSession()
+    }
+    await sendMessage(msg)
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handleInput = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }
 
   return (
     <div className="absolute bottom-0 left-0 right-0 px-[52px] pb-[18px] pt-6 bg-gradient-to-t from-white via-white/90 to-transparent pointer-events-none">
       <div className="pointer-events-auto w-full bg-white border border-[#e0e0e0] rounded-[14px] shadow-[0_2px_14px_rgba(0,0,0,0.09),0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
 
-        <div className="flex items-center gap-2 px-3.5 pt-[11px] pb-[10px]">
-          <span className="flex-1 text-[13.5px] text-[#9ca3af]">
-            Describe a task or ask a question
-          </span>
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-end gap-2 px-3.5 pt-[11px] pb-[10px]">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            placeholder="Describe a task or ask a question"
+            className="flex-1 resize-none bg-transparent outline-none text-[13.5px] text-[#111827] placeholder:text-[#9ca3af] leading-relaxed max-h-[120px] overflow-y-auto"
+            style={{ minHeight: '22px' }}
+          />
+          <div className="flex items-center gap-1.5 flex-shrink-0 mb-[1px]">
             <button className="w-[27px] h-[27px] rounded-md flex items-center justify-center text-[#c8c8c8] hover:bg-lavender-50 hover:text-lavender-500 transition-colors">
               <IconAttach />
             </button>
-            <button className="w-[28px] h-[28px] rounded-[7px] bg-[#e5e7eb] flex items-center justify-center cursor-not-allowed">
-              <span className="text-[#aaa]"><IconSend /></span>
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              className={`w-[28px] h-[28px] rounded-[7px] flex items-center justify-center transition-colors ${
+                canSend
+                  ? 'bg-lavender-500 text-white hover:bg-lavender-600 cursor-pointer'
+                  : 'bg-[#e5e7eb] cursor-not-allowed'
+              }`}
+            >
+              <span className={canSend ? 'text-white' : 'text-[#aaa]'}><IconSend /></span>
             </button>
           </div>
         </div>
@@ -99,7 +147,9 @@ export function ComposerBar() {
             </label>
             <div className="flex items-center gap-1.5 text-[12px] text-[#6b7280] font-medium">
               Sonnet 4.6
-              <Spinner />
+              {state.sending ? <Spinner /> : (
+                <div className="w-3 h-3 rounded-full border-[1.5px] border-[#d1d5db]" />
+              )}
             </div>
           </div>
         </div>

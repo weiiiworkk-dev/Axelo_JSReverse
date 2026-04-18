@@ -1,3 +1,5 @@
+import { useApp } from '../../context/AppContext'
+
 function IconChat() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -75,27 +77,22 @@ function IconGear() {
   )
 }
 
-const railIcons = [
-  { icon: <IconChat />, active: false },
-  { icon: <IconList />, active: false },
-  { icon: <IconCode />, active: true },
-]
-
-const navItems = [
-  { label: 'New session', icon: <IconPlus /> },
-  { label: 'Routines',    icon: <IconRoutines /> },
-  { label: 'Customize',  icon: <IconCustomize /> },
-]
-
 export function NavCard() {
+  const { state, openSession, createSession, clearActive } = useApp()
+
   return (
     <div className="flex bg-white border border-[#e2e2e2] rounded-[14px] shadow-[0_2px_10px_rgba(0,0,0,0.07),0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden flex-shrink-0 h-full">
 
       {/* Icon Rail */}
       <div className="w-[46px] bg-[#fafafa] border-r border-[#efefef] flex flex-col items-center py-2.5 gap-0.5 flex-shrink-0">
-        {railIcons.map(({ icon, active }, i) => (
+        {[
+          { icon: <IconChat />, active: false, onClick: clearActive },
+          { icon: <IconList />, active: false, onClick: undefined },
+          { icon: <IconCode />, active: true, onClick: undefined },
+        ].map(({ icon, active, onClick }, i) => (
           <button
             key={i}
+            onClick={onClick}
             className={`w-[30px] h-[30px] rounded-[7px] flex items-center justify-center transition-colors ${
               active
                 ? 'bg-lavender-100 text-lavender-600'
@@ -114,7 +111,17 @@ export function NavCard() {
       {/* Sidebar */}
       <div className="w-[200px] flex flex-col">
         <div className="flex-1 overflow-y-auto no-scrollbar py-1.5">
-          {navItems.map(({ label, icon }) => (
+          <button
+            onClick={createSession}
+            className="w-[calc(100%-10px)] mx-[5px] my-[1px] px-[9px] py-[6px] rounded-[7px] text-[12.5px] text-[#374151] font-medium flex items-center gap-[7px] hover:bg-lavender-50 transition-colors text-left"
+          >
+            <span className="text-[#9ca3af]"><IconPlus /></span>
+            New session
+          </button>
+          {[
+            { label: 'Routines', icon: <IconRoutines /> },
+            { label: 'Customize', icon: <IconCustomize /> },
+          ].map(({ label, icon }) => (
             <button
               key={label}
               className="w-[calc(100%-10px)] mx-[5px] my-[1px] px-[9px] py-[6px] rounded-[7px] text-[12.5px] text-[#374151] font-medium flex items-center gap-[7px] hover:bg-lavender-50 transition-colors text-left"
@@ -129,19 +136,36 @@ export function NavCard() {
             More
           </button>
 
-          <div className="px-4 pt-3 pb-[3px] text-[10px] font-bold text-[#c8c8c8] tracking-[0.06em] uppercase">
-            Pinned
-          </div>
-          <div className="px-4 pb-1.5 text-[11.5px] text-[#d8d8d8]">
-            Drag to pin
-          </div>
-
-          <div className="px-4 pt-2 pb-[3px] text-[11.5px] font-medium text-[#9ca3af]">
-            Axelo_JSReverse
-          </div>
-          <div className="w-[calc(100%-10px)] mx-[5px] my-[1px] px-[9px] py-[5px] rounded-[6px] text-[12px] text-[#6b7280] cursor-pointer hover:bg-lavender-50 hover:text-[#374151] transition-colors overflow-hidden text-ellipsis whitespace-nowrap">
-            Review stress testing module for e-c...
-          </div>
+          {/* Session list */}
+          {state.sessions.length > 0 ? (
+            <>
+              <div className="px-4 pt-3 pb-[3px] text-[10px] font-bold text-[#c8c8c8] tracking-[0.06em] uppercase">
+                Recent
+              </div>
+              {state.sessions.slice(0, 20).map((s) => (
+                <button
+                  key={s.session_id}
+                  onClick={() => openSession(s.session_id)}
+                  className={`w-[calc(100%-10px)] mx-[5px] my-[1px] px-[9px] py-[5px] rounded-[6px] text-[12px] text-left transition-colors overflow-hidden text-ellipsis whitespace-nowrap ${
+                    state.activeSessionId === s.session_id
+                      ? 'bg-lavender-50 text-lavender-700 font-medium'
+                      : 'text-[#6b7280] hover:bg-lavender-50 hover:text-[#374151]'
+                  }`}
+                >
+                  {s.title || s.session_id.slice(0, 8)}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <div className="px-4 pt-3 pb-[3px] text-[10px] font-bold text-[#c8c8c8] tracking-[0.06em] uppercase">
+                Pinned
+              </div>
+              <div className="px-4 pb-1.5 text-[11.5px] text-[#d8d8d8]">
+                No sessions yet
+              </div>
+            </>
+          )}
         </div>
 
         <div className="px-2.5 py-[9px] border-t border-[#f2f2f2] flex items-center justify-between flex-shrink-0">
