@@ -30,7 +30,7 @@ from axelo.core.data_flow_tracker import (
     UniversalDataFlowTracker,
     DataFlowGraph,
 )
-from axelo.core.crypto_detector import (
+from axelo.analysis.crypto import (
     UniversalCryptoDetector,
     CryptoAnalysis,
     CryptoAlgorithm,

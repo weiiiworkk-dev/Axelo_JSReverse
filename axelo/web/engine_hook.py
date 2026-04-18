@@ -51,7 +51,7 @@ def attach_web_hook(engine: Any, broadcaster: EventBroadcaster, session_id: str)
 
     def _on_event(kind: str, message: str, payload: dict[str, Any]) -> None:
         record = {"kind": kind, "message": message, "data": payload}
-        ws_payload = _build_ws_payload(session_id, record)
+        ws_payload = _build_ws_payload(session_id, record, seq=int(payload.get("seq") or 0))
         _schedule_broadcast(broadcaster, session_id, ws_payload)
 
     def _on_thinking(thinking: str) -> None:

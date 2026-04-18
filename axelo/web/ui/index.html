@@ -4,986 +4,499 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Axelo</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap"
-      rel="stylesheet"
-    />
     <style>
-      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
       :root {
-        --bg:          #ffffff;
-        --welcome-bg:  #f5f4f0;
-        --sidebar-bg:  #f9f9f7;
-        --panel-bg:    #fafaf8;
-        --border:      #e8e8e4;
-        --border2:     #f0efec;
-        --accent:      #7c3aed;
-        --accent-soft: #ede9ff;
-        --text:        #1a1919;
-        --text2:       #6b6b6b;
-        --text3:       #a8a8a8;
-        --success:     #16a34a;
-        --warn:        #ca8a04;
-        --danger:      #dc2626;
-        --hover:       rgba(0,0,0,0.05);
-        --active-bg:   rgba(0,0,0,0.08);
-        --font:        'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        --mono:        'Courier New', Courier, monospace;
-        --sb-width:    220px;
-        --rc-width:    280px;
-        --composer-bg: #f7f6f3;
-        --prompt-border: #e4e2dd;
+        --bg: #f4f1ea;
+        --rail: #efebe4;
+        --panel: rgba(255, 255, 255, 0.72);
+        --panel-strong: rgba(255, 255, 255, 0.92);
+        --border: rgba(24, 24, 20, 0.10);
+        --border-soft: rgba(24, 24, 20, 0.06);
+        --text: #1f1d19;
+        --muted: #6b675f;
+        --soft: #8a857d;
+        --running: #536b8a;
+        --blocked: #9a7a46;
+        --failed: #935050;
+        --completed: #4f775d;
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --radius-lg: 18px;
+        --space-1: 8px;
+        --space-2: 12px;
+        --space-3: 16px;
+        --space-4: 24px;
+        --space-5: 32px;
+        --shadow: 0 6px 18px rgba(25, 22, 16, 0.04);
+        --font: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
       }
 
-      html, body { height: 100%; overflow: hidden; background: var(--bg); }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
+      button, textarea { font: inherit; }
 
       #app {
-        display: flex;
         height: 100vh;
-        font-family: var(--font);
-        color: var(--text);
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr) 344px;
+        background:
+          radial-gradient(circle at top left, rgba(255,255,255,0.34), transparent 28%),
+          linear-gradient(180deg, rgba(255,255,255,0.26), rgba(255,255,255,0));
       }
 
-      /* ════════════════════════════════════════════
-         SIDEBAR — exact match to screenshot
-      ════════════════════════════════════════════ */
-      #sidebar {
-        width: var(--sb-width);
-        min-width: var(--sb-width);
-        background: var(--sidebar-bg);
+      .rail {
+        background: var(--rail);
         border-right: 1px solid var(--border);
+        padding: var(--space-3);
         display: flex;
         flex-direction: column;
-        overflow: hidden;
-        flex-shrink: 0;
+        min-height: 0;
       }
 
-      /* ── Top "Chat" heading row ── */
-      .sb-head {
-        display: flex;
-        align-items: center;
-        padding: 12px 14px 6px;
-        gap: 6px;
-        flex-shrink: 0;
+      .nav-head {
+        padding: var(--space-1) 0 var(--space-4);
       }
 
-      .sb-head-chat-icon {
-        width: 18px; height: 18px;
-        color: var(--text);
-        flex-shrink: 0;
+      .nav-title {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--soft);
+        margin-bottom: 6px;
       }
 
-      .sb-head-title {
-        font-size: 14.5px;
-        font-weight: 600;
-        color: var(--text);
-        flex: 1;
-        letter-spacing: -0.01em;
+      .brand {
+        font-size: 20px;
+        letter-spacing: -0.03em;
       }
 
-      .sb-head-btn {
-        width: 26px; height: 26px;
-        display: flex; align-items: center; justify-content: center;
-        border: none; background: transparent; cursor: pointer;
-        border-radius: 6px; color: var(--text2);
-        transition: background 0.12s; flex-shrink: 0;
-      }
-
-      .sb-head-btn:hover { background: var(--hover); }
-      .sb-head-btn svg { width: 14px; height: 14px; }
-
-      /* ── New chat button ── */
-      #new-session-btn {
-        display: flex; align-items: center;
-        gap: 10px;
-        margin: 6px 8px 2px;
-        padding: 7px 10px;
-        border: none; background: transparent;
-        cursor: pointer; border-radius: 8px;
-        color: var(--text); font-family: var(--font);
-        font-size: 13.5px; font-weight: 400;
-        transition: background 0.12s;
-        text-align: left; flex-shrink: 0;
-      }
-
-      #new-session-btn:hover { background: var(--hover); }
-
-      .sb-new-icon {
-        width: 16px; height: 16px;
-        display: flex; align-items: center; justify-content: center;
-        color: var(--text2); flex-shrink: 0;
-      }
-
-      .sb-new-icon svg { width: 14px; height: 14px; }
-
-      /* ── Nav items ── */
-      .sb-nav { padding: 2px 8px 0; flex-shrink: 0; }
-
-      .sb-nav-item {
-        display: flex; align-items: center;
-        gap: 10px;
-        padding: 6px 9px;
-        border-radius: 8px; cursor: pointer;
-        font-size: 13.5px; color: var(--text);
-        text-decoration: none;
-        transition: background 0.12s; user-select: none;
-      }
-
-      .sb-nav-item:hover { background: var(--hover); }
-
-      .sb-nav-icon {
-        width: 16px; height: 16px;
-        display: flex; align-items: center; justify-content: center;
-        color: var(--text2); flex-shrink: 0;
-      }
-
-      .sb-nav-icon svg { width: 15px; height: 15px; }
-
-      /* ── Section labels ── */
-      .sb-section-label {
-        font-size: 11px; font-weight: 500;
-        color: var(--text3);
-        padding: 12px 18px 4px;
-        letter-spacing: 0.01em;
-        flex-shrink: 0;
-      }
-
-      /* ── Drag to pin placeholder ── */
-      .sb-drag-pin {
-        display: flex; align-items: center;
-        gap: 10px;
-        padding: 5px 18px;
-        font-size: 13px; color: var(--text3);
-        flex-shrink: 0; cursor: default;
-      }
-
-      .sb-drag-pin svg { width: 13px; height: 13px; }
-
-      /* ── Session list ── */
-      .sb-recents {
-        flex: 1; overflow-y: auto; overflow-x: hidden;
-        padding: 2px 8px 6px;
-      }
-
-      .sb-recents::-webkit-scrollbar { width: 3px; }
-      .sb-recents::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-      * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-
-      #session-list { display: flex; flex-direction: column; gap: 0; }
-
-      .sb-session-item {
-        display: flex; align-items: center;
-        padding: 4px 10px;
-        border-radius: 6px; cursor: pointer;
-        transition: background 0.12s; min-width: 0;
-      }
-
-      .sb-session-item:hover { background: var(--hover); }
-      .sb-session-item.active { background: var(--active-bg); }
-
-      .sb-session-id {
-        flex: 1; overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap;
-        font-size: 13px; color: var(--text);
-        line-height: 1.4;
-      }
-
-      /* ── Footer ── */
-      .sb-footer {
-        flex-shrink: 0;
-        border-top: 1px solid var(--border);
-        padding: 10px 14px;
-        display: flex; align-items: center; gap: 9px;
-      }
-
-      .sb-user-icon {
-        width: 26px; height: 26px;
-        display: flex; align-items: center; justify-content: center;
-        color: var(--text2); flex-shrink: 0;
-      }
-
-      .sb-user-icon svg { width: 22px; height: 22px; }
-
-      .sb-user-name {
-        flex: 1; font-size: 13px; font-weight: 500;
-        color: var(--text); overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap;
-      }
-
-      .sb-download-btn {
-        width: 26px; height: 26px;
-        display: flex; align-items: center; justify-content: center;
-        border: none; background: transparent;
-        cursor: pointer; border-radius: 5px; color: var(--text2);
-        transition: background 0.12s; flex-shrink: 0;
-      }
-
-      .sb-download-btn:hover { background: var(--hover); }
-      .sb-download-btn svg { width: 14px; height: 14px; }
-
-      /* Connection dot (hidden, keep for JS) */
-      .conn-dot { display: none; }
-      .conn-dot.live { display: none; }
-
-      /* ════════════════════════════════════════════
-         WORKSPACE
-      ════════════════════════════════════════════ */
-      #workspace {
-        flex: 1; min-width: 0;
-        display: flex; flex-direction: column;
-        overflow: hidden; background: var(--bg);
-        position: relative;
-      }
-
-      /* ════════════════════════════════════════════
-         WELCOME VIEW
-      ════════════════════════════════════════════ */
-      #welcome-view {
-        position: absolute; inset: 0; z-index: 10;
-        display: flex; align-items: center; justify-content: center;
-        background: var(--welcome-bg);
-      }
-
-      .wv-center {
-        display: flex; flex-direction: column;
-        align-items: center; gap: 20px;
-        width: 100%; max-width: 640px; padding: 0 24px;
-      }
-
-      .wv-brand { text-align: center; }
-
-      .wv-title {
-        font-size: 28px; font-weight: 400;
-        color: var(--text); letter-spacing: -0.02em; line-height: 1;
-      }
-
-      .wv-tagline {
-        font-size: 13px; color: var(--text3);
-        margin-top: 6px; line-height: 1.4;
-      }
-
-      /* ── Big input box ── */
-      .wv-input-box {
-        width: 100%; background: var(--bg);
-        border: 1px solid #dddbd7; border-radius: 14px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden;
-        transition: box-shadow 0.15s;
-      }
-
-      .wv-input-box:focus-within {
-        box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-        border-color: #c8c5c0;
-      }
-
-      #welcome-textarea {
-        display: block; width: 100%;
-        font-family: var(--font); font-size: 15px;
-        color: var(--text); background: transparent;
-        border: none; outline: none; resize: none;
-        padding: 16px 18px 10px;
-        line-height: 1.55; min-height: 58px; max-height: 200px;
-        overflow-y: auto;
-      }
-
-      #welcome-textarea::placeholder { color: var(--text3); }
-
-      /* ── Input box footer (replaces old toolbar) ── */
-      .wv-input-footer {
-        display: flex; align-items: center;
-        padding: 8px 12px 10px; gap: 8px;
-        border-top: 1px solid var(--border2);
-      }
-
-      .wv-footer-spacer { flex: 1; }
-
-      .wv-send-btn {
-        width: 32px; height: 32px;
-        display: flex; align-items: center; justify-content: center;
-        border: none; background: var(--accent); color: #fff;
-        border-radius: 8px; cursor: pointer;
-        transition: opacity 0.15s; flex-shrink: 0;
-      }
-
-      .wv-send-btn:hover { opacity: 0.88; }
-      .wv-send-btn svg { width: 15px; height: 15px; }
-
-      /* ── Prompt suggestion chips ── */
-      .wv-prompts {
-        display: flex; flex-direction: column;
-        gap: 6px; width: 100%;
-      }
-
-      .wv-prompt-btn {
-        display: block; width: 100%;
-        padding: 9px 14px; text-align: left;
-        border: 1px solid var(--prompt-border); border-radius: 10px;
-        background: var(--bg); cursor: pointer;
-        font-family: var(--font); font-size: 13px; color: var(--text2);
-        transition: background 0.12s, border-color 0.12s, color 0.12s;
-        line-height: 1.45;
-      }
-
-      .wv-prompt-btn:hover {
-        background: var(--hover);
-        border-color: #ccc8c3;
-        color: var(--text);
-      }
-
-      /* ════════════════════════════════════════════
-         PANELS ROW
-      ════════════════════════════════════════════ */
-      #main {
-        flex: 1; display: none;
-        overflow: hidden; min-height: 0;
-      }
-
-      /* ── Center panel (chat) ── */
-      #right-panel {
-        flex: 1; min-width: 0;
-        display: flex; flex-direction: column;
-        overflow: hidden; background: var(--bg);
-        font-family: var(--font);
-      }
-
-      /* ── Right rail — permanent third column ── */
-      #right-rail {
-        width: var(--rc-width);
-        min-width: 220px;
-        background: var(--sidebar-bg);
-        border-left: 1px solid var(--border);
-        display: flex; flex-direction: column;
-        overflow: hidden; flex-shrink: 0;
-        font-family: var(--font);
-      }
-
-      /* Right rail header */
-      .rc-head {
-        display: flex; align-items: center;
-        padding: 12px 14px 10px; gap: 6px; flex-shrink: 0;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .rc-head-icon { width: 18px; height: 18px; color: var(--text); flex-shrink: 0; }
-
-      .rc-head-title {
-        font-size: 14.5px; font-weight: 600;
-        color: var(--text); flex: 1; letter-spacing: -0.01em;
-      }
-
-      .rc-head-btn {
-        width: 26px; height: 26px;
-        display: flex; align-items: center; justify-content: center;
-        border: none; background: transparent; cursor: pointer;
-        border-radius: 6px; color: var(--text2); transition: background 0.12s;
-      }
-
-      .rc-head-btn:hover { background: var(--hover); }
-      .rc-head-btn svg { width: 14px; height: 14px; }
-
-      /* Right card section labels — same as sidebar */
-      .rc-section-label {
-        font-size: 11px; font-weight: 500;
-        color: var(--text3); padding: 10px 16px 4px;
-        letter-spacing: 0.01em; flex-shrink: 0;
-      }
-
-      /* MissionContractPanel — hidden in right rail, kept for JS wiring */
-      #left-panel { display: none !important; }
-
-      /* ════════════════════════════════════════════
-         BOTTOM BAR
-      ════════════════════════════════════════════ */
-      #bottom {
-        flex-shrink: 0; background: var(--composer-bg);
-        border-top: 1px solid var(--border);
-        display: none;
-      }
-
-      #readiness-row {
-        display: flex; align-items: center; gap: 10px;
-        padding: 5px 16px; border-bottom: 1px solid var(--border2);
-        font-size: 11.5px; background: var(--composer-bg);
-      }
-
-      #readiness-label { white-space: nowrap; min-width: 80px; color: var(--text3); font-size: 11.5px; }
-
-      #readiness-bar-bg {
-        flex: 1; height: 3px; background: var(--border);
-        border-radius: 2px; overflow: hidden;
-      }
-
-      #readiness-bar-fill {
-        height: 100%; width: 0%; border-radius: 2px;
-        transition: width 0.5s, background 0.5s; background: var(--danger);
-      }
-
-      #readiness-status { white-space: nowrap; min-width: 100px; font-size: 11.5px; color: var(--warn); }
-
-      #main-start-btn {
-        font-family: var(--font); font-size: 12px; font-weight: 500;
-        background: var(--accent); color: #fff; border: none;
-        padding: 5px 16px; cursor: pointer; border-radius: 7px;
-        white-space: nowrap; flex-shrink: 0; display: none; transition: opacity 0.15s;
-      }
-
-      #main-start-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-      #main-start-btn:not(:disabled):hover { opacity: 0.88; }
-
-      #input-row {
-        display: flex; align-items: flex-end;
-        padding: 8px 16px; gap: 10px; background: var(--composer-bg);
-      }
-
-      #main-input {
-        flex: 1; font-family: var(--font); font-size: 13.5px;
-        border: none; outline: none; background: transparent;
-        color: var(--text); resize: none; padding: 0; line-height: 1.55;
-      }
-
-      #main-input::placeholder { color: var(--text3); }
-
-      #main-send-btn {
-        width: 32px; height: 32px;
-        display: flex; align-items: center; justify-content: center;
-        background: var(--accent); color: #fff;
-        border: none; border-radius: 8px;
-        cursor: pointer; flex-shrink: 0; transition: opacity 0.15s;
-      }
-
-      #main-send-btn:hover { opacity: 0.88; }
-      #main-send-btn:disabled { background: var(--border); cursor: not-allowed; opacity: 1; }
-      #main-send-btn svg { width: 15px; height: 15px; }
-
-      /* ════════════════════════════════════════════
-         CHAT PANEL
-      ════════════════════════════════════════════ */
-      .cp-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-
-      .cp-messages {
-        flex: 1; overflow-y: auto; padding: 16px 20px;
-        display: flex; flex-direction: column; gap: 10px;
-      }
-
-      .cp-messages::-webkit-scrollbar { width: 3px; }
-      .cp-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-      .cp-welcome-msg {
-        padding: 14px 16px; border-radius: 10px;
-        background: var(--panel-bg); border: 1px solid var(--border);
-        font-size: 13px; color: var(--text2); line-height: 1.75;
-      }
-
-      .cp-welcome-text { font-size: 13px; color: var(--text2); line-height: 1.75; }
-
-      .cp-msg { display: flex; font-size: 13px; }
-      .cp-msg-user { justify-content: flex-end; }
-      .cp-msg-assistant { justify-content: flex-start; }
-
-      .cp-msg-bubble { max-width: 85%; line-height: 1.6; padding: 8px 14px; border-radius: 10px; }
-      .cp-msg-user-bubble { background: var(--accent-soft); color: var(--text); }
-      .cp-msg-ai-bubble   { background: #f4f4f2; color: var(--text); }
-
-      .cp-ai-spinner {
-        display: flex; align-items: center; padding: 6px 20px;
-        gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text3);
-      }
-
-      .cp-spinner-dot {
-        width: 5px; height: 5px; border-radius: 50%;
-        background: var(--accent); animation: cp-bounce 1.2s infinite;
-      }
-
-      .cp-spinner-dot:nth-child(2) { animation-delay: 0.2s; }
-      .cp-spinner-dot:nth-child(3) { animation-delay: 0.4s; }
-
-      @keyframes cp-bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
-
-      .cp-error {
-        padding: 6px 20px; font-size: 11px; color: var(--danger);
-        background: #fff5f5; border-top: 1px solid #ffe4e4; flex-shrink: 0;
-      }
-
-      .cp-gap-header    { font-size: 11px; font-weight: 700; color: var(--danger); display: block; margin-bottom: 2px; }
-      .cp-blocking-item { font-size: 11px; color: var(--danger); display: block; padding-left: 6px; }
-      .cp-missing-item  { font-size: 11px; color: var(--warn);   display: block; padding-left: 6px; }
-
-      .cp-inline-code {
-        font-family: var(--mono); font-size: 11.5px;
-        background: rgba(0,0,0,0.05); border-radius: 3px;
-        padding: 1px 4px;
-      }
-
-      .cp-list { margin: 4px 0 4px 14px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-      .cp-list li { font-size: 13px; line-height: 1.55; }
-
-      .cp-delta-tag {
-        margin-top: 4px; display: inline-block;
-        font-size: 10px; color: var(--accent);
-        background: var(--accent-soft); border-radius: 4px;
-        padding: 1px 7px; font-weight: 500;
-      }
-
-      /* ════════════════════════════════════════════
-         RIGHT PANEL CONTROLLER
-      ════════════════════════════════════════════ */
-      #rp-container {
-        flex: 1; min-height: 0;
-        overflow-y: auto; overflow-x: hidden;
-        display: flex; flex-direction: column;
-        padding: 8px; gap: 8px;
-      }
-
-      #rp-container::-webkit-scrollbar { width: 3px; }
-      #rp-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-      /* Slot wrappers — each holds exactly one card */
-      #rp-slot-goal, #rp-slot-plan, #rp-slot-checkpoint, #rp-slot-timeline {
-        display: flex; flex-direction: column; flex-shrink: 0;
-      }
-
-      #rp-slot-goal:empty, #rp-slot-plan:empty,
-      #rp-slot-checkpoint:empty, #rp-slot-timeline:empty { display: none; }
-
-      /* ── Base card ── */
-      .rp-card {
+      .nav-action {
+        width: 100%;
+        margin-bottom: var(--space-4);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        background: var(--bg);
-        overflow: hidden;
+        background: rgba(255,255,255,0.48);
+        border-radius: var(--radius-md);
+        padding: 12px 14px;
+        text-align: left;
+        cursor: pointer;
+        color: var(--text);
       }
 
-      .rp-card--empty {
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        padding: 22px 16px; gap: 6px; opacity: 0.5;
+      .nav-block + .nav-block { margin-top: var(--space-4); }
+      .nav-label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--soft);
+        margin-bottom: 8px;
       }
 
-      .rp-card__empty-icon { font-size: 16px; color: var(--text3); }
-      .rp-card__empty-label { font-size: 11.5px; color: var(--text3); text-align: center; line-height: 1.7; }
-
-      .rp-card__header {
-        display: flex; align-items: center;
-        padding: 9px 12px 4px; gap: 6px;
+      .nav-links {
+        display: grid;
+        gap: 6px;
       }
 
-      .rp-card__title {
-        font-size: 10px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.07em;
-        color: var(--text2); flex: 1;
-      }
-
-      .rp-card__meta { font-size: 11px; color: var(--text3); }
-
-      /* Status border variants */
-      .rp-card--complete  { border-color: var(--success); background: #f0fdf4; }
-      .rp-card--failed    { border-color: var(--danger);  background: #fff5f5; }
-      .rp-card--paused    { border-color: var(--warn);    background: #fffcf0; }
-      .rp-card--checkpoint { border-color: var(--warn);   background: #fffcf0; }
-
-      /* ── Status badge ── */
-      .rp-badge {
-        font-size: 9px; font-weight: 700; text-transform: uppercase;
-        padding: 1px 7px; border-radius: 100px; letter-spacing: 0.04em;
-      }
-
-      .rp-badge--idle      { background: var(--border2); color: var(--text3); }
-      .rp-badge--planning  { background: var(--accent-soft); color: var(--accent); }
-      .rp-badge--executing { background: #dbeafe; color: #1d4ed8; }
-      .rp-badge--paused    { background: #fef9c3; color: #854d0e; }
-      .rp-badge--complete  { background: #dcfce7; color: #15803d; }
-      .rp-badge--failed    { background: #fee2e2; color: var(--danger); }
-
-      /* ── Goal card ── */
-      .rp-goal__desc {
-        font-size: 12.5px; color: var(--text);
-        line-height: 1.55; padding: 0 12px 10px;
-      }
-
-      .rp-goal__url {
-        display: flex; align-items: center; gap: 5px;
-        padding: 5px 12px; border-top: 1px solid var(--border2);
-        font-size: 11px; color: var(--text2);
-      }
-
-      .rp-goal__url-text {
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-
-      /* ── Progress bar ── */
-      .rp-progress {
-        height: 3px; background: var(--border);
-        margin: 2px 12px 8px; border-radius: 2px; overflow: hidden;
-      }
-
-      .rp-progress__fill {
-        height: 100%; border-radius: 2px;
-        background: var(--accent); transition: width 0.4s ease;
-      }
-
-      /* ── Steps ── */
-      .rp-steps {
-        padding: 0 8px 10px;
-        display: flex; flex-direction: column; gap: 3px;
-      }
-
-      .rp-step {
-        display: flex; align-items: flex-start; gap: 7px;
-        padding: 5px 7px; border-radius: 6px;
+      .nav-link {
+        padding: 8px 10px;
+        border-radius: var(--radius-sm);
+        color: var(--muted);
         border: 1px solid transparent;
-        transition: background 0.2s, border-color 0.2s;
       }
 
-      .rp-step--pending   { color: var(--text3); }
-      .rp-step--running   { background: var(--accent-soft); border-color: rgba(124,58,237,0.3); }
-      .rp-step--completed { color: var(--success); }
-      .rp-step--failed    { background: #fff5f5; border-color: rgba(220,38,38,0.3); }
-      .rp-step--skipped   { opacity: 0.4; }
-
-      .rp-step__icon {
-        font-size: 10px; width: 13px; flex-shrink: 0;
-        margin-top: 2px; text-align: center;
+      .nav-history {
+        display: grid;
+        gap: 8px;
+        overflow: auto;
+        padding-right: 2px;
       }
 
-      .rp-step--running .rp-step__icon { color: var(--accent); animation: rp-pulse 1.4s ease-in-out infinite; }
-      .rp-step--completed .rp-step__icon { color: var(--success); }
-      .rp-step--failed    .rp-step__icon { color: var(--danger); }
-
-      @keyframes rp-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
-      .rp-step__body {
-        flex: 1; min-width: 0;
-        display: flex; flex-direction: column; gap: 1px;
+      .nav-session {
+        width: 100%;
+        text-align: left;
+        border: 1px solid transparent;
+        background: transparent;
+        border-radius: var(--radius-sm);
+        padding: 10px;
+        cursor: pointer;
       }
 
-      .rp-step__title {
-        font-size: 11.5px; font-weight: 500; line-height: 1.4;
-        color: var(--text); overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap;
+      .nav-session:hover,
+      .nav-session.is-active {
+        background: rgba(255,255,255,0.52);
+        border-color: var(--border-soft);
       }
 
-      .rp-step--completed .rp-step__title { color: var(--text2); }
-      .rp-step--failed    .rp-step__title { color: var(--danger); }
-      .rp-step--running   .rp-step__title { color: var(--accent); }
-      .rp-step--pending   .rp-step__title { color: var(--text3); }
-
-      .rp-step__tool { font-size: 9.5px; font-family: var(--mono); color: var(--text3); }
-      .rp-step__note { font-size: 9.5px; color: var(--text3); font-style: italic; }
-
-      /* ── Action timeline ── */
-      #rp-slot-timeline { flex-shrink: 1; min-height: 0; }
-
-      .rp-card--timeline {
-        display: flex; flex-direction: column;
-        min-height: 0; flex: 1;
+      .nav-session-title {
+        display: block;
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--text);
       }
 
-      .rp-timeline {
-        overflow-y: auto; padding: 4px 10px 10px;
-        display: flex; flex-direction: column; gap: 1px;
-        max-height: 260px;
+      .nav-session-meta {
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--soft);
+        text-transform: capitalize;
       }
 
-      .rp-timeline::-webkit-scrollbar { width: 2px; }
-      .rp-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
-
-      .rp-tl-entry {
-        display: flex; align-items: baseline; gap: 6px;
-        padding: 2px 6px; border-radius: 4px;
-        transition: background 0.15s;
+      .nav-user {
+        margin-top: auto;
+        padding-top: var(--space-4);
+        border-top: 1px solid var(--border-soft);
+        font-size: 13px;
+        color: var(--muted);
       }
 
-      .rp-tl-entry--latest { background: var(--accent-soft); }
-
-      .rp-tl-icon {
-        font-size: 9px; width: 13px; flex-shrink: 0;
-        text-align: center; color: var(--text3);
+      .workspace {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: var(--space-3);
       }
 
-      .rp-tl-entry--step_started    .rp-tl-icon { color: var(--accent); }
-      .rp-tl-entry--step_completed  .rp-tl-icon { color: var(--success); }
-      .rp-tl-entry--mission_complete .rp-tl-icon { color: var(--success); }
-      .rp-tl-entry--checkpoint_waiting .rp-tl-icon { color: var(--warn); }
-      .rp-tl-entry--mission_failed   .rp-tl-icon { color: var(--danger); }
-
-      .rp-tl-body {
-        flex: 1; min-width: 0;
-        display: flex; align-items: baseline; gap: 6px;
+      .workspace-card,
+      .system-shell {
+        min-height: 0;
       }
 
-      .rp-tl-content {
-        font-size: 11px; color: var(--text); flex: 1;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      .chat-shell {
+        min-height: 0;
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(16px);
       }
 
-      .rp-tl-time { font-size: 9.5px; color: var(--text3); flex-shrink: 0; white-space: nowrap; }
-
-      /* ── Checkpoint card ── */
-      .rp-checkpoints { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
-
-      .rp-checkpoint__q {
-        font-size: 12.5px; color: var(--text);
-        line-height: 1.55; margin-bottom: 8px;
+      .chat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: var(--space-4);
+        border-bottom: 1px solid var(--border-soft);
       }
 
-      .rp-checkpoint__actions { display: flex; gap: 8px; }
-
-      .rp-btn {
-        flex: 1; padding: 6px 10px; border-radius: 7px;
-        border: 1px solid; cursor: pointer;
-        font-family: var(--font); font-size: 12px; font-weight: 500;
-        transition: opacity 0.12s, background 0.12s;
+      .chat-eyebrow,
+      .sys-section-title {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--soft);
       }
 
-      .rp-btn--approve { background: var(--success); border-color: var(--success); color: #fff; }
-      .rp-btn--approve:hover { opacity: 0.82; }
-
-      .rp-btn--reject { background: transparent; border-color: var(--border); color: var(--text2); }
-      .rp-btn--reject:hover { background: var(--hover); }
-
-      /* ── Animations ── */
-      .entering { animation: rp-slide-in 0.28s ease-out; }
-
-      @keyframes rp-slide-in {
-        from { opacity: 0; transform: translateY(-5px); }
-        to   { opacity: 1; transform: translateY(0); }
+      .chat-title {
+        margin-top: 6px;
+        font-size: 20px;
+        letter-spacing: -0.03em;
       }
 
-      .pulse { animation: rp-flash 0.6s ease-out; }
+      .chat-phase {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: capitalize;
+      }
 
-      @keyframes rp-flash {
-        0%   { background: rgba(124,58,237,0.14); }
-        100% { background: transparent; }
+      .thread-viewport {
+        overflow: auto;
+        padding: var(--space-4);
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .thread-empty {
+        display: grid;
+        gap: 16px;
+        padding-top: 6vh;
+      }
+
+      .thread-empty-note {
+        max-width: 520px;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .msg {
+        max-width: 760px;
+        padding: 14px 16px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+        background: var(--panel-strong);
+      }
+
+      .msg.user-message {
+        margin-left: auto;
+        background: rgba(255,255,255,0.96);
+      }
+
+      .msg.agent-activity-block {
+        background: rgba(251, 250, 247, 0.98);
+      }
+
+      .msg.deliverable-block {
+        border-color: rgba(79, 119, 93, 0.18);
+      }
+
+      .msg.system-notice {
+        background: rgba(248, 245, 238, 0.92);
+      }
+
+      .msg-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .msg-label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--soft);
+      }
+
+      .msg-status {
+        font-size: 11px;
+        text-transform: capitalize;
+        color: var(--muted);
+      }
+
+      .msg-title {
+        margin-bottom: 8px;
+        font-size: 15px;
+        color: var(--text);
+      }
+
+      .msg-body {
+        color: var(--muted);
+        line-height: 1.72;
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .status-running .msg-status { color: var(--running); }
+      .status-blocked .msg-status { color: var(--blocked); }
+      .status-failed .msg-status { color: var(--failed); }
+      .status-completed .msg-status { color: var(--completed); }
+
+      .composer-shell {
+        border-top: 1px solid var(--border-soft);
+        padding: 14px 18px 18px;
+        background: rgba(245, 241, 234, 0.62);
+      }
+
+      .composer-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .composer-hint,
+      .composer-error,
+      .sys-empty,
+      .sys-step-note,
+      .sys-agent-task {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .composer-input-wrap {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+      }
+
+      .composer-input {
+        resize: none;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.88);
+        border-radius: var(--radius-md);
+        min-height: 58px;
+        padding: 16px;
+        color: var(--text);
+        outline: none;
+      }
+
+      .composer-send,
+      .subtle-action {
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.72);
+        color: var(--text);
+        padding: 0 16px;
+        cursor: pointer;
+      }
+
+      .composer-send { min-width: 84px; }
+      .composer-error { margin-top: 10px; color: var(--failed); }
+
+      .system-rail {
+        border-left: 1px solid var(--border);
+        background: var(--rail);
+        padding: var(--space-3);
+        min-height: 0;
+      }
+
+      .system-shell {
+        height: 100%;
+        display: grid;
+        gap: 10px;
+        align-content: start;
+        overflow: auto;
+      }
+
+      .sys-section {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: rgba(255,255,255,0.58);
+        padding: 14px;
+      }
+
+      .sys-section-body {
+        margin-top: 10px;
+      }
+
+      .sys-objective {
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .sys-inline-meta {
+        display: flex;
+        gap: 12px;
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: capitalize;
+      }
+
+      .sys-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .sys-step,
+      .sys-agent,
+      .sys-checkpoint {
+        display: grid;
+        gap: 4px;
+      }
+
+      .sys-step {
+        grid-template-columns: 8px minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .sys-step-dot {
+        width: 8px;
+        height: 8px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: rgba(24,24,20,0.14);
+      }
+
+      .sys-step-running .sys-step-dot { background: var(--running); }
+      .sys-step-blocked .sys-step-dot { background: var(--blocked); }
+      .sys-step-failed .sys-step-dot { background: var(--failed); }
+      .sys-step-completed .sys-step-dot { background: var(--completed); }
+
+      .sys-step-title,
+      .sys-agent-head {
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .sys-agent-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .sys-agent-status {
+        color: var(--soft);
+        text-transform: capitalize;
+        font-size: 11px;
+      }
+
+      .sys-metrics {
+        display: grid;
+        gap: 10px;
+      }
+
+      .sys-metrics div,
+      .sys-dev-grid div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 12px;
+      }
+
+      .sys-metrics span,
+      .sys-dev-grid span {
+        color: var(--soft);
+      }
+
+      .sys-dev {
+        margin-top: 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .sys-dev summary { cursor: pointer; }
+      .sys-dev-grid { margin-top: 10px; display: grid; gap: 8px; }
+
+      @media (max-width: 1180px) {
+        #app { grid-template-columns: 220px minmax(0, 1fr) 300px; }
+      }
+
+      @media (max-width: 960px) {
+        #app { grid-template-columns: 1fr; }
+        .rail, .system-rail { display: none; }
+        .workspace { padding: 12px; }
       }
     </style>
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
     <div id="app">
-
-      <!-- ════════════════ SIDEBAR ════════════════ -->
-      <div id="sidebar">
-
-        <!-- Chat heading row -->
-        <div class="sb-head">
-          <!-- Speech bubble icon -->
-          <svg class="sb-head-chat-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M2 3.5 C2 2.67 2.67 2 3.5 2 H14.5 C15.33 2 16 2.67 16 3.5 V11.5 C16 12.33 15.33 13 14.5 13 H6 L3 16 V13 H3.5 C2.67 13 2 12.33 2 11.5 Z"/>
-          </svg>
-          <span class="sb-head-title">Chat</span>
-          <!-- Sort icon -->
-          <button class="sb-head-btn" title="整理">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="2" y1="4" x2="9" y2="4"/>
-              <line x1="2" y1="8" x2="12" y2="8"/>
-              <line x1="2" y1="12" x2="7" y2="12"/>
-              <polyline points="11,6 13,4 15,6"/>
-              <line x1="13" y1="4" x2="13" y2="12"/>
-            </svg>
-          </button>
-          <!-- Code brackets icon -->
-          <button class="sb-head-btn" title="代码视图">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polyline points="5,4 2,8 5,12"/>
-              <polyline points="11,4 14,8 11,12"/>
-              <line x1="9" y1="3" x2="7" y2="13"/>
-            </svg>
-          </button>
+      <aside class="rail">
+        <div class="nav-head">
+          <div class="nav-title">Axelo</div>
+          <div class="brand" id="session-title">Axelo</div>
         </div>
-
-        <!-- New chat -->
-        <button id="new-session-btn">
-          <span class="sb-new-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
-              <line x1="8" y1="2" x2="8" y2="14"/>
-              <line x1="2" y1="8" x2="14" y2="8"/>
-            </svg>
-          </span>
-          New chat
-        </button>
-
-        <!-- Nav links -->
-        <div class="sb-nav">
-          <div class="sb-nav-item">
-            <span class="sb-nav-icon">
-              <!-- Folder icon -->
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M2 5 C2 4.45 2.45 4 3 4 H6 L7.5 5.5 H13 C13.55 5.5 14 5.95 14 6.5 V12 C14 12.55 13.55 13 13 13 H3 C2.45 13 2 12.55 2 12 Z"/>
-              </svg>
-            </span>
-            Projects
-          </div>
-          <div class="sb-nav-item">
-            <span class="sb-nav-icon">
-              <!-- Sliders/customize icon -->
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <line x1="3" y1="4" x2="13" y2="4"/>
-                <circle cx="6" cy="4" r="1.5" fill="currentColor" stroke="none"/>
-                <line x1="3" y1="8" x2="13" y2="8"/>
-                <circle cx="10" cy="8" r="1.5" fill="currentColor" stroke="none"/>
-                <line x1="3" y1="12" x2="13" y2="12"/>
-                <circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-              </svg>
-            </span>
-            Customize
-          </div>
-          <div class="sb-nav-item">
-            <span class="sb-nav-icon">
-              <!-- Diamond/artifact icon -->
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polygon points="8,2 14,8 8,14 2,8"/>
-              </svg>
-            </span>
-            Artifacts
+        <button id="new-chat-btn" class="nav-action">New chat</button>
+        <div class="nav-block">
+          <div class="nav-label">Workspace</div>
+          <div class="nav-links">
+            <div class="nav-link">Projects</div>
+            <div class="nav-link">Artifacts</div>
+            <div class="nav-link">History</div>
           </div>
         </div>
-
-        <!-- Pinned -->
-        <div class="sb-section-label">Pinned</div>
-        <div class="sb-drag-pin">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4">
-            <path d="M7 1 C7 1 11 5 11 8 A4 4 0 0 1 3 8 C3 5 7 1 7 1 Z"/>
-            <line x1="7" y1="12" x2="7" y2="14"/>
-          </svg>
-          Drag to pin
+        <div class="nav-block" style="min-height:0; flex:1;">
+          <div class="nav-label">Sessions</div>
+          <div id="session-list" class="nav-history"></div>
         </div>
+        <div class="nav-user">Signed in as Axelo workspace</div>
+      </aside>
 
-        <!-- Recents -->
-        <div class="sb-section-label">Recents</div>
-        <div class="sb-recents">
-          <div id="session-list"></div>
-        </div>
+      <main class="workspace">
+        <div id="chat-root" class="workspace-card"></div>
+      </main>
 
-        <!-- Footer -->
-        <div class="sb-footer">
-          <!-- Person icon -->
-          <span class="sb-user-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <circle cx="12" cy="9"  r="3"/>
-              <path d="M6 20.5 C6 17.5 9 15 12 15 C15 15 18 17.5 18 20.5"/>
-            </svg>
-          </span>
-          <span class="sb-user-name">Axelo</span>
-          <!-- Download icon -->
-          <button class="sb-download-btn" title="导出">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="8"  y1="2"  x2="8"  y2="10"/>
-              <polyline points="5,7 8,11 11,7"/>
-              <path d="M3 13 H13"/>
-            </svg>
-          </button>
-        </div>
-
-      </div>
-      <!-- /SIDEBAR -->
-
-      <!-- ════════════════ WORKSPACE ════════════════ -->
-      <div id="workspace">
-
-        <!-- ── Welcome View ── -->
-        <div id="welcome-view">
-          <div class="wv-center">
-
-            <!-- Brand -->
-            <div class="wv-brand">
-              <h1 class="wv-title">Axelo</h1>
-              <p class="wv-tagline">AI 驱动的智能采集工作台</p>
-            </div>
-
-            <!-- Big input box -->
-            <div class="wv-input-box">
-              <textarea
-                id="welcome-textarea"
-                placeholder="告诉 Axelo 你想从哪里获取什么数据..."
-                rows="1"
-              ></textarea>
-              <div class="wv-input-footer">
-                <div class="wv-footer-spacer"></div>
-                <button class="wv-send-btn" title="发送">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="8" y1="13" x2="8" y2="3"/>
-                    <polyline points="4,7 8,3 12,7"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <!-- Prompt chips -->
-            <div class="wv-prompts">
-              <button class="wv-prompt-btn">分析这个网站适合哪种抓取路径</button>
-              <button class="wv-prompt-btn">帮我判断这个页面能不能直接走 API</button>
-              <button class="wv-prompt-btn">先帮我梳理这个目标站点的数据获取方案</button>
-              <button class="wv-prompt-btn">给我一版可执行的爬虫实现路线</button>
-            </div>
-
-          </div>
-        </div>
-        <!-- /Welcome View -->
-
-        <!-- ── Panels row ── -->
-        <div id="main">
-          <!-- Center: chat -->
-          <div id="right-panel"></div>
-        </div>
-
-        <!-- ── Bottom bar ── -->
-        <div id="bottom">
-          <div id="readiness-row">
-            <span id="readiness-label">就绪度：0%</span>
-            <div id="readiness-bar-bg">
-              <div id="readiness-bar-fill"></div>
-            </div>
-            <span id="readiness-status">需要更多信息</span>
-            <button id="main-start-btn" disabled>开始任务</button>
-          </div>
-          <div id="input-row">
-            <textarea
-              id="main-input"
-              rows="1"
-              placeholder="继续告诉 Axelo 更多细节..."
-            ></textarea>
-            <button id="main-send-btn" title="发送">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="8" y1="13" x2="8" y2="3"/>
-                <polyline points="4,7 8,3 12,7"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-      </div>
-      <!-- /WORKSPACE -->
-
-      <!-- ════════════════ RIGHT RAIL (permanent) ════════════════ -->
-      <div id="right-rail">
-
-        <!-- Rail header -->
-        <div class="rc-head">
-          <svg class="rc-head-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="5" height="5" rx="1"/>
-            <rect x="10" y="3" width="5" height="5" rx="1"/>
-            <rect x="3" y="10" width="5" height="5" rx="1"/>
-            <rect x="10" y="10" width="5" height="5" rx="1"/>
-          </svg>
-          <span class="rc-head-title">AI 进程</span>
-        </div>
-
-        <!-- MissionContractPanel target — kept for JS wiring, not shown visually -->
-        <div id="left-panel" style="display:none"></div>
-
-        <!-- RightPanelController — always rendered (empty states when idle) -->
-        <div id="rp-container"></div>
-
-      </div>
-      <!-- /RIGHT RAIL -->
-
-      <!-- Hidden elements for JS wiring -->
-      <select id="session-select" style="display:none"><option value="">-- 选择 --</option></select>
-      <span   id="conn-label"    style="display:none">离线</span>
-      <div    id="conn-dot"      style="display:none"></div>
-
+      <aside class="system-rail">
+        <div id="system-root"></div>
+      </aside>
     </div>
   </body>
 </html>

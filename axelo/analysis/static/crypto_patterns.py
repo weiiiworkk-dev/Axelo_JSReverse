@@ -1,10 +1,19 @@
-"""Extended crypto pattern database and helper exports."""
+"""Extended crypto pattern database and helper functions.
+
+The re-exported names (CryptoPattern, CryptoPatterns, CryptoType, …) at the
+top of this file are a backward-compatibility shim — import them from
+axelo.analysis.crypto directly. The shim will be removed in a future version.
+
+The pattern dictionaries (HASH_PATTERNS, HMAC_PATTERNS, …) and the helper
+functions (get_all_patterns, detect_crypto_usage, get_signature_location)
+defined below are the canonical implementations in this module.
+"""
 
 import re
 from typing import Optional
 
-# Re-export from new location for backward compatibility
-from axelo.analysis.crypto import (
+# Backward-compatibility re-exports — deprecated, use axelo.analysis.crypto directly.
+from axelo.analysis.crypto import (  # noqa: F401
     CryptoPattern as _CryptoPattern,
     CryptoPatterns as _CryptoPatterns,
     CryptoType,

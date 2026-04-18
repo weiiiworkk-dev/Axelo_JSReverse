@@ -18,7 +18,7 @@ import structlog
 
 from axelo.core.standard_traffic import StandardTraffic, SignatureHypothesis
 from axelo.core.data_flow_tracker import DataFlowGraph
-from axelo.core.crypto_detector import CryptoAnalysis
+from axelo.analysis.crypto import CryptoAnalysis
 
 log = structlog.get_logger()
 

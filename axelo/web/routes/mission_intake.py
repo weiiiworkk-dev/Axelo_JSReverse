@@ -115,6 +115,7 @@ async def create_intake_session() -> dict[str, Any]:
         "history": [],
         "phase": "welcome",
         "session_id": "",
+        "run_ids": [],
         "created_at": datetime.now().isoformat(),
     }
     async with _sessions_lock:
@@ -244,6 +245,8 @@ async def start_from_contract(intake_id: str, request: Request) -> dict[str, Any
     task.add_done_callback(_cleanup)
 
     session["session_id"] = prepared.session_id
+    session.setdefault("run_ids", [])
+    session["run_ids"] = [*session["run_ids"], prepared.session_id]
     contract.session_id = prepared.session_id
     _save_intake_session(intake_id, session)
 

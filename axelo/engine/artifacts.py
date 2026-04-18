@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -51,6 +52,7 @@ class ArtifactManager:
         self.final_dir = Path()
         self._artifacts: list[ArtifactRecord] = []
         self._step_counter: int = 0
+        self._event_seq: int = 0
 
     def create_session(self, request: EngineRequest, session_id: str = "") -> tuple[str, Path]:
         allocation = self.catalog.allocate(url_or_host=request.url, requested_session_id=session_id)
@@ -88,7 +90,15 @@ class ArtifactManager:
         self._register_artifact("logs", "principal_state", current, "Latest principal mission state.")
 
     def append_event(self, kind: str, message: str, data: dict[str, Any] | None = None) -> None:
-        record = {"kind": kind, "message": message, "data": _json_safe(data or {})}
+        self._event_seq += 1
+        record = {
+            "event_id": str(uuid.uuid4()),
+            "seq": self._event_seq,
+            "kind": kind,
+            "message": message,
+            "published_at": datetime.now().isoformat(),
+            "data": _json_safe(data or {}),
+        }
         line = json.dumps(record, ensure_ascii=False)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         with (self.logs_dir / "events.jsonl").open("a", encoding="utf-8") as handle:

@@ -13,6 +13,7 @@ from typing import Any
 import structlog
 
 from axelo.web.event_broadcaster import EventBroadcaster
+from axelo.web.services.workbench_service import adapt_legacy_record
 
 log = structlog.get_logger()
 
@@ -58,7 +59,7 @@ class SessionWatcher:
                             record = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        payload = _build_ws_payload(session_id, record)
+                        payload = _build_ws_payload(session_id, record, seq=offset + 1)
                         await self._broadcaster.broadcast(session_id, payload)
                     offset = len(lines)
             except Exception as exc:
@@ -66,48 +67,6 @@ class SessionWatcher:
             await asyncio.sleep(_POLL_INTERVAL)
 
 
-def _build_ws_payload(session_id: str, record: dict[str, Any]) -> dict[str, Any]:
-    data = record.get("data") or {}
-    return {
-        "type": "engine_event",
-        "session_id": session_id,
-        "kind": record.get("kind", "unknown"),
-        "message": record.get("message", ""),
-        "step": data.get("step"),
-        "agent_role": _infer_agent_role(data.get("objective", "")),
-        "objective": data.get("objective"),
-        "published_at": record.get("published_at"),
-        "state": {
-            "mission_status": data.get("mission_status"),
-            "mission_outcome": data.get("mission_outcome"),
-            "evidence_count": data.get("evidence_count", 0),
-            "hypothesis_count": data.get("hypothesis_count", 0),
-            "coverage": data.get("coverage", {}),
-            "trust_score": data.get("trust_score", 0.0),
-            "execution_trust_score": data.get("execution_trust_score", 0.0),
-            "mechanism_trust_score": data.get("mechanism_trust_score", 0.0),
-            "current_focus": data.get("current_focus", ""),
-            "current_uncertainty": data.get("current_uncertainty", ""),
-            "dominant_hypothesis": data.get("dominant_hypothesis"),
-            "mechanism_blockers": data.get("mechanism_blockers", []),
-            "next_action_hint": data.get("next_action_hint"),
-            "evidence_delta": data.get("evidence_delta"),
-        },
-    }
-
-
-_OBJECTIVE_TO_ROLE: dict[str, str] = {
-    "discover_surface": "recon-agent",
-    "recover_transport": "transport-agent",
-    "recover_static_mechanism": "reverse-agent",
-    "recover_runtime_mechanism": "runtime-agent",
-    "recover_response_schema": "schema-agent",
-    "build_artifacts": "builder-agent",
-    "verify_execution": "verifier-agent",
-    "challenge_findings": "critic-agent",
-    "consult_memory": "memory-agent",
-}
-
-
-def _infer_agent_role(objective: str) -> str:
-    return _OBJECTIVE_TO_ROLE.get(objective, "principal")
+def _build_ws_payload(session_id: str, record: dict[str, Any], *, seq: int) -> dict[str, Any]:
+    event = adapt_legacy_record(session_id, "", record, seq=seq)
+    return event.model_dump(mode="json")

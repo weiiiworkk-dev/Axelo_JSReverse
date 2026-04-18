@@ -53,14 +53,21 @@ def _save_intake_session(intake_id: str, session: dict[str, Any]) -> None:
     d = _intake_session_dir(intake_id)
     contract = session.get("contract")
     history = session.get("history", [])
+    run_ids = [str(item) for item in (session.get("run_ids") or []) if item]
     if contract is not None:
-        (d / "contract.json").write_text(
-            contract.model_dump_json(indent=2), encoding="utf-8"
-        )
+        if hasattr(contract, "model_dump_json"):
+            (d / "contract.json").write_text(
+                contract.model_dump_json(indent=2), encoding="utf-8"
+            )
+        else:
+            (d / "contract.json").write_text(
+                json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
     lines = "\n".join(json.dumps(turn, ensure_ascii=False) for turn in history)
     (d / "history.jsonl").write_text(lines + "\n" if lines else "", encoding="utf-8")
     if session.get("session_id"):
         (d / "session_id.txt").write_text(session["session_id"], encoding="utf-8")
+    (d / "run_ids.json").write_text(json.dumps(run_ids, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
