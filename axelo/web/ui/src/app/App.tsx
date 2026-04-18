@@ -5,6 +5,7 @@ import { MainCard } from '../components/layout/MainCard'
 import { HomeWorkspace } from '../components/home/HomeWorkspace'
 import { ConversationWorkspace } from '../components/conversation/ConversationWorkspace'
 import { ComposerBar } from '../components/composer/ComposerBar'
+import { ExecutionPanel } from '../components/execution/ExecutionPanel'
 
 function Shell() {
   const { state } = useApp()
@@ -17,6 +18,7 @@ function Shell() {
           {state.activeSessionId ? <ConversationWorkspace /> : <HomeWorkspace />}
           <ComposerBar />
         </MainCard>
+        <ExecutionPanel />
       </div>
     </div>
   )
