@@ -68,34 +68,18 @@ function setWelcomeVisible(show: boolean): void {
 // ── Phase routing ─────────────────────────────────────────────────────────────
 let currentPhase: IntakePhase = 'welcome'
 
-function setRightCardMode(mode: 'contract' | 'process'): void {
-  const leftPanel      = document.getElementById('left-panel')
-  const rpContainer    = document.getElementById('rp-container')
-  const sectionLabel   = document.getElementById('rc-section-label')
-  if (mode === 'process') {
-    if (leftPanel)    leftPanel.style.display    = 'none'
-    if (rpContainer)  rpContainer.style.display  = 'flex'
-    if (sectionLabel) sectionLabel.textContent   = 'AI 进程'
-  } else {
-    if (leftPanel)    leftPanel.style.display    = ''
-    if (rpContainer)  rpContainer.style.display  = 'none'
-    if (sectionLabel) sectionLabel.textContent   = '合约规划'
-  }
-}
-
 function onPhaseChange(phase: IntakePhase): void {
   if (phase === currentPhase) return
   currentPhase = phase
 
-  // Toggle welcome vs panels
+  // Toggle welcome overlay vs panels
   setWelcomeVisible(phase === 'welcome')
 
+  // Center column: swap chat ↔ execution timeline
   if (phase === 'executing' || phase === 'complete' || phase === 'failed') {
     showExecutionTimeline()
-    setRightCardMode('process')
   } else {
     hideExecutionTimeline()
-    setRightCardMode('contract')
   }
 
   // Bottom bar: hide readiness row during execution

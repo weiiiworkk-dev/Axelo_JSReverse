@@ -16,7 +16,7 @@ export function renderGoalCard(state: RightPanelState): string {
   if (!currentGoal) {
     return `<div class="rp-card rp-card--empty" id="goal-card">
       <span class="rp-card__empty-icon">◎</span>
-      <p class="rp-card__empty-label">等待任务目标</p>
+      <p class="rp-card__empty-label">暂无目标</p>
     </div>`
   }
 

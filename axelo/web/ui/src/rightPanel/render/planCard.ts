@@ -15,7 +15,7 @@ export function renderPlanCard(state: RightPanelState): string {
   if (planSteps.length === 0) {
     return `<div class="rp-card rp-card--empty" id="plan-card">
       <span class="rp-card__empty-icon">▦</span>
-      <p class="rp-card__empty-label">等待执行计划</p>
+      <p class="rp-card__empty-label">等待任务开始</p>
     </div>`
   }
 

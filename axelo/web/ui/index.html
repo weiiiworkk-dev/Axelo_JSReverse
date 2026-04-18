@@ -32,7 +32,7 @@
         --font:        'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         --mono:        'Courier New', Courier, monospace;
         --sb-width:    220px;
-        --rc-width:    260px;
+        --rc-width:    280px;
       }
 
       html, body { height: 100%; overflow: hidden; background: var(--bg); }
@@ -352,8 +352,8 @@
         font-family: var(--font);
       }
 
-      /* ── Right card wrapper ── */
-      #right-card {
+      /* ── Right rail — permanent third column ── */
+      #right-rail {
         width: var(--rc-width);
         min-width: 220px;
         background: var(--sidebar-bg);
@@ -363,10 +363,11 @@
         font-family: var(--font);
       }
 
-      /* Right card header — matches sidebar style */
+      /* Right rail header */
       .rc-head {
         display: flex; align-items: center;
-        padding: 12px 14px 6px; gap: 6px; flex-shrink: 0;
+        padding: 12px 14px 10px; gap: 6px; flex-shrink: 0;
+        border-bottom: 1px solid var(--border);
       }
 
       .rc-head-icon { width: 18px; height: 18px; color: var(--text); flex-shrink: 0; }
@@ -393,15 +394,8 @@
         letter-spacing: 0.01em; flex-shrink: 0;
       }
 
-      /* Inner scrollable area */
-      #left-panel {
-        flex: 1; overflow-y: auto; overflow-x: hidden;
-        display: flex; flex-direction: column;
-        font-family: var(--font);
-      }
-
-      #left-panel::-webkit-scrollbar { width: 3px; }
-      #left-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+      /* MissionContractPanel — hidden in right rail, kept for JS wiring */
+      #left-panel { display: none !important; }
 
       /* ════════════════════════════════════════════
          BOTTOM BAR
@@ -690,7 +684,8 @@
          RIGHT PANEL CONTROLLER
       ════════════════════════════════════════════ */
       #rp-container {
-        flex: 1; overflow-y: auto; overflow-x: hidden;
+        flex: 1; min-height: 0;
+        overflow-y: auto; overflow-x: hidden;
         display: flex; flex-direction: column;
         padding: 8px; gap: 8px;
       }
@@ -1121,35 +1116,6 @@
         <div id="main">
           <!-- Center: chat -->
           <div id="right-panel"></div>
-
-          <!-- Right card: AI planning & execution -->
-          <div id="right-card">
-            <!-- Header matching sidebar style -->
-            <div class="rc-head">
-              <!-- Brain/plan icon -->
-              <svg class="rc-head-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M7 3 C7 3 4 4 4 7 C4 10 7 11 7 11 L7 15"/>
-                <path d="M11 3 C11 3 14 4 14 7 C14 10 11 11 11 11 L11 15"/>
-                <line x1="7" y1="7" x2="11" y2="7"/>
-                <line x1="7" y1="11" x2="11" y2="11"/>
-                <line x1="6" y1="15" x2="12" y2="15"/>
-              </svg>
-              <span class="rc-head-title">AI 规划</span>
-              <!-- Collapse button -->
-              <button class="rc-head-btn" title="收起">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <polyline points="11,4 14,8 11,12"/>
-                  <line x1="2" y1="8" x2="14" y2="8"/>
-                </svg>
-              </button>
-            </div>
-
-            <div class="rc-section-label" id="rc-section-label">合约规划</div>
-            <!-- Intake phase: MissionContractPanel -->
-            <div id="left-panel"></div>
-            <!-- Execution phase: RightPanelController (hidden until executing) -->
-            <div id="rp-container" style="display:none"></div>
-          </div>
         </div>
 
         <!-- ── Bottom bar ── -->
@@ -1174,6 +1140,29 @@
 
       </div>
       <!-- /WORKSPACE -->
+
+      <!-- ════════════════ RIGHT RAIL (permanent) ════════════════ -->
+      <div id="right-rail">
+
+        <!-- Rail header -->
+        <div class="rc-head">
+          <svg class="rc-head-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="3" width="5" height="5" rx="1"/>
+            <rect x="10" y="3" width="5" height="5" rx="1"/>
+            <rect x="3" y="10" width="5" height="5" rx="1"/>
+            <rect x="10" y="10" width="5" height="5" rx="1"/>
+          </svg>
+          <span class="rc-head-title">AI 进程</span>
+        </div>
+
+        <!-- MissionContractPanel target — kept for JS wiring, not shown visually -->
+        <div id="left-panel" style="display:none"></div>
+
+        <!-- RightPanelController — always rendered (empty states when idle) -->
+        <div id="rp-container"></div>
+
+      </div>
+      <!-- /RIGHT RAIL -->
 
       <!-- Hidden elements for JS wiring -->
       <select id="session-select" style="display:none"><option value="">-- 选择 --</option></select>
