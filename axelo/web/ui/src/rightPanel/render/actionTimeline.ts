@@ -22,7 +22,7 @@ export function renderActionTimeline(state: RightPanelState): string {
   if (actionEvents.length === 0) {
     return `<div class="rp-card rp-card--empty rp-card--timeline" id="timeline-card">
       <span class="rp-card__empty-icon">≡</span>
-      <p class="rp-card__empty-label">暂无事件</p>
+      <p class="rp-card__empty-label">Agent 动作流<br>将在执行时实时更新</p>
     </div>`
   }
 

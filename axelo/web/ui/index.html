@@ -33,6 +33,8 @@
         --mono:        'Courier New', Courier, monospace;
         --sb-width:    220px;
         --rc-width:    280px;
+        --composer-bg: #f7f6f3;
+        --prompt-border: #e4e2dd;
       }
 
       html, body { height: 100%; overflow: hidden; background: var(--bg); }
@@ -250,9 +252,16 @@
         width: 100%; max-width: 640px; padding: 0 24px;
       }
 
+      .wv-brand { text-align: center; }
+
       .wv-title {
         font-size: 28px; font-weight: 400;
         color: var(--text); letter-spacing: -0.02em; line-height: 1;
+      }
+
+      .wv-tagline {
+        font-size: 13px; color: var(--text3);
+        margin-top: 6px; line-height: 1.4;
       }
 
       /* ── Big input box ── */
@@ -280,61 +289,47 @@
 
       #welcome-textarea::placeholder { color: var(--text3); }
 
-      .wv-input-toolbar {
+      /* ── Input box footer (replaces old toolbar) ── */
+      .wv-input-footer {
         display: flex; align-items: center;
         padding: 8px 12px 10px; gap: 8px;
         border-top: 1px solid var(--border2);
       }
 
-      .wv-add-btn {
-        width: 28px; height: 28px;
+      .wv-footer-spacer { flex: 1; }
+
+      .wv-send-btn {
+        width: 32px; height: 32px;
         display: flex; align-items: center; justify-content: center;
-        border: 1px solid var(--border); border-radius: 50%;
-        background: transparent; cursor: pointer;
-        color: var(--text2); font-size: 18px; line-height: 1;
-        transition: background 0.12s; flex-shrink: 0;
+        border: none; background: var(--accent); color: #fff;
+        border-radius: 8px; cursor: pointer;
+        transition: opacity 0.15s; flex-shrink: 0;
       }
 
-      .wv-add-btn:hover { background: var(--hover); }
-      .wv-toolbar-spacer { flex: 1; }
+      .wv-send-btn:hover { opacity: 0.88; }
+      .wv-send-btn svg { width: 15px; height: 15px; }
 
-      .wv-model-btn {
-        display: flex; align-items: center; gap: 4px;
-        border: none; background: transparent; cursor: pointer;
-        font-family: var(--font); font-size: 13px; color: var(--text2);
-        padding: 4px 6px; border-radius: 6px; transition: background 0.12s;
+      /* ── Prompt suggestion chips ── */
+      .wv-prompts {
+        display: flex; flex-direction: column;
+        gap: 6px; width: 100%;
       }
 
-      .wv-model-btn:hover { background: var(--hover); }
-      .wv-model-chevron { width: 12px; height: 12px; opacity: 0.6; }
-
-      .wv-mic-btn {
-        width: 30px; height: 30px;
-        display: flex; align-items: center; justify-content: center;
-        border: none; background: transparent; cursor: pointer;
-        border-radius: 50%; color: var(--text2); transition: background 0.12s;
-      }
-
-      .wv-mic-btn:hover { background: var(--hover); }
-      .wv-mic-btn svg { width: 16px; height: 16px; }
-
-      /* ── Action buttons ── */
-      .wv-actions {
-        display: flex; align-items: center;
-        gap: 8px; flex-wrap: wrap; justify-content: center;
-      }
-
-      .wv-action-btn {
-        display: flex; align-items: center; gap: 6px;
-        padding: 7px 14px;
-        border: 1px solid var(--border); border-radius: 100px;
+      .wv-prompt-btn {
+        display: block; width: 100%;
+        padding: 9px 14px; text-align: left;
+        border: 1px solid var(--prompt-border); border-radius: 10px;
         background: var(--bg); cursor: pointer;
-        font-family: var(--font); font-size: 13px; color: var(--text);
-        transition: background 0.12s, border-color 0.12s; white-space: nowrap;
+        font-family: var(--font); font-size: 13px; color: var(--text2);
+        transition: background 0.12s, border-color 0.12s, color 0.12s;
+        line-height: 1.45;
       }
 
-      .wv-action-btn:hover { background: var(--hover); border-color: #ccc8c3; }
-      .wv-action-btn svg { width: 14px; height: 14px; color: var(--text2); flex-shrink: 0; }
+      .wv-prompt-btn:hover {
+        background: var(--hover);
+        border-color: #ccc8c3;
+        color: var(--text);
+      }
 
       /* ════════════════════════════════════════════
          PANELS ROW
@@ -401,7 +396,7 @@
          BOTTOM BAR
       ════════════════════════════════════════════ */
       #bottom {
-        flex-shrink: 0; background: var(--bg);
+        flex-shrink: 0; background: var(--composer-bg);
         border-top: 1px solid var(--border);
         display: none;
       }
@@ -409,13 +404,13 @@
       #readiness-row {
         display: flex; align-items: center; gap: 10px;
         padding: 5px 16px; border-bottom: 1px solid var(--border2);
-        font-size: 11.5px; background: var(--panel-bg);
+        font-size: 11.5px; background: var(--composer-bg);
       }
 
-      #readiness-label { white-space: nowrap; min-width: 80px; color: var(--text2); font-size: 11.5px; }
+      #readiness-label { white-space: nowrap; min-width: 80px; color: var(--text3); font-size: 11.5px; }
 
       #readiness-bar-bg {
-        flex: 1; height: 4px; background: var(--border);
+        flex: 1; height: 3px; background: var(--border);
         border-radius: 2px; overflow: hidden;
       }
 
@@ -437,8 +432,8 @@
       #main-start-btn:not(:disabled):hover { opacity: 0.88; }
 
       #input-row {
-        display: flex; align-items: center;
-        padding: 8px 16px; gap: 10px; background: var(--bg);
+        display: flex; align-items: flex-end;
+        padding: 8px 16px; gap: 10px; background: var(--composer-bg);
       }
 
       #main-input {
@@ -450,33 +445,21 @@
       #main-input::placeholder { color: var(--text3); }
 
       #main-send-btn {
-        font-family: var(--font); font-size: 12px; font-weight: 500;
-        background: transparent; color: var(--text2);
-        border: 1px solid var(--border); padding: 5px 16px;
-        cursor: pointer; flex-shrink: 0; border-radius: 7px;
-        transition: background 0.12s;
+        width: 32px; height: 32px;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--accent); color: #fff;
+        border: none; border-radius: 8px;
+        cursor: pointer; flex-shrink: 0; transition: opacity 0.15s;
       }
 
-      #main-send-btn:hover { background: var(--hover); }
-      #main-send-btn:disabled { color: var(--border); cursor: not-allowed; }
+      #main-send-btn:hover { opacity: 0.88; }
+      #main-send-btn:disabled { background: var(--border); cursor: not-allowed; opacity: 1; }
+      #main-send-btn svg { width: 15px; height: 15px; }
 
       /* ════════════════════════════════════════════
          CHAT PANEL
       ════════════════════════════════════════════ */
       .cp-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-
-      .cp-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 9px 16px; border-bottom: 1px solid var(--border);
-        flex-shrink: 0; background: var(--bg);
-      }
-
-      .cp-title { font-size: 12px; font-weight: 600; color: var(--text); }
-
-      .cp-phase-badge {
-        font-size: 10px; font-weight: 600; padding: 2px 10px;
-        color: var(--accent); background: var(--accent-soft); border-radius: 100px;
-      }
 
       .cp-messages {
         flex: 1; overflow-y: auto; padding: 16px 20px;
@@ -492,7 +475,6 @@
         font-size: 13px; color: var(--text2); line-height: 1.75;
       }
 
-      .cp-welcome-icon { font-size: 22px; margin-bottom: 8px; display: block; }
       .cp-welcome-text { font-size: 13px; color: var(--text2); line-height: 1.75; }
 
       .cp-msg { display: flex; font-size: 13px; }
@@ -527,158 +509,21 @@
       .cp-blocking-item { font-size: 11px; color: var(--danger); display: block; padding-left: 6px; }
       .cp-missing-item  { font-size: 11px; color: var(--warn);   display: block; padding-left: 6px; }
 
-      /* ════════════════════════════════════════════
-         MISSION CONTRACT PANEL (in right card)
-      ════════════════════════════════════════════ */
-      .mcp-root { display: flex; flex-direction: column; min-height: 0; font-family: var(--font); }
-      .mcp-locked { opacity: 0.85; }
-
-      /* suppress the old mcp header (right card has its own) */
-      .mcp-header { display: none; }
-
-      .mcp-conf-row {
-        display: flex; align-items: center; gap: 8px;
-        padding: 6px 14px; border-bottom: 1px solid var(--border2); flex-shrink: 0;
+      .cp-inline-code {
+        font-family: var(--mono); font-size: 11.5px;
+        background: rgba(0,0,0,0.05); border-radius: 3px;
+        padding: 1px 4px;
       }
 
-      .mcp-conf-bar-bg { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-      .mcp-conf-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
-      .mcp-conf-label { font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--text2); }
+      .cp-list { margin: 4px 0 4px 14px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+      .cp-list li { font-size: 13px; line-height: 1.55; }
 
-      .mcp-section { padding: 9px 14px; border-bottom: 1px solid var(--border2); }
-      .mcp-section.mcp-delta { animation: mcp-flash 1.5s ease-out; }
-      @keyframes mcp-flash { 0%,100%{background:transparent} 30%{background:rgba(124,58,237,0.05)} }
-      .mcp-section-warn { background: #fffdf0; }
-
-      .mcp-section-title {
-        font-size: 9px; font-weight: 700; text-transform: uppercase;
-        letter-spacing: 0.08em; color: var(--text3); margin-bottom: 5px;
+      .cp-delta-tag {
+        margin-top: 4px; display: inline-block;
+        font-size: 10px; color: var(--accent);
+        background: var(--accent-soft); border-radius: 4px;
+        padding: 1px 7px; font-weight: 500;
       }
-
-      .mcp-val       { font-size: 12px; color: var(--text); line-height: 1.5; }
-      .mcp-url       { font-family: var(--mono); font-size: 11px; word-break: break-all; color: var(--accent); }
-      .mcp-meta      { font-size: 10px; color: var(--text3); margin-top: 2px; }
-      .mcp-objective { font-size: 12px; color: var(--text); line-height: 1.6; }
-
-      .mcp-badge {
-        display: inline-block; font-size: 9px; font-weight: 700;
-        text-transform: uppercase; padding: 2px 7px; margin-top: 4px;
-        border: 1px solid; border-radius: 4px;
-      }
-
-      .mcp-badge-extract_data     { border-color: var(--accent);  color: var(--accent);  }
-      .mcp-badge-reverse_engineer { border-color: #6d28d9;        color: #6d28d9;        }
-      .mcp-badge-crawl            { border-color: var(--success); color: var(--success); }
-      .mcp-badge-monitor          { border-color: #9b59b6;        color: #9b59b6;        }
-
-      .mcp-fields-list { display: flex; flex-direction: column; gap: 4px; }
-      .mcp-field-row   { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-      .mcp-field-name  { font-weight: 600; color: var(--text); flex: 1; }
-      .mcp-field-type  { font-size: 10px; font-family: var(--mono); color: var(--text2); }
-      .mcp-field-req   { font-size: 9px; border: 1px solid var(--accent); color: var(--accent); padding: 0 4px; font-weight: 700; border-radius: 3px; }
-      .mcp-field-opt   { font-size: 9px; color: var(--text3); padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; }
-
-      .mcp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-      .mcp-chip  { font-size: 10px; background: var(--border2); border: 1px solid var(--border); padding: 2px 7px; color: var(--text2); border-radius: 4px; }
-
-      .mcp-assumption { font-size: 11px; color: var(--text2); line-height: 1.55; }
-      .mcp-gap        { font-size: 11px; color: var(--warn);  line-height: 1.55; }
-
-      .mcp-placeholder {
-        flex: 1; display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        padding: 24px; gap: 12px;
-      }
-
-      .mcp-ph-icon  { font-size: 24px; opacity: 0.3; }
-      .mcp-ph-text  { font-size: 12px; color: var(--text3); text-align: center; line-height: 1.8; }
-      .mcp-empty-section { opacity: 0.5; }
-      .mcp-empty-hint    { font-size: 11px; color: var(--text3); font-style: italic; }
-
-      .mcp-locked-banner {
-        text-align: center; padding: 8px 14px; font-size: 11px;
-        color: var(--accent); border-top: 1px solid var(--border2);
-        flex-shrink: 0; background: var(--accent-soft);
-      }
-
-      .mcp-ready-line {
-        padding: 9px 14px; font-size: 11px; font-weight: 600;
-        color: var(--accent); border-top: 1px solid var(--border2);
-        background: var(--accent-soft);
-      }
-
-      /* ════════════════════════════════════════════
-         EXECUTION TIMELINE (in right card)
-      ════════════════════════════════════════════ */
-      .etp-root {
-        display: flex; flex-direction: column;
-        color: var(--text); font-family: var(--font); background: transparent;
-      }
-
-      /* suppress the old etp header */
-      .etp-header { display: none; }
-
-      .etp-coverage-strip {
-        display: grid; grid-template-columns: repeat(4,1fr);
-        gap: 4px 8px; padding: 8px 14px;
-        border-bottom: 1px solid var(--border2); flex-shrink: 0;
-      }
-
-      .etp-cov-item    { display: flex; flex-direction: column; gap: 3px; }
-      .etp-cov-name    { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.04em; }
-      .etp-cov-bar-bg  { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-      .etp-cov-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
-      .etp-cov-pct     { font-size: 9px; color: var(--text2); }
-
-      .etp-trust-row { display: flex; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--border2); flex-shrink: 0; }
-      .etp-trust-item    { flex: 1; display: flex; align-items: center; gap: 6px; }
-      .etp-trust-lbl     { font-size: 9px; color: var(--text3); width: 30px; flex-shrink: 0; }
-      .etp-trust-bar-bg  { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-      .etp-trust-fill    { height: 100%; border-radius: 2px; transition: width 0.5s, background 0.5s; }
-      .etp-trust-pct     { font-size: 9px; color: var(--text2); width: 24px; text-align: right; }
-
-      .etp-timeline {
-        overflow-y: auto; padding: 8px 10px;
-        display: flex; flex-direction: column; gap: 5px;
-      }
-
-      .etp-timeline::-webkit-scrollbar { width: 3px; }
-      .etp-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-      .etp-empty-hint { font-size: 12px; color: var(--text3); text-align: center; padding: 20px; }
-
-      .etp-entry {
-        display: flex; gap: 8px; padding: 7px 10px;
-        border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
-      }
-
-      .etp-entry-active { border-color: var(--accent); background: var(--accent-soft); }
-      .etp-entry-done   { border-color: var(--success); background: #f0fdf4; }
-      .etp-entry-failed { border-color: var(--danger);  background: #fff5f5; }
-
-      .etp-entry-status { font-size: 12px; flex-shrink: 0; width: 14px; text-align: center; color: var(--text2); }
-      .etp-entry-active .etp-entry-status { color: var(--accent); animation: etp-spin 1.5s linear infinite; }
-      .etp-entry-done   .etp-entry-status { color: var(--success); }
-      .etp-entry-failed .etp-entry-status { color: var(--danger);  }
-
-      @keyframes etp-spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
-
-      .etp-entry-body    { flex: 1; min-width: 0; }
-      .etp-entry-header  { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
-      .etp-entry-icon    { font-size: 12px; flex-shrink: 0; }
-      .etp-entry-obj     { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; }
-      .etp-entry-role    { font-size: 10px; color: var(--text3); white-space: nowrap; }
-      .etp-entry-summary { font-size: 11px; color: var(--text2); line-height: 1.5; }
-      .etp-entry-risk    { font-size: 11px; color: var(--warn); margin-top: 2px; }
-
-      .etp-verdict-row {
-        display: flex; align-items: flex-start; gap: 8px;
-        padding: 8px 10px; border: 2px solid; border-radius: 9px;
-        background: var(--bg); margin-top: 5px;
-      }
-
-      .etp-verdict-icon { font-size: 16px; flex-shrink: 0; }
-      .etp-verdict-tier { font-size: 12px; font-weight: 700; }
-      .etp-verdict-msg  { font-size: 11px; color: var(--text2); margin-top: 2px; line-height: 1.5; }
 
       /* ════════════════════════════════════════════
          RIGHT PANEL CONTROLLER
@@ -712,11 +557,11 @@
       .rp-card--empty {
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
-        padding: 18px 16px; gap: 6px; opacity: 0.45;
+        padding: 22px 16px; gap: 6px; opacity: 0.5;
       }
 
       .rp-card__empty-icon { font-size: 16px; color: var(--text3); }
-      .rp-card__empty-label { font-size: 11.5px; color: var(--text3); }
+      .rp-card__empty-label { font-size: 11.5px; color: var(--text3); text-align: center; line-height: 1.7; }
 
       .rp-card__header {
         display: flex; align-items: center;
@@ -1041,71 +886,36 @@
         <div id="welcome-view">
           <div class="wv-center">
 
-            <!-- Title only (no logo) -->
-            <h1 class="wv-title">Axelo</h1>
+            <!-- Brand -->
+            <div class="wv-brand">
+              <h1 class="wv-title">Axelo</h1>
+              <p class="wv-tagline">AI 驱动的智能采集工作台</p>
+            </div>
 
             <!-- Big input box -->
             <div class="wv-input-box">
               <textarea
                 id="welcome-textarea"
-                placeholder="告诉 Axelo 你想做什么..."
+                placeholder="告诉 Axelo 你想从哪里获取什么数据..."
                 rows="1"
               ></textarea>
-              <div class="wv-input-toolbar">
-                <button class="wv-add-btn" title="附件">+</button>
-                <div class="wv-toolbar-spacer"></div>
-                <button class="wv-model-btn" id="welcome-model-btn">
-                  就绪度 0%
-                  <svg class="wv-model-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <polyline points="2,4 6,8 10,4"/>
-                  </svg>
-                </button>
-                <button class="wv-mic-btn" title="语音输入">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <rect x="5.5" y="1" width="5" height="8" rx="2.5"/>
-                    <path d="M3 8a5 5 0 0 0 10 0"/>
-                    <line x1="8" y1="13" x2="8" y2="15"/>
-                    <line x1="5" y1="15" x2="11" y2="15"/>
+              <div class="wv-input-footer">
+                <div class="wv-footer-spacer"></div>
+                <button class="wv-send-btn" title="发送">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="8" y1="13" x2="8" y2="3"/>
+                    <polyline points="4,7 8,3 12,7"/>
                   </svg>
                 </button>
               </div>
             </div>
 
-            <!-- Quick actions -->
-            <div class="wv-actions">
-              <button class="wv-action-btn">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="8" cy="8" r="6"/>
-                  <line x1="2" y1="8" x2="14" y2="8"/>
-                  <path d="M8 2 Q10 8 8 14"/>
-                  <path d="M8 2 Q6 8 8 14"/>
-                </svg>
-                分析网站
-              </button>
-              <button class="wv-action-btn">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <polyline points="4,6 2,8 4,10"/>
-                  <polyline points="12,6 14,8 12,10"/>
-                  <line x1="9" y1="4" x2="7" y2="12"/>
-                </svg>
-                逆向 API
-              </button>
-              <button class="wv-action-btn">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <rect x="2" y="2" width="12" height="12" rx="2"/>
-                  <line x1="5" y1="6"  x2="11" y2="6"/>
-                  <line x1="5" y1="9"  x2="11" y2="9"/>
-                  <line x1="5" y1="12" x2="8"  y2="12"/>
-                </svg>
-                提取数据
-              </button>
-              <button class="wv-action-btn">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M4 2 L4 14 L12 14 L12 6 L8 2 Z"/>
-                  <polyline points="8,2 8,6 12,6"/>
-                </svg>
-                生成脚本
-              </button>
+            <!-- Prompt chips -->
+            <div class="wv-prompts">
+              <button class="wv-prompt-btn">分析这个网站适合哪种抓取路径</button>
+              <button class="wv-prompt-btn">帮我判断这个页面能不能直接走 API</button>
+              <button class="wv-prompt-btn">先帮我梳理这个目标站点的数据获取方案</button>
+              <button class="wv-prompt-btn">给我一版可执行的爬虫实现路线</button>
             </div>
 
           </div>
@@ -1134,7 +944,12 @@
               rows="1"
               placeholder="继续告诉 Axelo 更多细节..."
             ></textarea>
-            <button id="main-send-btn">发送</button>
+            <button id="main-send-btn" title="发送">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" y1="13" x2="8" y2="3"/>
+                <polyline points="4,7 8,3 12,7"/>
+              </svg>
+            </button>
           </div>
         </div>
 

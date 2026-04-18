@@ -1,5 +1,5 @@
 /**
- * ChatPanel — 右侧对话面板（仅显示消息）。
+ * ChatPanel — 中央对话面板。
  * 输入栏和就绪度栏已移至 index.html 底部全宽区域，由 main.ts 统一管理。
  */
 
@@ -12,11 +12,27 @@ import {
   type IntakePhase,
 } from '../store/intakeStore'
 import { missionStore } from '../store/missionStore'
+import type { MissionContract } from '../generated/contracts'
+
+// ── Field label map (contract delta display) ─────────────────────────────────
+const FIELD_LABELS: Record<string, string> = {
+  target_url:       '目标地址',
+  objective:        '爬取目标',
+  requested_fields: '字段列表',
+  execution_spec:   '执行配置',
+  auth_spec:        '认证方式',
+  output_spec:      '输出格式',
+  target_scope:     '爬取范围',
+  item_limit:       '数量限制',
+  assumptions:      '假设条件',
+  constraints:      '约束条件',
+}
+
+const IGNORED_DELTA_KEYS = new Set(['readiness_assessment', 'contract_version', 'contract_id', 'created_at'])
 
 export class ChatPanel {
   private el: HTMLElement
   private messagesEl!: HTMLElement
-  private phaseBarEl!: HTMLElement
   private unsubIntake: (() => void) | null = null
 
   constructor(el: HTMLElement) {
@@ -29,20 +45,11 @@ export class ChatPanel {
   private render(): void {
     this.el.innerHTML = `
       <div class="cp-root">
-        <div class="cp-header">
-          <div class="cp-title">对话</div>
-          <div class="cp-phase-badge" id="cp-phase-badge">欢迎</div>
-        </div>
         <div class="cp-messages" id="cp-messages">
           <div class="cp-welcome-msg">
-            <span class="cp-welcome-icon">🤖</span>
             <div class="cp-welcome-text">
-              你好！我是 Axelo 需求助手。<br>
-              请描述你想爬取什么，或者想逆向分析哪个网站，我会为你构建结构化的任务计划。<br><br>
-              示例：<br>
-              &nbsp;&nbsp;'从 amazon.com 获取 iPhone 15 商品列表'<br>
-              &nbsp;&nbsp;'抓取 linkedin.com 上的招聘信息'<br>
-              &nbsp;&nbsp;'逆向分析 example.com 的搜索 API'
+              告诉我你想从哪里获取什么数据，或者想分析哪个网站的接口。<br><br>
+              我会先和你确认需求细节，然后构建一份可执行的爬取方案。
             </div>
           </div>
         </div>
@@ -50,20 +57,17 @@ export class ChatPanel {
           <span class="cp-spinner-dot"></span>
           <span class="cp-spinner-dot"></span>
           <span class="cp-spinner-dot"></span>
-          <span style="font-size:10px;color:#888;margin-left:6px">AI 思考中…</span>
+          <span style="font-size:10px;color:var(--text3);margin-left:6px">AI 思考中…</span>
         </div>
         <div class="cp-error" id="cp-error" style="display:none"></div>
       </div>
     `
 
     this.messagesEl = this.el.querySelector('#cp-messages')!
-    this.phaseBarEl = this.el.querySelector('#cp-phase-badge')!
   }
 
   private bindStore(): void {
     this.unsubIntake = intakeStore.subscribe((state) => {
-      this.updatePhase(state.phase)
-
       const spinner = this.el.querySelector('#cp-ai-spinner') as HTMLElement
       spinner.style.display = state.isWaitingForAI ? 'flex' : 'none'
 
@@ -111,7 +115,7 @@ export class ChatPanel {
     try {
       const result = await sendIntakeMessage(state.intakeId, msg)
       intakeStore.appendAssistantMessage(result.ai_reply, result.turn_id + '_reply')
-      this.appendMessage('assistant', result.ai_reply, result.turn_id + '_reply')
+      this.appendMessage('assistant', result.ai_reply, result.turn_id + '_reply', result.contract_delta)
       intakeStore.setContract(result.contract, result.contract_delta)
       intakeStore.setPhase(result.phase as IntakePhase)
     } catch (err: any) {
@@ -140,38 +144,73 @@ export class ChatPanel {
     }
   }
 
-  private appendMessage(role: 'user' | 'assistant', content: string, _turnId: string): void {
+  private appendMessage(
+    role: 'user' | 'assistant',
+    content: string,
+    _turnId: string,
+    contractDelta?: Partial<MissionContract> | null,
+  ): void {
     const isUser = role === 'user'
     const div = document.createElement('div')
     div.className = `cp-msg cp-msg-${role}`
+
+    const bubbleContent = isUser
+      ? escHtml(content).replace(/\n/g, '<br>')
+      : this.renderMarkdown(content)
+
+    // Build optional delta tag
+    let deltaHtml = ''
+    if (!isUser && contractDelta) {
+      const keys = Object.keys(contractDelta).filter(k => !IGNORED_DELTA_KEYS.has(k))
+      if (keys.length > 0) {
+        const label = keys.length === 1
+          ? `更新了${FIELD_LABELS[keys[0]] ?? keys[0]}`
+          : `更新了 ${keys.length} 个字段`
+        deltaHtml = `<div class="cp-delta-tag">${escHtml(label)}</div>`
+      }
+    }
+
     div.innerHTML = `
       <div class="cp-msg-bubble ${isUser ? 'cp-msg-user-bubble' : 'cp-msg-ai-bubble'}">
-        ${escHtml(content).replace(/\n/g, '<br>')}
+        ${bubbleContent}
       </div>
+      ${deltaHtml}
     `
     this.messagesEl.appendChild(div)
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight
   }
 
-  private updatePhase(phase: IntakePhase): void {
-    const labels: Record<IntakePhase, string> = {
-      welcome:        '欢迎',
-      discussing:     '讨论中',
-      contract_ready: '已就绪',
-      executing:      '执行中',
-      complete:       '已完成',
-      failed:         '失败',
+  /**
+   * Markdown-lite renderer.
+   * XSS-safe: escHtml is applied FIRST, then markdown patterns are processed.
+   * Supports: **bold**, `inline code`, unordered lists (- / *)
+   */
+  private renderMarkdown(text: string): string {
+    const lines = escHtml(text).split('\n')
+    const output: string[] = []
+    let listBuffer: string[] = []
+
+    const flushList = (): void => {
+      if (listBuffer.length > 0) {
+        output.push(
+          `<ul class="cp-list">${listBuffer.map(l => `<li>${l}</li>`).join('')}</ul>`
+        )
+        listBuffer = []
+      }
     }
-    const colors: Record<IntakePhase, string> = {
-      welcome:        '#555555',
-      discussing:     '#cc7700',
-      contract_ready: '#00aa55',
-      executing:      '#5b8dd9',
-      complete:       '#00aa55',
-      failed:         '#cc3333',
+
+    for (const line of lines) {
+      const listMatch = line.match(/^[-*]\s+(.+)$/)
+      if (listMatch) {
+        listBuffer.push(applyInline(listMatch[1]))
+      } else {
+        flushList()
+        output.push(applyInline(line))
+      }
     }
-    this.phaseBarEl.textContent = labels[phase] || phase
-    this.phaseBarEl.style.background = colors[phase] || '#555555'
+    flushList()
+
+    return output.join('<br>')
   }
 
   dispose(): void {
@@ -179,6 +218,18 @@ export class ChatPanel {
   }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function escHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function applyInline(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code class="cp-inline-code">$1</code>')
 }

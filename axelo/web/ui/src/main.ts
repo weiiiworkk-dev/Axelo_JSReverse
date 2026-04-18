@@ -14,7 +14,6 @@
 
 import { ChatPanel }              from './ui/ChatPanel'
 import { MissionContractPanel }   from './ui/MissionContractPanel'
-import { ExecutionTimelinePanel } from './ui/ExecutionTimelinePanel'
 import { intakeStore, type IntakePhase } from './store/intakeStore'
 import { missionStore }           from './store/missionStore'
 import { WsClient }               from './ws/client'
@@ -45,9 +44,6 @@ rightEl.appendChild(chatEl)
 const contractPanel = new MissionContractPanel(leftEl)
 const chatPanel     = new ChatPanel(chatEl)
 
-// Timeline — created on demand during execution
-let timelinePanel: ExecutionTimelinePanel | null = null
-let timelineEl: HTMLElement | null = null
 let wsClient: WsClient | null = null
 
 // ── Right panel (AI process view) ────────────────────────────────────────────
@@ -75,13 +71,6 @@ function onPhaseChange(phase: IntakePhase): void {
   // Toggle welcome overlay vs panels
   setWelcomeVisible(phase === 'welcome')
 
-  // Center column: swap chat ↔ execution timeline
-  if (phase === 'executing' || phase === 'complete' || phase === 'failed') {
-    showExecutionTimeline()
-  } else {
-    hideExecutionTimeline()
-  }
-
   // Bottom bar: hide readiness row during execution
   if (readinessRow) {
     readinessRow.style.display = (phase === 'executing' || phase === 'complete' || phase === 'failed')
@@ -103,29 +92,6 @@ function onPhaseChange(phase: IntakePhase): void {
   }
 }
 
-function showExecutionTimeline(): void {
-  if (timelineEl) return
-
-  chatEl.style.display = 'none'
-
-  timelineEl = document.createElement('div')
-  timelineEl.id = 'timeline-container'
-  timelineEl.style.cssText = 'flex:1; display:flex; flex-direction:column; overflow:hidden;'
-  rightEl.appendChild(timelineEl)
-
-  timelinePanel = new ExecutionTimelinePanel(timelineEl)
-}
-
-function hideExecutionTimeline(): void {
-  if (timelineEl) {
-    timelinePanel?.dispose()
-    timelinePanel = null
-    timelineEl.remove()
-    timelineEl = null
-  }
-  chatEl.style.display = 'flex'
-}
-
 // ── Bottom bar — readiness wiring ─────────────────────────────────────────────
 intakeStore.subscribe((state) => {
   onPhaseChange(state.phase)
@@ -138,12 +104,6 @@ intakeStore.subscribe((state) => {
   // Readiness label
   if (readinessLabel) {
     readinessLabel.textContent = `就绪度：${pct}%`
-  }
-
-  // Welcome view model button shows readiness
-  const welcomeModelBtn = document.getElementById('welcome-model-btn')
-  if (welcomeModelBtn) {
-    welcomeModelBtn.childNodes[0]!.textContent = `就绪度 ${pct}%`
   }
 
   // Progress bar fill + color
@@ -221,6 +181,17 @@ welcomeTextarea?.addEventListener('keydown', (e: KeyboardEvent) => {
 })
 
 mainStartBtn?.addEventListener('click', () => { void chatPanel.handleStart() })
+
+// ── Welcome prompt chips + send btn ───────────────────────────────────────────
+document.querySelectorAll<HTMLButtonElement>('.wv-prompt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!welcomeTextarea) return
+    welcomeTextarea.value = btn.textContent?.trim() ?? ''
+    void doWelcomeSend()
+  })
+})
+document.querySelector<HTMLButtonElement>('.wv-send-btn')
+  ?.addEventListener('click', () => { void doWelcomeSend() })
 
 // ── Mission start event ───────────────────────────────────────────────────────
 window.addEventListener('axelo:mission-started', (e: Event) => {
@@ -341,7 +312,6 @@ document.getElementById('new-session-btn')?.addEventListener('click', () => {
 window.addEventListener('beforeunload', () => {
   chatPanel.dispose()
   contractPanel.dispose()
-  timelinePanel?.dispose()
   rpController.dispose()
   wsClient?.disconnect()
 })
