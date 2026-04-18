@@ -22,38 +22,17 @@ export class ChatWorkspace {
     const state = sessionStore.getState()
     const current = state.current
     const items = current?.thread_items || []
-    const ready = Boolean(current?.ready_to_run) && !current?.current_run_id
+    const inHomeMode = items.length === 0 && !current?.current_run_id
+    const showRunAction = Boolean(current?.ready_to_run) && !current?.current_run_id
 
-    this.el.innerHTML = `
-      <div class="chat-shell">
-        <div class="chat-header">
-          <div>
-            <div class="chat-eyebrow">AI Workspace</div>
-            <div class="chat-title">${esc(current?.title || 'New session')}</div>
-          </div>
-          <div class="chat-phase">${esc(current?.status || 'welcome')}</div>
-        </div>
-        <div class="thread-viewport" id="thread-viewport">
-          ${items.length > 0 ? items.map(renderThreadItem).join('') : renderEmptyThread()}
-        </div>
-        <div class="composer-shell">
-          <div class="composer-toolbar">
-            <div class="composer-hint">${state.sending ? 'Router is updating the session...' : 'Describe the site, data target, or reverse-engineering goal.'}</div>
-            ${ready ? '<button type="button" id="run-start-btn" class="subtle-action">Start run</button>' : ''}
-          </div>
-          <div class="composer-input-wrap">
-            <textarea id="composer-input" class="composer-input" rows="1" placeholder="Ask Axelo to inspect a target, design a crawl path, or recover a data workflow..."></textarea>
-            <button type="button" id="composer-send-btn" class="composer-send">Send</button>
-          </div>
-          ${state.error ? `<div class="composer-error">${esc(state.error)}</div>` : ''}
-        </div>
-      </div>
-    `
+    this.el.innerHTML = inHomeMode
+      ? renderHomeShell(state.sending, state.error)
+      : renderConversationShell(current?.title || 'New session', current?.status || 'welcome', items, state.error, showRunAction, state.sending)
 
     const viewport = this.el.querySelector('#thread-viewport') as HTMLElement | null
     if (viewport) viewport.scrollTop = viewport.scrollHeight
 
-    this.el.querySelector<HTMLButtonElement>('#composer-send-btn')
+    this.el.querySelector<HTMLButtonElement>('[data-action="send"]')
       ?.addEventListener('click', () => { void this.handleSend() })
     this.el.querySelector<HTMLTextAreaElement>('#composer-input')
       ?.addEventListener('keydown', (event) => {
@@ -80,17 +59,85 @@ export class ChatWorkspace {
   }
 }
 
-function renderEmptyThread(): string {
+function renderHomeShell(sending: boolean, error: string): string {
   return `
-    <div class="thread-empty">
-      <div class="msg system">
-        <div class="msg-label">Router</div>
-        <div class="msg-body">
-          Describe the target and what you want to capture. Axelo will turn that into one continuous workflow, from site inspection through extraction and delivery.
-        </div>
+    <div class="chat-shell home-shell">
+      <div class="home-stack">
+        <h1 class="home-title">What should we build in Axelo?</h1>
+        ${renderComposer({
+          placeholder: 'Describe the target, route, or extraction goal...',
+          sending,
+          error,
+          home: true,
+        })}
       </div>
-      <div class="thread-empty-note">
-        One input is enough to begin. The system will decide whether to browse, inspect transport, reverse logic, draft extraction, or prepare artifacts.
+    </div>
+  `
+}
+
+function renderConversationShell(
+  title: string,
+  phase: string,
+  items: ChatThreadItem[],
+  error: string,
+  showRunAction: boolean,
+  sending: boolean,
+): string {
+  return `
+    <div class="chat-shell conversation-shell">
+      <div class="chat-header">
+        <div>
+          <div class="chat-eyebrow">Workspace</div>
+          <div class="chat-title">${esc(title)}</div>
+        </div>
+        <div class="chat-phase">${esc(phase)}</div>
+      </div>
+      <div class="thread-viewport" id="thread-viewport">
+        ${items.map(renderThreadItem).join('')}
+      </div>
+      <div class="composer-shell">
+        ${renderComposer({
+          placeholder: 'Continue the run, adjust direction, or request a deliverable...',
+          sending,
+          error,
+          home: false,
+          showRunAction,
+        })}
+      </div>
+    </div>
+  `
+}
+
+function renderComposer(options: {
+  placeholder: string
+  sending: boolean
+  error: string
+  home: boolean
+  showRunAction?: boolean
+}): string {
+  const status = options.sending ? '<button type="button" class="composer-submit" data-action="send" disabled>…</button>' : '<button type="button" class="composer-submit" data-action="send" aria-label="Send">↑</button>'
+  const trailingAction = options.home
+    ? '<button type="button" class="composer-chip">Workspace</button>'
+    : options.showRunAction
+      ? '<button type="button" id="run-start-btn" class="composer-chip">Start run</button>'
+      : ''
+
+  return `
+    <div class="composer-shell">
+      <div class="composer-card">
+        <textarea id="composer-input" class="composer-input" rows="${options.home ? '4' : '3'}" placeholder="${esc(options.placeholder)}"></textarea>
+        <div class="composer-foot">
+          <div class="composer-tools">
+            <button type="button" class="composer-icon" aria-hidden="true">+</button>
+            <button type="button" class="composer-chip">Axelo</button>
+            <button type="button" class="composer-chip">GPT-5.4</button>
+          </div>
+          <div class="composer-meta">
+            ${trailingAction}
+            ${status}
+          </div>
+        </div>
+        ${options.error ? `<div class="composer-error">${esc(options.error)}</div>` : ''}
       </div>
     </div>
   `

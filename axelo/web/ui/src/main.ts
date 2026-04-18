@@ -4,6 +4,7 @@ import { ChatWorkspace } from './ui/ChatWorkspace'
 import { SystemPanel } from './ui/SystemPanel'
 import { RunClient } from './ws/runClient'
 
+const appRoot = document.getElementById('app') as HTMLElement
 const chatRoot = document.getElementById('chat-root') as HTMLElement
 const systemRoot = document.getElementById('system-root') as HTMLElement
 const sessionList = document.getElementById('session-list') as HTMLElement
@@ -29,7 +30,8 @@ const systemPanel = new SystemPanel(systemRoot)
 function renderSidebar(): void {
   const state = sessionStore.getState()
   const currentId = state.current?.session_id || ''
-  sessionTitle.textContent = state.current?.title || 'Axelo'
+  const inConversation = Boolean((state.current?.thread_items || []).length > 0 || state.current?.current_run_id)
+  sessionTitle.textContent = inConversation ? (state.current?.title || 'Axelo') : 'Axelo'
   sessionList.innerHTML = state.sessions.map(session => `
     <button type="button" class="nav-session ${session.session_id === currentId ? 'is-active' : ''}" data-session-id="${session.session_id}">
       <span class="nav-session-title">${esc(session.title)}</span>
@@ -43,6 +45,8 @@ function renderSidebar(): void {
       void openSession(sessionId)
     })
   })
+
+  appRoot.dataset.mode = inConversation ? 'conversation' : 'home'
 }
 
 async function openSession(sessionId: string): Promise<void> {
