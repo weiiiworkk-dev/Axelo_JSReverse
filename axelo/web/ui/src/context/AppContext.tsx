@@ -26,6 +26,24 @@ export interface PlanStep {
   note?: string
 }
 
+export interface CheckpointRecord {
+  checkpoint_id: string
+  run_id: string
+  question: string
+  status: 'waiting' | 'approved' | 'rejected' | 'expired'
+  created_at: string
+}
+
+export interface ArtifactRef {
+  artifact_id: string
+  run_id: string
+  title: string
+  artifact_type: string
+  status: string
+  uri: string
+  summary?: string
+}
+
 // 标准 9 步流水线（与后端 OBJECTIVE_TITLES 对应）
 const DEFAULT_STEPS: PlanStep[] = [
   { id: 'consult_memory',            label: '查询记忆库',      status: 'pending' },
@@ -50,9 +68,11 @@ interface AppState {
   // 执行面板
   isReady: boolean
   runId: string | null
-  runStatus: 'idle' | 'running' | 'completed' | 'failed'
+  runStatus: 'idle' | 'running' | 'blocked' | 'completed' | 'failed'
   planSteps: PlanStep[]
   rightPanelOpen: boolean
+  checkpoints: CheckpointRecord[]
+  artifacts: ArtifactRef[]
 }
 
 type Action =
@@ -72,6 +92,9 @@ type Action =
   | { type: 'SET_RUN'; runId: string }
   | { type: 'SET_RUN_STATUS'; status: AppState['runStatus'] }
   | { type: 'UPDATE_STEP'; objective: string; status: PlanStep['status']; agentId?: string; note?: string }
+  | { type: 'SET_CHECKPOINTS'; checkpoints: CheckpointRecord[] }
+  | { type: 'RESOLVE_CHECKPOINT'; checkpointId: string; resolution: 'approved' | 'rejected' }
+  | { type: 'SET_ARTIFACTS'; artifacts: ArtifactRef[] }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -93,7 +116,7 @@ function reducer(state: AppState, action: Action): AppState {
         wsConnected: false, streamingText: null,
         isReady: false, runId: null, runStatus: 'idle',
         planSteps: DEFAULT_STEPS.map(s => ({ ...s })),
-        rightPanelOpen: false,
+        rightPanelOpen: false, checkpoints: [], artifacts: [],
       }
     case 'SET_PHASE':
       return { ...state, phase: action.phase }
@@ -123,6 +146,17 @@ function reducer(state: AppState, action: Action): AppState {
             : s
         ),
       }
+    case 'SET_CHECKPOINTS':
+      return { ...state, checkpoints: action.checkpoints }
+    case 'RESOLVE_CHECKPOINT':
+      return {
+        ...state,
+        checkpoints: state.checkpoints.map(c =>
+          c.checkpoint_id === action.checkpointId ? { ...c, status: action.resolution } : c
+        ),
+      }
+    case 'SET_ARTIFACTS':
+      return { ...state, artifacts: action.artifacts }
     default:
       return state
   }
@@ -141,6 +175,8 @@ const initialState: AppState = {
   runStatus: 'idle',
   planSteps: DEFAULT_STEPS.map(s => ({ ...s })),
   rightPanelOpen: false,
+  checkpoints: [],
+  artifacts: [],
 }
 
 interface AppContextValue {
@@ -152,6 +188,8 @@ interface AppContextValue {
   startRun: () => Promise<void>
   clearActive: () => void
   closePanel: () => void
+  approveCheckpoint: (checkpointId: string) => Promise<void>
+  rejectCheckpoint: (checkpointId: string) => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -363,6 +401,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : kind === 'agent.activity' ? 'running'
           : 'pending'
         dispatch({ type: 'UPDATE_STEP', objective, status: stepStatus, agentId: actorId, note: message || undefined })
+        // 某步骤进入 blocked → 设置运行状态并拉取检查点
+        if (stepStatus === 'blocked') {
+          dispatch({ type: 'SET_RUN_STATUS', status: 'blocked' })
+          const runId = stateRef.current.runId ?? String(event.run_id ?? '')
+          if (runId) void fetchCheckpoints(runId)
+        }
       }
 
       // 聊天区消息
@@ -374,18 +418,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else if (kind === 'run.completed') {
         dispatch({ type: 'SET_RUN_STATUS', status: 'completed' })
         dispatch({ type: 'SET_PHASE', phase: 'completed' })
-        // 把剩余 pending 步骤标为 completed
         stateRef.current.planSteps.forEach(s => {
           if (s.status === 'pending' || s.status === 'running') {
             dispatch({ type: 'UPDATE_STEP', objective: s.id, status: 'completed' })
           }
         })
         dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '✅ 执行完成', ts, actor: 'system' }] })
+        // 拉取产物列表
+        const completedRunId = stateRef.current.runId ?? String(event.run_id ?? '')
+        if (completedRunId) void fetchArtifacts(completedRunId)
       } else if (kind === 'run.failed') {
         dispatch({ type: 'SET_RUN_STATUS', status: 'failed' })
         dispatch({ type: 'SET_PHASE', phase: 'failed' })
         dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '❌ 执行失败', ts, actor: 'system' }] })
       }
+    } catch { /* ignore */ }
+  }
+
+  const fetchCheckpoints = async (runId: string) => {
+    try {
+      const res = await fetch(`${API}/api/runs/${encodeURIComponent(runId)}/checkpoints`)
+      if (!res.ok) return
+      const data = await res.json()
+      const cps: CheckpointRecord[] = Array.isArray(data.checkpoints) ? data.checkpoints : []
+      dispatch({ type: 'SET_CHECKPOINTS', checkpoints: cps.filter(c => c.status === 'waiting') })
+    } catch { /* ignore */ }
+  }
+
+  const fetchArtifacts = async (runId: string) => {
+    try {
+      const res = await fetch(`${API}/api/runs/${encodeURIComponent(runId)}/artifacts`)
+      if (!res.ok) return
+      const data = await res.json()
+      const arts: ArtifactRef[] = Array.isArray(data.artifacts) ? data.artifacts : []
+      dispatch({ type: 'SET_ARTIFACTS', artifacts: arts })
+    } catch { /* ignore */ }
+  }
+
+  const approveCheckpoint = async (checkpointId: string) => {
+    const runId = stateRef.current.runId
+    if (!runId) return
+    try {
+      await fetch(`${API}/api/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}/approve`, { method: 'POST' })
+      dispatch({ type: 'RESOLVE_CHECKPOINT', checkpointId, resolution: 'approved' })
+      dispatch({ type: 'SET_RUN_STATUS', status: 'running' })
+      dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '✅ 已批准，继续执行', ts: new Date().toISOString() }] })
+    } catch { /* ignore */ }
+  }
+
+  const rejectCheckpoint = async (checkpointId: string) => {
+    const runId = stateRef.current.runId
+    if (!runId) return
+    try {
+      await fetch(`${API}/api/runs/${encodeURIComponent(runId)}/checkpoints/${encodeURIComponent(checkpointId)}/reject`, { method: 'POST' })
+      dispatch({ type: 'RESOLVE_CHECKPOINT', checkpointId, resolution: 'rejected' })
+      dispatch({ type: 'SET_RUN_STATUS', status: 'failed' })
+      dispatch({ type: 'APPEND_MESSAGES', messages: [{ id: crypto.randomUUID(), role: 'system', content: '🚫 已拒绝，执行中止', ts: new Date().toISOString() }] })
     } catch { /* ignore */ }
   }
 
@@ -408,7 +496,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AppContext.Provider value={{ state, loadSessions, openSession, createSession, sendMessage, startRun, clearActive, closePanel }}>
+    <AppContext.Provider value={{ state, loadSessions, openSession, createSession, sendMessage, startRun, clearActive, closePanel, approveCheckpoint, rejectCheckpoint }}>
       {children}
     </AppContext.Provider>
   )
