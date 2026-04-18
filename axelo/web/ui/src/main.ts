@@ -14,6 +14,9 @@ const sessionTitle = document.getElementById('session-title') as HTMLElement
 const runClient = new RunClient()
 const chatWorkspace = new ChatWorkspace(chatRoot, {
   onSend: async (message) => {
+    if (!sessionStore.getState().current) {
+      await sessionStore.createSession()
+    }
     await sessionStore.sendMessage(message)
   },
   onStartRun: async () => {
@@ -75,17 +78,12 @@ sessionStore.subscribe(() => {
 newChatButton.addEventListener('click', () => {
   runClient.disconnect()
   runStore.reset()
-  void sessionStore.createSession()
+  sessionStore.openHome()
 })
 
 void (async () => {
   await sessionStore.refreshSessions()
-  const sessions = sessionStore.getState().sessions
-  if (sessions.length > 0) {
-    await openSession(sessions[0].session_id)
-  } else {
-    await sessionStore.createSession()
-  }
+  sessionStore.openHome()
 })()
 
 window.addEventListener('beforeunload', () => {

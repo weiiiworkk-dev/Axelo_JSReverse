@@ -65,7 +65,7 @@ function renderHomeShell(sending: boolean, error: string): string {
       <div class="home-stack">
         <h1 class="home-title">What should we build in Axelo?</h1>
         ${renderComposer({
-          placeholder: 'Describe the target, route, or extraction goal...',
+          placeholder: 'Describe the target or outcome...',
           sending,
           error,
           home: true,
@@ -87,7 +87,6 @@ function renderConversationShell(
     <div class="chat-shell conversation-shell">
       <div class="chat-header">
         <div>
-          <div class="chat-eyebrow">Workspace</div>
           <div class="chat-title">${esc(title)}</div>
         </div>
         <div class="chat-phase">${esc(phase)}</div>
@@ -97,7 +96,7 @@ function renderConversationShell(
       </div>
       <div class="composer-shell">
         ${renderComposer({
-          placeholder: 'Continue the run, adjust direction, or request a deliverable...',
+          placeholder: 'Continue the conversation...',
           sending,
           error,
           home: false,
@@ -115,9 +114,11 @@ function renderComposer(options: {
   home: boolean
   showRunAction?: boolean
 }): string {
-  const status = options.sending ? '<button type="button" class="composer-submit" data-action="send" disabled>…</button>' : '<button type="button" class="composer-submit" data-action="send" aria-label="Send">↑</button>'
+  const status = options.sending
+    ? '<button type="button" class="composer-submit" data-action="send" disabled>...</button>'
+    : '<button type="button" class="composer-submit" data-action="send" aria-label="Send">&#8593;</button>'
   const trailingAction = options.home
-    ? '<button type="button" class="composer-chip">Workspace</button>'
+    ? '<button type="button" class="composer-chip">GPT-5.4</button>'
     : options.showRunAction
       ? '<button type="button" id="run-start-btn" class="composer-chip">Start run</button>'
       : ''
@@ -129,11 +130,11 @@ function renderComposer(options: {
         <div class="composer-foot">
           <div class="composer-tools">
             <button type="button" class="composer-icon" aria-hidden="true">+</button>
-            <button type="button" class="composer-chip">Axelo</button>
-            <button type="button" class="composer-chip">GPT-5.4</button>
+            ${options.home ? '' : '<button type="button" class="composer-chip">Axelo</button>'}
           </div>
           <div class="composer-meta">
             ${trailingAction}
+            ${options.home ? '<button type="button" class="composer-chip">中文</button>' : ''}
             ${status}
           </div>
         </div>

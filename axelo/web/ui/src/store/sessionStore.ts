@@ -54,6 +54,10 @@ class SessionStore {
     }
   }
 
+  openHome(): void {
+    this.patch({ current: null, error: '', sending: false })
+  }
+
   async loadSession(sessionId: string): Promise<void> {
     this.patch({ loading: true, error: '' })
     try {
