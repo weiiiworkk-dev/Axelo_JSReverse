@@ -26,8 +26,9 @@ export interface PlanStep {
   note?: string
 }
 
-// 标准 8 步流水线（与后端 OBJECTIVE_TITLES 对应）
+// 标准 9 步流水线（与后端 OBJECTIVE_TITLES 对应）
 const DEFAULT_STEPS: PlanStep[] = [
+  { id: 'consult_memory',            label: '查询记忆库',      status: 'pending' },
   { id: 'discover_surface',          label: '检测目标结构',    status: 'pending' },
   { id: 'recover_transport',         label: '恢复传输路径',    status: 'pending' },
   { id: 'recover_static_mechanism',  label: '分析静态机制',    status: 'pending' },
@@ -229,6 +230,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'SET_READY', isReady })
       if (isReady) dispatch({ type: 'OPEN_PANEL' })
       connectIntakeWs(sessionId)
+      // P2-E: 刷新重连 — 若会话已有进行中的 run，重新连接 run WS
+      const existingRunId: string = data.current_run_id ?? ''
+      const isExecuting = data.status === 'executing' || data.phase === 'executing'
+      if (existingRunId && isExecuting) {
+        dispatch({ type: 'SET_RUN', runId: existingRunId })
+        dispatch({ type: 'OPEN_PANEL' })
+        connectRunWs(existingRunId)
+      }
     } catch { /* ignore */ }
   }
 
@@ -263,8 +272,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_SENDING', value: false })
         if (aiReply) await streamAiReply(aiReply, dispatch, streamAbortRef)
 
-        // 解析 readiness：面板首次就绪时弹出
-        const isReady = Boolean(data.session?.ready_to_run ?? data.readiness?.is_ready)
+        // 解析 readiness：多路容错——ready_to_run / is_ready / phase===contract_ready
+        const isReady = Boolean(
+          data.session?.ready_to_run
+          ?? data.readiness?.is_ready
+          ?? (data.session?.phase === 'contract_ready' || data.phase === 'contract_ready')
+        )
         if (isReady && !stateRef.current.isReady) {
           dispatch({ type: 'SET_READY', isReady: true })
           dispatch({ type: 'OPEN_PANEL' })
