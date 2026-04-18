@@ -163,6 +163,312 @@
         color: var(--text-faint);
       }
 
+      /* ── 新版侧边栏 ── */
+      .nav-new-chat {
+        width: 100%;
+        text-align: left;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-strong);
+        margin-bottom: 2px;
+      }
+
+      .nav-new-chat:hover {
+        background: rgba(18, 18, 18, 0.04);
+      }
+
+      .rail-plus-btn {
+        border: 1px solid rgba(201, 115, 30, 0.28);
+        color: #b86a10;
+        background: rgba(201, 115, 30, 0.07);
+        border-radius: 10px;
+        padding: 6px 10px;
+        font-size: 13px;
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+        margin-bottom: 10px;
+      }
+
+      .rail-plus-btn:hover {
+        background: rgba(201, 115, 30, 0.12);
+      }
+
+      .nav-icon-row {
+        display: flex;
+        gap: 2px;
+        padding: 2px 2px 8px;
+      }
+
+      .nav-icon-btn {
+        width: 36px;
+        height: 32px;
+        border: 0;
+        background: transparent;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 15px;
+      }
+
+      .nav-icon-btn:hover {
+        background: rgba(18, 18, 18, 0.05);
+      }
+
+      .nav-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 6px 4px 8px;
+        margin-bottom: 2px;
+      }
+
+      .nav-section-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+
+      .nav-section-actions {
+        display: flex;
+        gap: 1px;
+      }
+
+      .nav-section-action {
+        width: 22px;
+        height: 22px;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-faint);
+        font-size: 13px;
+      }
+
+      .nav-section-action:hover {
+        background: rgba(18, 18, 18, 0.05);
+        color: var(--text-muted);
+      }
+
+      .nav-project-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 9px;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--text-body);
+        background: transparent;
+        border: 0;
+        width: 100%;
+        text-align: left;
+        margin-bottom: 2px;
+      }
+
+      .nav-project-item:hover {
+        background: rgba(18, 18, 18, 0.04);
+      }
+
+      .nav-empty-state {
+        font-size: 12px;
+        color: var(--text-faint);
+        padding: 5px 10px 8px;
+      }
+
+      .rail-bottom {
+        margin-top: auto;
+        padding-top: 10px;
+        border-top: 1px solid var(--border-soft);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .rail-bottom-btn {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 8px;
+        border: 0;
+        background: transparent;
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+
+      .rail-bottom-btn:hover {
+        background: rgba(18, 18, 18, 0.05);
+      }
+
+      /* ── 工作区顶栏 ── */
+      .workspace-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 10px;
+        flex-shrink: 0;
+      }
+
+      .workspace-tabs {
+        display: flex;
+        gap: 3px;
+      }
+
+      .workspace-tab {
+        padding: 5px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        border: 0;
+        background: rgba(18, 18, 18, 0.05);
+        color: var(--text-body);
+        cursor: pointer;
+      }
+
+      .workspace-tab:hover {
+        background: rgba(18, 18, 18, 0.08);
+      }
+
+      .workspace-topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .topbar-plus-btn {
+        background: rgba(201, 115, 30, 0.08);
+        color: #b86a10;
+        border: 1px solid rgba(201, 115, 30, 0.25);
+        border-radius: 8px;
+        padding: 5px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .topbar-plus-btn:hover {
+        background: rgba(201, 115, 30, 0.13);
+      }
+
+      .topbar-icon-btn {
+        width: 30px;
+        height: 30px;
+        border: 0;
+        background: transparent;
+        border-radius: 7px;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+      }
+
+      .topbar-icon-btn:hover {
+        background: rgba(18, 18, 18, 0.05);
+      }
+
+      /* ── 首页 Composer 扩展 ── */
+      .composer-context-chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        width: min(100%, 736px);
+      }
+
+      .composer-context-chip {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border-hairline);
+        background: var(--surface);
+        font-size: 12px;
+        color: var(--text-body);
+        cursor: pointer;
+      }
+
+      .composer-context-chip:hover {
+        background: rgba(18, 18, 18, 0.03);
+      }
+
+      /* ── 建议列表 ── */
+      .home-suggestions {
+        width: min(100%, 736px);
+        display: grid;
+        gap: 1px;
+      }
+
+      .suggestion-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--text-body);
+        width: 100%;
+        line-height: 1.4;
+      }
+
+      .suggestion-item:hover {
+        background: rgba(18, 18, 18, 0.03);
+      }
+
+      .suggestion-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        background: rgba(18, 18, 18, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 14px;
+      }
+
+      /* ── composer 橙色 pill ── */
+      .composer-chip-orange {
+        border: 0;
+        background: rgba(201, 115, 30, 0.1);
+        color: #b86a10;
+        border-radius: 999px;
+        padding: 4px 9px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .composer-chip-orange:hover {
+        background: rgba(201, 115, 30, 0.16);
+      }
+
+      /* 发送按钮蓝色激活态 */
+      .composer-submit.is-active {
+        background: #1a6cff;
+        border-color: #1a6cff;
+        color: #fff;
+      }
+
       .workspace {
         min-width: 0;
         min-height: 0;
@@ -579,27 +885,87 @@
   <body>
     <div id="app" data-mode="home">
       <aside class="rail">
-        <div class="nav-head">
-          <div class="brand" id="session-title">Axelo</div>
+        <div class="nav-head" style="padding:4px 4px 6px;">
+          <button id="new-chat-btn" class="nav-new-chat">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11.5 1a.5.5 0 0 1 .354.146l2 2a.5.5 0 0 1 0 .708l-8 8A.5.5 0 0 1 5.5 12h-2a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 1 .146-.354l8-8A.5.5 0 0 1 11.5 1Zm-7 9.793 7.5-7.5-1.293-1.293-7.5 7.5V10.5h1.293Z" fill="currentColor"/></svg>
+            新建聊天
+          </button>
+          <button class="rail-plus-btn">+ 获取 Plus</button>
         </div>
-        <button id="new-chat-btn" class="nav-action">New chat</button>
-        <div class="nav-block">
-          <div class="nav-links">
-            <div class="nav-link">Search</div>
-            <div class="nav-link">Projects</div>
-            <div class="nav-link">Artifacts</div>
-            <div class="nav-link">History</div>
+
+        <div class="nav-icon-row">
+          <button class="nav-icon-btn" title="搜索">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10 6.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Zm-.691 3.516a4.5 4.5 0 1 1 .707-.707l2.838 2.837a.5.5 0 0 1-.708.708L9.31 10.016Z" fill="currentColor"/></svg>
+          </button>
+          <button class="nav-icon-btn" title="插件">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M9.5 2.5a2 2 0 0 0-4 0H3.5A1.5 1.5 0 0 0 2 4v8a1.5 1.5 0 0 0 1.5 1.5h8A1.5 1.5 0 0 0 13 12V4a1.5 1.5 0 0 0-1.5-1.5H9.5ZM7.5 1a1 1 0 0 1 1 1H6.5a1 1 0 0 1 1-1Zm-4 2.5h8a.5.5 0 0 1 .5.5v8a.5.5 0 0 1-.5.5h-8A.5.5 0 0 1 3 12V4a.5.5 0 0 1 .5-.5Z" fill="currentColor"/></svg>
+          </button>
+          <button class="nav-icon-btn" title="自动化">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 0a1 1 0 0 1 .894.553l.94 1.88 2.075.302a1 1 0 0 1 .554 1.706L10.46 5.89l.354 2.067a1 1 0 0 1-1.45 1.054L7.5 8l-1.864.979a1 1 0 0 1-1.45-1.054L4.54 5.89 3.037 4.44a1 1 0 0 1 .554-1.706l2.075-.301.94-1.88A1 1 0 0 1 7.5 0Zm0 2.236L6.882 3.49a1 1 0 0 1-.752.547l-1.393.203 1.008 .982a1 1 0 0 1 .288.885L5.74 7.5l1.247-.655a1 1 0 0 1 .93 0L9.164 7.5l-.29-1.393a1 1 0 0 1 .287-.885l1.008-.982-1.393-.203a1 1 0 0 1-.752-.547L7.5 2.236ZM3 11a1 1 0 0 1 1-1h7a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Zm1 2a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H4Z" fill="currentColor"/></svg>
+          </button>
+        </div>
+
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0;overflow:hidden;">
+          <div class="nav-section-header">
+            <span class="nav-section-label">项目</span>
+            <div class="nav-section-actions">
+              <button class="nav-section-action" title="筛选">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 2.5h10M3 6h6M5 9.5h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </button>
+              <button class="nav-section-action" title="新建项目">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="7" y="1" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="7" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="7" y="7" width="4" height="4" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+              </button>
+            </div>
           </div>
+          <button class="nav-project-item">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 3A1.5 1.5 0 0 1 3 1.5h2.586a1.5 1.5 0 0 1 1.06.44l.915.914H11A1.5 1.5 0 0 1 12.5 4.5v6A1.5 1.5 0 0 1 11 12H3A1.5 1.5 0 0 1 1.5 10.5V3Z" stroke="currentColor" stroke-width="1.1" fill="none"/></svg>
+            Axelo
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-left:auto;opacity:0.4"><path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div id="session-list" class="nav-history" style="flex:1;min-height:0;padding-left:8px;"></div>
+
+          <div class="nav-section-header" style="margin-top:10px;">
+            <span class="nav-section-label">聊天</span>
+            <div class="nav-section-actions">
+              <button class="nav-section-action" title="筛选">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 2.5h10M3 6h6M5 9.5h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+              </button>
+              <button class="nav-section-action" title="固定">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 1.5 L10.5 4.5 L7 6 L6 10.5 L5 7 L1.5 6 L6 5 Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" fill="none"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="nav-empty-state">暂无聊天</div>
         </div>
-        <div class="nav-block" style="min-height:0; flex:1;">
-          <div class="nav-label">Recent chats</div>
-          <div id="session-list" class="nav-history"></div>
+
+        <div class="rail-bottom">
+          <button class="rail-bottom-btn">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1a6 6 0 1 0 0 12A6 6 0 0 0 7 1ZM7 4a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm0 3.5a.5.5 0 0 1 .5.5v2.5a.5.5 0 0 1-1 0V8a.5.5 0 0 1 .5-.5Z" fill="currentColor" opacity=".6"/></svg>
+            设置
+          </button>
+          <button class="rail-bottom-btn" style="color:#b86a10;font-weight:500;">升级</button>
         </div>
-        <div class="nav-user">Signed in as Axelo workspace</div>
       </aside>
 
       <main class="workspace">
-        <div id="chat-root" class="workspace-card"></div>
+        <div class="workspace-topbar">
+          <div class="workspace-tabs">
+            <button class="workspace-tab">新建聊天</button>
+          </div>
+          <div class="workspace-topbar-actions">
+            <button class="topbar-plus-btn">+ 获取 Plus</button>
+            <button class="topbar-icon-btn" title="保存">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3 1.5A1.5 1.5 0 0 0 1.5 3v9A1.5 1.5 0 0 0 3 13.5h9a1.5 1.5 0 0 0 1.5-1.5V4.621a1.5 1.5 0 0 0-.44-1.06L11.44 1.44A1.5 1.5 0 0 0 10.38 1H3Zm0 1h7.38a.5.5 0 0 1 .354.146L12.854 4.266A.5.5 0 0 1 13 4.621V12a.5.5 0 0 1-.5.5H10V9.5A1.5 1.5 0 0 0 8.5 8h-2A1.5 1.5 0 0 0 5 9.5v3H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Zm3 8h3V12H6V9.5Z" fill="currentColor" opacity=".6"/></svg>
+            </button>
+            <button class="topbar-icon-btn" title="图片">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm1 0v9h9V3H3Zm5.5 2a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1ZM7 5.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM2.854 11.854l3-3a.5.5 0 0 1 .638-.058l2.008 1.505 2.146-2.155a.5.5 0 0 1 .708.708l-2.5 2.5a.5.5 0 0 1-.657.036L6.19 9.884 3.56 12.516a.5.5 0 0 1-.708-.708Z" fill="currentColor" opacity=".6"/></svg>
+            </button>
+            <button class="topbar-icon-btn" title="文件">
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3.5 1A1.5 1.5 0 0 0 2 2.5v10A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-7a.5.5 0 0 0-.146-.354l-4-4A.5.5 0 0 0 8.5 1H3.5ZM3 2.5a.5.5 0 0 1 .5-.5H8v3A1.5 1.5 0 0 0 9.5 7H12v5.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-10ZM9 2.914 11.586 5.5H9.5a.5.5 0 0 1-.5-.5V2.914Z" fill="currentColor" opacity=".6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="chat-root" class="workspace-card" style="flex:1;min-height:0;"></div>
       </main>
 
       <aside class="system-rail">
