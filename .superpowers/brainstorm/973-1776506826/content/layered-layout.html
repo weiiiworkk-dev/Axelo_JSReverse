@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Axelo UI — 层级布局</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    background: #ffffff;
+    color: #111827;
+    overflow: hidden;
+  }
+
+  /* ══════════════════════════════════════
+     WINDOW CHROME (模拟桌面 App 标题栏)
+  ══════════════════════════════════════ */
+  .window-chrome {
+    height: 36px;
+    background: #f5f5f5;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+  }
+  .traffic-lights {
+    display: flex; gap: 6px;
+  }
+  .tl {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+  .tl.red    { background: #ff5f57; }
+  .tl.yellow { background: #febc2e; }
+  .tl.green  { background: #28c840; }
+  .chrome-nav {
+    display: flex; gap: 4px; margin-left: 8px;
+  }
+  .chrome-nav-btn {
+    width: 26px; height: 22px; border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    color: #888; cursor: pointer; font-size: 13px;
+    border: none; background: transparent;
+  }
+  .chrome-nav-btn:hover { background: #e8e8e8; color: #333; }
+  .chrome-tabs {
+    display: flex; align-items: center; gap: 2px; margin-left: 4px;
+  }
+  .chrome-tab {
+    padding: 3px 10px; border-radius: 5px;
+    font-size: 12px; color: #888; cursor: pointer;
+    border: none; background: transparent; font-weight: 500;
+  }
+  .chrome-tab.active {
+    background: #e2e2e2; color: #222; font-weight: 600;
+  }
+
+  /* ══════════════════════════════════════
+     APP ROOT
+  ══════════════════════════════════════ */
+  .app-root {
+    display: flex;
+    height: calc(100vh - 36px);
+    overflow: hidden;
+  }
+
+  /* ══════════════════════════════════════
+     ① ICON RAIL
+     背景比 sidebar 略深，无圆角无阴影
+  ══════════════════════════════════════ */
+  .icon-rail {
+    width: 48px;
+    background: #f7f7f7;
+    border-right: 1px solid #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 0 12px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .ri {
+    width: 32px; height: 32px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    color: #a0a0a0; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    border: none; background: transparent;
+  }
+  .ri:hover { background: #eeeeee; color: #444; }
+  .ri.active { background: #e6e6e6; color: #1a1a1a; }
+  .ri svg { width: 15px; height: 15px; }
+  .ri-spacer { flex: 1; }
+  .ri-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff; font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  /* ══════════════════════════════════════
+     ② SIDEBAR
+     纯白，右侧 1px 细线分隔
+  ══════════════════════════════════════ */
+  .sidebar {
+    width: 216px;
+    background: #ffffff;
+    border-right: 1px solid #ebebeb;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sb-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+  .sb-scroll::-webkit-scrollbar { display: none; }
+
+  .sb-btn {
+    width: calc(100% - 12px);
+    margin: 1px 6px;
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 13px; color: #374151; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; border: none; background: transparent;
+    text-align: left; transition: background 0.1s;
+  }
+  .sb-btn:hover { background: #f4f4f4; }
+  .sb-btn svg { width: 14px; height: 14px; color: #9ca3af; flex-shrink: 0; }
+  .sb-btn.muted { color: #9ca3af; }
+
+  .sb-section {
+    padding: 14px 18px 3px;
+    font-size: 10.5px; font-weight: 600;
+    color: #c0c0c0; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .sb-hint {
+    padding: 4px 18px 6px;
+    font-size: 12px; color: #d0d0d0;
+  }
+  .sb-group-title {
+    padding: 10px 18px 3px;
+    font-size: 12px; font-weight: 500; color: #9ca3af;
+  }
+  .sb-session {
+    width: calc(100% - 12px);
+    margin: 1px 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12.5px; color: #6b7280;
+    cursor: pointer; text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden;
+    transition: background 0.1s;
+  }
+  .sb-session:hover { background: #f4f4f4; color: #374151; }
+
+  .sb-footer {
+    padding: 10px 12px;
+    border-top: 1px solid #f0f0f0;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .sb-user { font-size: 13px; font-weight: 500; color: #374151; }
+  .sb-gear {
+    width: 26px; height: 26px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #c0c0c0; cursor: pointer; transition: background 0.1s, color 0.1s;
+  }
+  .sb-gear:hover { background: #f0f0f0; color: #6b7280; }
+
+  /* ══════════════════════════════════════
+     ③ MAIN CONTENT — 纯白，无边框无阴影
+  ══════════════════════════════════════ */
+  .main {
+    flex: 1;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* 主内容区（垂直居中） */
+  .home-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 48px 16px;
+    gap: 22px;
+    overflow: hidden;
+  }
+
+  /* ══════════════════════════════════════
+     ④ WELCOME HEADING
+  ══════════════════════════════════════ */
+  .welcome {
+    align-self: flex-start;
+    display: flex; align-items: center; gap: 11px;
+  }
+  /* 精确复刻 Claude 星号 SVG */
+  .c-star svg { display: block; }
+  .welcome-h {
+    font-size: 27px; font-weight: 600; color: #111827;
+    letter-spacing: -0.5px; line-height: 1;
+  }
+
+  /* ══════════════════════════════════════
+     ⑤ STATS CARD
+     这是唯一有边框的组件
+  ══════════════════════════════════════ */
+  .stats-card {
+    width: 100%;
+    max-width: 510px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    /* 非常克制的阴影 */
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px 8px;
+    border-bottom: 1px solid #f2f2f2;
+  }
+  .tabs { display: flex; gap: 1px; }
+  .tab {
+    padding: 3px 10px; border-radius: 6px;
+    font-size: 12.5px; font-weight: 500; color: #9ca3af;
+    cursor: pointer; border: none; background: transparent;
+    transition: all 0.1s;
+  }
+  .tab.on { background: #f3f4f6; color: #111827; font-weight: 600; }
+  .filters { display: flex; gap: 1px; }
+  .flt {
+    padding: 3px 8px; border-radius: 5px;
+    font-size: 11.5px; font-weight: 500; color: #c0c0c0;
+    cursor: pointer; border: none; background: transparent;
+    transition: all 0.1s;
+  }
+  .flt.on { background: #f3f4f6; color: #374151; font-weight: 600; }
+
+  /* 8-cell stats grid */
+  .sg {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 13px 16px 10px;
+    row-gap: 14px;
+    border-bottom: 1px solid #f5f5f5;
+  }
+  .sc {}
+  .slbl { font-size: 11px; color: #9ca3af; margin-bottom: 2px; }
+  .sval { font-size: 15px; font-weight: 700; color: #111827; letter-spacing: -0.3px; }
+  .sval.xs { font-size: 12.5px; font-weight: 600; letter-spacing: -0.1px; }
+
+  /* Heatmap */
+  .hm-wrap {
+    padding: 11px 16px 8px;
+    border-bottom: 1px solid #f5f5f5;
+  }
+  .hm {
+    display: flex; gap: 3px;
+  }
+  .hm-col { display: flex; flex-direction: column; gap: 3px; }
+  .hm-c {
+    width: 10px; height: 10px; border-radius: 2px;
+    background: #f0f0f0;
+  }
+  .hm-c.a { background: #dbeafe; }
+  .hm-c.b { background: #93c5fd; }
+  .hm-c.c { background: #3b82f6; }
+  .hm-c.d { background: #1d4ed8; }
+
+  .card-foot {
+    padding: 8px 16px 10px;
+    font-size: 11.5px; color: #b8b8b8; text-align: center;
+  }
+
+  /* ══════════════════════════════════════
+     ⑥ COMPOSER BAR
+     底部，白色背景，顶部 1px 细线分隔
+  ══════════════════════════════════════ */
+  .composer {
+    border-top: 1px solid #f0f0f0;
+    padding: 10px 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #ffffff;
+    flex-shrink: 0;
+  }
+  .c-toolbar {
+    display: flex; align-items: center; gap: 5px;
+  }
+  .c-pill {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 7px;
+    border: 1px solid #e5e7eb;
+    font-size: 12px; color: #374151; font-weight: 500;
+    cursor: pointer; background: #fff;
+    white-space: nowrap; transition: background 0.1s;
+    user-select: none;
+  }
+  .c-pill:hover { background: #fafafa; }
+  .c-pill svg { width: 12px; height: 12px; color: #9ca3af; }
+  .c-pill.ghost { color: #9ca3af; font-weight: 400; border-color: #eeeeee; }
+
+  .c-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .plan-chk {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: #6b7280; cursor: pointer; user-select: none;
+  }
+  .plan-chk input { width: 13px; height: 13px; margin: 0; accent-color: #6366f1; }
+  .model-lbl {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: #6b7280; font-weight: 500;
+  }
+  .spin {
+    width: 12px; height: 12px;
+    border: 1.5px solid #d1d5db;
+    border-top-color: #9ca3af;
+    border-radius: 50%;
+    animation: rot 0.9s linear infinite;
+  }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  .c-input {
+    display: flex; align-items: center; gap: 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 9px 12px;
+    cursor: text;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .c-input:hover { border-color: #d1d5db; }
+  .c-ph {
+    flex: 1; font-size: 13.5px; color: #9ca3af; font-weight: 400;
+  }
+  .c-acts { display: flex; align-items: center; gap: 6px; }
+  .c-act {
+    width: 27px; height: 27px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #c0c0c0; cursor: pointer; transition: all 0.1s;
+  }
+  .c-act:hover { background: #efefef; color: #555; }
+  .c-act svg { width: 15px; height: 15px; }
+  .c-send {
+    width: 27px; height: 27px; border-radius: 7px;
+    background: #e5e7eb; display: flex; align-items: center; justify-content: center;
+    cursor: not-allowed;
+  }
+  .c-send svg { width: 13px; height: 13px; color: #aaa; }
+</style>
+</head>
+<body>
+
+<!-- Window Chrome -->
+<div class="window-chrome">
+  <div class="traffic-lights">
+    <div class="tl red"></div>
+    <div class="tl yellow"></div>
+    <div class="tl green"></div>
+  </div>
+  <div class="chrome-nav">
+    <button class="chrome-nav-btn">‹</button>
+    <button class="chrome-nav-btn">›</button>
+  </div>
+  <div class="chrome-tabs">
+    <button class="chrome-tab">Chat</button>
+    <button class="chrome-tab active">Code</button>
+  </div>
+</div>
+
+<div class="app-root">
+
+  <!-- ① Icon Rail -->
+  <div class="icon-rail">
+    <button class="ri">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <button class="ri">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    </button>
+    <button class="ri active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    </button>
+    <div class="ri-spacer"></div>
+    <div class="ri-avatar">江</div>
+  </div>
+
+  <!-- ② Sidebar -->
+  <div class="sidebar">
+    <div class="sb-scroll">
+      <button class="sb-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New session
+      </button>
+      <button class="sb-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="11" width="18" height="4" rx="1"/><rect x="3" y="18" width="11" height="4" rx="1"/></svg>
+        Routines
+      </button>
+      <button class="sb-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        Customize
+      </button>
+      <button class="sb-btn muted">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></svg>
+        More
+      </button>
+
+      <div class="sb-section">Pinned</div>
+      <div class="sb-hint">Drag to pin</div>
+
+      <div class="sb-group-title">Axelo_JSReverse</div>
+      <div class="sb-session">Review stress testing module for e-c...</div>
+    </div>
+
+    <div class="sb-footer">
+      <span class="sb-user">江薇</span>
+      <div class="sb-gear">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ Main -->
+  <div class="main">
+    <div class="home-center">
+
+      <!-- ④ Welcome heading -->
+      <div class="welcome">
+        <div class="c-star">
+          <!-- 复刻 Claude asterisk / starburst logo -->
+          <svg width="30" height="30" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 3 C20 3 22.5 14 27 18 C31.5 22 38 20 38 20 C38 20 31.5 22 27 26 C22.5 30 20 37 20 37 C20 37 17.5 30 13 26 C8.5 22 2 20 2 20 C2 20 8.5 18 13 14 C17.5 10 20 3 20 3 Z" fill="#CF6A49"/>
+          </svg>
+        </div>
+        <span class="welcome-h">What's up next, 江薇?</span>
+      </div>
+
+      <!-- ⑤ Stats Card（唯一有边框的组件） -->
+      <div class="stats-card">
+        <div class="card-head">
+          <div class="tabs">
+            <button class="tab on">Overview</button>
+            <button class="tab">Models</button>
+          </div>
+          <div class="filters">
+            <button class="flt on">All</button>
+            <button class="flt">30d</button>
+            <button class="flt">7d</button>
+          </div>
+        </div>
+
+        <div class="sg">
+          <div class="sc"><div class="slbl">Sessions</div><div class="sval">70</div></div>
+          <div class="sc"><div class="slbl">Messages</div><div class="sval">11,198</div></div>
+          <div class="sc"><div class="slbl">Total tokens</div><div class="sval">6.3M</div></div>
+          <div class="sc"><div class="slbl">Active days</div><div class="sval">15</div></div>
+          <div class="sc"><div class="slbl">Current streak</div><div class="sval">7d</div></div>
+          <div class="sc"><div class="slbl">Longest streak</div><div class="sval">7d</div></div>
+          <div class="sc"><div class="slbl">Peak hour</div><div class="sval">8 AM</div></div>
+          <div class="sc"><div class="slbl">Favorite model</div><div class="sval xs">Sonnet 4.6</div></div>
+        </div>
+
+        <div class="hm-wrap">
+          <div class="hm" id="heatmap"></div>
+        </div>
+
+        <div class="card-foot">You've used ~23× more tokens than Moby-Dick.</div>
+      </div>
+
+    </div>
+
+    <!-- ⑥ Composer Bar -->
+    <div class="composer">
+      <div class="c-toolbar">
+        <div class="c-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/></svg>
+          Default
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="width:9px;height:9px"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="c-pill ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Select repo...
+        </div>
+        <div class="c-right">
+          <label class="plan-chk">
+            <input type="checkbox"> Plan mode
+          </label>
+          <div class="model-lbl">
+            Sonnet 4.6 <div class="spin"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="c-input">
+        <span class="c-ph">Describe a task or ask a question</span>
+        <div class="c-acts">
+          <div class="c-act">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </div>
+          <div class="c-send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// 热力图：36列×7行，GitHub贡献图风格
+const hm = document.getElementById('heatmap');
+const COLS = 36, ROWS = 7;
+for (let c = 0; c < COLS; c++) {
+  const col = document.createElement('div');
+  col.className = 'hm-col';
+  const recent = c >= COLS - 8;
+  for (let r = 0; r < ROWS; r++) {
+    const cell = document.createElement('div');
+    cell.className = 'hm-c';
+    const rand = Math.random();
+    if (recent) {
+      if (rand < 0.18) cell.classList.add('d');
+      else if (rand < 0.38) cell.classList.add('c');
+      else if (rand < 0.60) cell.classList.add('b');
+      else if (rand < 0.72) cell.classList.add('a');
+    } else {
+      if (rand < 0.04) cell.classList.add('c');
+      else if (rand < 0.10) cell.classList.add('b');
+      else if (rand < 0.16) cell.classList.add('a');
+    }
+    col.appendChild(cell);
+  }
+  hm.appendChild(col);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Axelo UI — 高保真原型</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    background: #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    gap: 16px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 14px; color: #555; font-weight: 500; align-self: flex-start; }
+
+  /* ═══════════════════════════════════════
+     APP SHELL
+  ═══════════════════════════════════════ */
+  .app {
+    width: 960px;
+    height: 620px;
+    display: flex;
+    background: #ffffff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,0.08),
+      0 4px 6px -1px rgba(0,0,0,0.07),
+      0 16px 40px -4px rgba(0,0,0,0.14);
+    position: relative;
+  }
+
+  /* ── ① ICON RAIL ─────────────────────── */
+  .icon-rail {
+    width: 50px;
+    background: #f9f9f9;
+    border-right: 1px solid #ebebeb;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 0 12px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .rail-icon {
+    width: 34px; height: 34px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: #9ca3af;
+    transition: background 0.15s;
+  }
+  .rail-icon:hover { background: #f0f0f0; color: #555; }
+  .rail-icon.active { background: #ececec; color: #1a1a1a; }
+  .rail-icon svg { width: 16px; height: 16px; }
+  .rail-spacer { flex: 1; }
+  .rail-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  /* ── ② SIDEBAR ───────────────────────── */
+  .sidebar {
+    width: 218px;
+    background: #ffffff;
+    border-right: 1px solid #ebebeb;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .sidebar-inner {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+  .sidebar-inner::-webkit-scrollbar { width: 0; }
+
+  .sidebar-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 14px;
+    margin: 0 8px 2px;
+    border-radius: 7px;
+    font-size: 13px; color: #374151; font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s;
+    border: none; background: transparent; width: calc(100% - 16px); text-align: left;
+  }
+  .sidebar-btn:hover { background: #f4f4f4; }
+  .sidebar-btn svg { width: 15px; height: 15px; color: #6b7280; flex-shrink: 0; }
+
+  .sidebar-section-label {
+    padding: 12px 22px 4px;
+    font-size: 11px; font-weight: 600; color: #b0b0b0;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .sidebar-hint {
+    padding: 5px 22px;
+    font-size: 12px; color: #c4c4c4; font-style: normal;
+  }
+  .sidebar-project-group { margin-top: 4px; }
+  .sidebar-project-label {
+    padding: 8px 22px 4px;
+    font-size: 12px; color: #888; font-weight: 500;
+  }
+  .sidebar-session-item {
+    padding: 6px 12px;
+    margin: 1px 8px;
+    border-radius: 6px;
+    font-size: 12.5px; color: #555;
+    cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background 0.1s;
+  }
+  .sidebar-session-item:hover { background: #f4f4f4; }
+
+  .sidebar-footer {
+    padding: 11px 14px;
+    border-top: 1px solid #f0f0f0;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .footer-user { font-size: 13px; font-weight: 500; color: #333; }
+  .footer-gear {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #bbb; cursor: pointer; transition: background 0.12s;
+  }
+  .footer-gear:hover { background: #f0f0f0; color: #888; }
+
+  /* ── ③ MAIN AREA ─────────────────────── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    min-width: 0;
+  }
+
+  /* ── ④ HOME WORKSPACE ────────────────── */
+  .home-workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 40px 16px;
+    gap: 20px;
+    overflow: hidden;
+  }
+
+  .welcome-line {
+    display: flex; align-items: center; gap: 10px;
+    align-self: flex-start;
+    margin-left: 0;
+  }
+  .claude-star {
+    width: 30px; height: 30px;
+    flex-shrink: 0;
+  }
+  .welcome-text {
+    font-size: 26px; font-weight: 600; color: #111827;
+    letter-spacing: -0.4px; line-height: 1.2;
+  }
+
+  /* ── ⑤ STATS CARD ────────────────────── */
+  .stats-card {
+    width: 100%;
+    max-width: 520px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    overflow: hidden;
+  }
+
+  /* Card header */
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px 9px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .tab-row { display: flex; gap: 2px; }
+  .tab-btn {
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 12.5px; font-weight: 500; color: #9ca3af;
+    cursor: pointer; border: none; background: transparent;
+    transition: all 0.12s;
+  }
+  .tab-btn.active {
+    background: #f3f4f6; color: #111827; font-weight: 600;
+  }
+  .tab-btn:hover:not(.active) { color: #555; }
+
+  .filter-row { display: flex; gap: 2px; }
+  .filter-btn {
+    padding: 3px 9px; border-radius: 5px;
+    font-size: 11.5px; color: #9ca3af;
+    cursor: pointer; border: none; background: transparent;
+    font-weight: 500; transition: all 0.12s;
+  }
+  .filter-btn.active {
+    background: #f3f4f6; color: #374151; font-weight: 600;
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    padding: 14px 16px 10px;
+    gap: 12px 0;
+    border-bottom: 1px solid #f4f4f4;
+  }
+  .stat-cell {}
+  .stat-lbl {
+    font-size: 11px; color: #9ca3af; font-weight: 400;
+    margin-bottom: 3px; white-space: nowrap;
+  }
+  .stat-val {
+    font-size: 15px; font-weight: 700; color: #111827;
+    letter-spacing: -0.3px; line-height: 1.1;
+  }
+  .stat-val.small { font-size: 12.5px; letter-spacing: -0.1px; }
+
+  /* Heatmap */
+  .heatmap-wrap {
+    padding: 12px 16px 8px;
+    border-bottom: 1px solid #f4f4f4;
+  }
+  .heatmap-grid {
+    display: flex;
+    gap: 3px;
+  }
+  .hm-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .hm-cell {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    background: #f0f0f0;
+  }
+  .hm-cell.d1 { background: #dbeafe; }
+  .hm-cell.d2 { background: #93c5fd; }
+  .hm-cell.d3 { background: #3b82f6; }
+  .hm-cell.d4 { background: #1d4ed8; }
+
+  .card-footer-text {
+    padding: 9px 16px 11px;
+    font-size: 11.5px; color: #b0b0b0;
+    text-align: center; letter-spacing: 0.01em;
+  }
+
+  /* ── ⑥ COMPOSER BAR ──────────────────── */
+  .composer-bar {
+    border-top: 1px solid #f0f0f0;
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .composer-toolbar {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .toolbar-pill {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 7px;
+    border: 1px solid #e5e7eb;
+    font-size: 12px; color: #374151; font-weight: 500;
+    cursor: pointer; background: #fff;
+    transition: background 0.1s;
+    white-space: nowrap;
+  }
+  .toolbar-pill:hover { background: #f9f9f9; }
+  .toolbar-pill svg { width: 13px; height: 13px; color: #9ca3af; }
+  .toolbar-pill.repo { color: #6b7280; font-weight: 400; }
+
+  .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .plan-mode-check {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: #6b7280; cursor: pointer;
+  }
+  .plan-mode-check input { margin: 0; width: 13px; height: 13px; accent-color: #6366f1; }
+  .model-badge {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; color: #6b7280; font-weight: 500;
+  }
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid #d1d5db;
+    border-top-color: #6b7280;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .composer-input-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 9px 13px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .composer-input-row:focus-within {
+    border-color: #a5b4fc;
+    box-shadow: 0 0 0 3px rgba(165,180,252,0.2);
+  }
+  .composer-placeholder {
+    flex: 1; font-size: 13.5px; color: #9ca3af;
+    font-weight: 400; letter-spacing: 0.01em;
+  }
+  .composer-actions { display: flex; align-items: center; gap: 8px; }
+  .composer-icon-btn {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #9ca3af; cursor: pointer; transition: all 0.1s;
+  }
+  .composer-icon-btn:hover { background: #efefef; color: #555; }
+  .composer-icon-btn svg { width: 16px; height: 16px; }
+  .send-btn {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: #111827; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: white; transition: opacity 0.1s;
+    opacity: 0.2;
+  }
+  .send-btn svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+<h1>Axelo UI · 高保真参考原型 · 对照截图检查</h1>
+
+<div class="app">
+
+  <!-- ① Icon Rail -->
+  <div class="icon-rail">
+    <div class="rail-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </div>
+    <div class="rail-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+    </div>
+    <div class="rail-icon active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    </div>
+    <div class="rail-spacer"></div>
+    <div class="rail-avatar">江</div>
+  </div>
+
+  <!-- ② Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-inner">
+      <button class="sidebar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        New session
+      </button>
+      <button class="sidebar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v4H4zM4 12h16v4H4z"/></svg>
+        Routines
+      </button>
+      <button class="sidebar-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3m-3.3-6.7L13.8 8.2m-3.6 7.6L7.3 18.7M18.7 18.7l-2.9-2.9M7.3 5.3l2.9 2.9"/></svg>
+        Customize
+      </button>
+      <button class="sidebar-btn" style="color:#9ca3af">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></svg>
+        More
+      </button>
+
+      <div class="sidebar-section-label">Pinned</div>
+      <div class="sidebar-hint">Drag to pin</div>
+
+      <div class="sidebar-project-group">
+        <div class="sidebar-project-label">Axelo_JSReverse</div>
+        <div class="sidebar-session-item">Review stress testing module for e-c...</div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="footer-user">江薇</span>
+      <div class="footer-gear">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3m-3.3-6.7L13.8 8.2m-3.6 7.6L7.3 18.7M18.7 18.7l-2.9-2.9M7.3 5.3l2.9 2.9"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③④⑤⑥ Main -->
+  <div class="main">
+    <div class="home-workspace">
+
+      <!-- ④ Welcome -->
+      <div class="welcome-line">
+        <svg class="claude-star" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17.5 2C17.5 2 19.2 9.5 22.5 12.5C25.8 15.5 33 17.5 33 17.5C33 17.5 25.8 19.5 22.5 22.5C19.2 25.5 17.5 33 17.5 33C17.5 33 15.8 25.5 12.5 22.5C9.2 19.5 2 17.5 2 17.5C2 17.5 9.2 15.5 12.5 12.5C15.8 9.5 17.5 2 17.5 2Z" fill="#CC785C" opacity="0.9"/>
+          <path d="M17.5 8C17.5 8 18.6 13 20.8 15.2C23 17.4 28 17.5 28 17.5C28 17.5 23 17.6 20.8 19.8C18.6 22 17.5 27 17.5 27C17.5 27 16.4 22 14.2 19.8C12 17.6 7 17.5 7 17.5C7 17.5 12 17.4 14.2 15.2C16.4 13 17.5 8 17.5 8Z" fill="#E8845C" opacity="0.6"/>
+        </svg>
+        <span class="welcome-text">What's up next, 江薇?</span>
+      </div>
+
+      <!-- ⑤ Stats Card -->
+      <div class="stats-card">
+        <!-- Header tabs + filters -->
+        <div class="card-header">
+          <div class="tab-row">
+            <button class="tab-btn active">Overview</button>
+            <button class="tab-btn">Models</button>
+          </div>
+          <div class="filter-row">
+            <button class="filter-btn active">All</button>
+            <button class="filter-btn">30d</button>
+            <button class="filter-btn">7d</button>
+          </div>
+        </div>
+
+        <!-- Stats grid: 4 cols × 2 rows = 8 stats -->
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <div class="stat-lbl">Sessions</div>
+            <div class="stat-val">70</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Messages</div>
+            <div class="stat-val">11,198</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Total tokens</div>
+            <div class="stat-val">6.3M</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Active days</div>
+            <div class="stat-val">15</div>
+          </div>
+
+          <div class="stat-cell">
+            <div class="stat-lbl">Current streak</div>
+            <div class="stat-val">7d</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Longest streak</div>
+            <div class="stat-val">7d</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Peak hour</div>
+            <div class="stat-val">8 AM</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-lbl">Favorite model</div>
+            <div class="stat-val small">Sonnet 4.6</div>
+          </div>
+        </div>
+
+        <!-- Heatmap -->
+        <div class="heatmap-wrap">
+          <div class="heatmap-grid" id="heatmap"></div>
+        </div>
+
+        <!-- Footer -->
+        <div class="card-footer-text">
+          You've used ~23× more tokens than Moby-Dick.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ⑥ Composer Bar -->
+    <div class="composer-bar">
+      <div class="composer-toolbar">
+        <div class="toolbar-pill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/></svg>
+          Default
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;color:#9ca3af"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="toolbar-pill repo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          Select repo...
+        </div>
+        <div class="toolbar-right">
+          <label class="plan-mode-check">
+            <input type="checkbox"> Plan mode
+          </label>
+          <div class="model-badge">
+            Sonnet 4.6
+            <div class="spinner"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-input-row">
+        <span class="composer-placeholder">Describe a task or ask a question</span>
+        <div class="composer-actions">
+          <div class="composer-icon-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </div>
+          <div class="composer-icon-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          </div>
+          <div class="send-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 标注说明 -->
+<div style="width:960px;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:4px">
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #6366f1;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#6366f1;margin-bottom:3px">① Icon Rail</div>
+    <div style="font-size:10px;color:#777">50px · 3图标 · 头像</div>
+  </div>
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #f59e0b;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px">② Sidebar</div>
+    <div style="font-size:10px;color:#777">218px · 导航+会话</div>
+  </div>
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #22c55e;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#16a34a;margin-bottom:3px">③ Main</div>
+    <div style="font-size:10px;color:#777">flex-1 · 白色背景</div>
+  </div>
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #ec4899;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#db2777;margin-bottom:3px">④ Welcome</div>
+    <div style="font-size:10px;color:#777">星号图标+用户名</div>
+  </div>
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #0ea5e9;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#0284c7;margin-bottom:3px">⑤ Stats Card</div>
+    <div style="font-size:10px;color:#777">8指标+热力图</div>
+  </div>
+  <div style="background:#fff;border-radius:6px;padding:8px 10px;border-top:3px solid #a855f7;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div style="font-size:10px;font-weight:700;color:#9333ea;margin-bottom:3px">⑥ Composer</div>
+    <div style="font-size:10px;color:#777">工具栏+输入框</div>
+  </div>
+</div>
+
+<script>
+// 精确热力图：20列×7行，模拟 GitHub 贡献图风格
+const container = document.getElementById('heatmap');
+const COLS = 36;
+const ROWS = 7;
+// 生成权重：越靠右（最近）越活跃
+for (let c = 0; c < COLS; c++) {
+  const col = document.createElement('div');
+  col.className = 'hm-col';
+  for (let r = 0; r < ROWS; r++) {
+    const cell = document.createElement('div');
+    cell.className = 'hm-cell';
+    // 最后8列有活跃数据
+    const recentBias = c > COLS - 9 ? 0.65 : 0.12;
+    const rand = Math.random();
+    if (rand < recentBias * 0.4) cell.classList.add('d4');
+    else if (rand < recentBias * 0.65) cell.classList.add('d3');
+    else if (rand < recentBias) cell.classList.add('d2');
+    else if (rand < recentBias + 0.1) cell.classList.add('d1');
+    col.appendChild(cell);
+  }
+  container.appendChild(col);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Axelo UI 组件分解</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 24px; color: #1a1a1a; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #666; margin-bottom: 24px; }
+
+  .shell {
+    display: flex;
+    height: 580px;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.12);
+    border: 1px solid #e0e0e0;
+    position: relative;
+  }
+
+  /* ── 组件标注 ── */
+  .label-box {
+    position: absolute;
+    border: 2px solid;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .label-tag {
+    position: absolute;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    top: -14px;
+    left: 0;
+  }
+
+  /* ── Icon Rail ── */
+  .icon-rail {
+    width: 52px;
+    background: #fafafa;
+    border-right: 1px solid #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 0;
+    gap: 6px;
+  }
+  .rail-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: #888; font-size: 16px;
+  }
+  .rail-icon.active { background: #ebebeb; color: #222; }
+  .rail-spacer { flex: 1; }
+  .rail-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: #6b7280; color: white; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 220px;
+    background: #fff;
+    border-right: 1px solid #eee;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 0;
+  }
+  .sidebar-top { padding: 0 12px; margin-bottom: 8px; }
+  .new-session-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 8px;
+    background: transparent; border: none;
+    cursor: pointer; width: 100%; text-align: left;
+    font-size: 13px; color: #333; font-weight: 500;
+  }
+  .new-session-btn:hover { background: #f5f5f5; }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 24px; font-size: 13px; color: #444;
+    cursor: pointer;
+  }
+  .sidebar-item:hover { background: #f5f5f5; }
+  .sidebar-section {
+    padding: 16px 24px 6px;
+    font-size: 11px; font-weight: 600; color: #999; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .sidebar-project {
+    padding: 4px 24px 4px;
+    font-size: 12px; color: #555; font-weight: 500;
+  }
+  .sidebar-session {
+    padding: 6px 24px; font-size: 12px; color: #666;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: pointer; border-radius: 6px; margin: 0 8px;
+  }
+  .sidebar-session:hover { background: #f5f5f5; }
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid #f0f0f0;
+  }
+  .user-name { font-size: 13px; font-weight: 500; color: #333; }
+
+  /* ── Main ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    overflow: hidden;
+  }
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    gap: 24px;
+  }
+  .welcome-heading {
+    font-size: 28px; font-weight: 600; color: #1a1a1a;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .welcome-star { color: #e53e3e; font-size: 24px; }
+
+  /* Stats Card */
+  .stats-card {
+    width: 100%; max-width: 500px;
+    border: 1px solid #e8e8e8;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fafafa;
+  }
+  .card-tabs {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid #eee;
+  }
+  .tab-group { display: flex; gap: 4px; }
+  .tab {
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 500; color: #666; cursor: pointer;
+  }
+  .tab.active { background: #e8e8e8; color: #222; }
+  .filter-group { display: flex; gap: 2px; }
+  .filter { padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #888; cursor: pointer; }
+  .filter.active { background: #e0e0e0; color: #333; font-weight: 600; }
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr;
+    padding: 14px 16px; gap: 12px 8px;
+    border-bottom: 1px solid #eee;
+  }
+  .stat-item { }
+  .stat-label { font-size: 11px; color: #888; margin-bottom: 2px; }
+  .stat-value { font-size: 15px; font-weight: 600; color: #1a1a1a; }
+  .heatmap {
+    padding: 14px 16px;
+    display: flex; gap: 3px; flex-wrap: wrap;
+  }
+  .hm-cell {
+    width: 10px; height: 10px; border-radius: 2px;
+    background: #e8e8e8;
+  }
+  .hm-cell.l1 { background: #bfdbfe; }
+  .hm-cell.l2 { background: #93c5fd; }
+  .hm-cell.l3 { background: #3b82f6; }
+  .hm-cell.l4 { background: #1d4ed8; }
+  .card-footer {
+    padding: 8px 16px 12px;
+    font-size: 11px; color: #999; text-align: center;
+  }
+
+  /* Bottom Input */
+  .bottom-bar {
+    border-top: 1px solid #eee;
+    padding: 12px 20px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .input-row {
+    display: flex; align-items: center; gap: 8px;
+    background: #f5f5f5; border-radius: 10px; padding: 8px 12px;
+  }
+  .input-field {
+    flex: 1; font-size: 13px; color: #999; background: transparent; border: none; outline: none;
+  }
+  .toolbar-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toolbar-btn {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid #ddd;
+    font-size: 12px; color: #444; cursor: pointer; background: white;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .toolbar-btn.small { font-size: 11px; color: #666; border-color: #e0e0e0; }
+  .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .model-indicator { font-size: 11px; color: #888; display: flex; align-items: center; gap: 4px; }
+</style>
+</head>
+<body>
+<h1>📐 Claude.ai → Axelo UI 组件分解</h1>
+<p class="subtitle">以下是参考界面的精确组件拆分，每个区域将单独打磨实现</p>
+
+<div class="shell" id="shell">
+
+  <!-- ① Icon Rail -->
+  <div class="icon-rail">
+    <div class="rail-icon">☰</div>
+    <div class="rail-icon">⊡</div>
+    <div class="rail-icon active">{ }</div>
+    <div class="rail-spacer"></div>
+    <div class="rail-avatar">江</div>
+  </div>
+
+  <!-- ② Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <button class="new-session-btn">＋ New session</button>
+    </div>
+    <div class="sidebar-item">📋 Routines</div>
+    <div class="sidebar-item">✦ Customize</div>
+    <div class="sidebar-item">··· More ▾</div>
+
+    <div class="sidebar-section">Pinned</div>
+    <div class="sidebar-item" style="color:#bbb;font-size:12px">Drag to pin</div>
+
+    <div class="sidebar-section">Axelo_JSReverse</div>
+    <div class="sidebar-session">Review stress testing module for e-c...</div>
+
+    <div class="sidebar-footer">
+      <span class="user-name">江薇</span>
+      <span style="color:#aaa;cursor:pointer">⚙</span>
+    </div>
+  </div>
+
+  <!-- ③ Main Content -->
+  <div class="main">
+    <div class="main-content">
+
+      <!-- ④ Welcome Heading -->
+      <div class="welcome-heading">
+        <span class="welcome-star">✳</span>
+        What's up next, 江薇?
+      </div>
+
+      <!-- ⑤ Stats Card -->
+      <div class="stats-card">
+        <div class="card-tabs">
+          <div class="tab-group">
+            <div class="tab active">Overview</div>
+            <div class="tab">Models</div>
+          </div>
+          <div class="filter-group">
+            <div class="filter active">All</div>
+            <div class="filter">30d</div>
+            <div class="filter">7d</div>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">Sessions</div><div class="stat-value">70</div></div>
+          <div class="stat-item"><div class="stat-label">Messages</div><div class="stat-value">11,198</div></div>
+          <div class="stat-item"><div class="stat-label">Total tokens</div><div class="stat-value">6.3M</div></div>
+          <div class="stat-item"><div class="stat-label">Active days</div><div class="stat-value">15</div></div>
+          <div class="stat-item"><div class="stat-label">Current streak</div><div class="stat-value">7d</div></div>
+          <div class="stat-item"><div class="stat-label">Longest streak</div><div class="stat-value">7d</div></div>
+          <div class="stat-item"><div class="stat-label">Peak hour</div><div class="stat-value">8 AM</div></div>
+          <div class="stat-item"><div class="stat-label">Favorite model</div><div class="stat-value" style="font-size:12px">Sonnet 4.6</div></div>
+        </div>
+        <div class="heatmap" id="heatmap"></div>
+        <div class="card-footer">You've used ~23× more tokens than Moby-Dick.</div>
+      </div>
+
+    </div>
+
+    <!-- ⑥ Bottom Composer Bar -->
+    <div class="bottom-bar">
+      <div class="toolbar-row">
+        <div class="toolbar-btn">⊙ Default ▾</div>
+        <div class="toolbar-btn small">＋ Select repo...</div>
+        <div class="toolbar-right">
+          <div class="toolbar-btn small">☑ Plan mode</div>
+          <div class="model-indicator">Sonnet 4.6 ◌</div>
+        </div>
+      </div>
+      <div class="input-row">
+        <span class="input-field">Describe a task or ask a question</span>
+        <span style="color:#aaa;font-size:14px">📎</span>
+        <span style="color:#aaa;font-size:14px">⇧</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 标注框 -->
+<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+  <div style="background:#fff;border-radius:8px;padding:12px;border-left:4px solid #6366f1;border:1px solid #e0e7ff;border-left-width:4px">
+    <div style="font-size:12px;font-weight:700;color:#6366f1;margin-bottom:6px">① Icon Rail (图标导航栏)</div>
+    <div style="font-size:11px;color:#555">宽52px · 3个模式图标 · 底部用户头像 · 独立组件</div>
+  </div>
+  <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #fef3c7;border-left:4px solid #f59e0b">
+    <div style="font-size:12px;font-weight:700;color:#d97706;margin-bottom:6px">② Sidebar (侧边栏)</div>
+    <div style="font-size:11px;color:#555">宽220px · 新建按钮 · 导航项 · 项目/会话列表 · 用户信息</div>
+  </div>
+  <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #dcfce7;border-left:4px solid #22c55e">
+    <div style="font-size:12px;font-weight:700;color:#16a34a;margin-bottom:6px">③ Main Layout (主区域)</div>
+    <div style="font-size:11px;color:#555">flex-1 · 包含欢迎区域 + 统计卡片 + 底部输入栏</div>
+  </div>
+  <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #fce7f3;border-left:4px solid #ec4899">
+    <div style="font-size:12px;font-weight:700;color:#db2777;margin-bottom:6px">④ Welcome Heading (欢迎标题)</div>
+    <div style="font-size:11px;color:#555">✳ 图标 + 用户名 · 动态文字 · 首页专属</div>
+  </div>
+  <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #e0f2fe;border-left:4px solid #0ea5e9">
+    <div style="font-size:12px;font-weight:700;color:#0284c7;margin-bottom:6px">⑤ Stats Card (统计卡片)</div>
+    <div style="font-size:11px;color:#555">Tab切换 · 时间过滤 · 8个指标 · 热力图 · 趣味文字</div>
+  </div>
+  <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #f3e8ff;border-left:4px solid #a855f7">
+    <div style="font-size:12px;font-weight:700;color:#9333ea;margin-bottom:6px">⑥ Composer Bar (输入栏)</div>
+    <div style="font-size:11px;color:#555">工具栏行 + 输入框 · Plan mode · 模型指示器</div>
+  </div>
+</div>
+
+<script>
+// 生成热力图
+const hm = document.getElementById('heatmap');
+const levels = [0,0,0,0,1,1,2,3,4];
+for (let i = 0; i < 140; i++) {
+  const cell = document.createElement('div');
+  const lvl = levels[Math.floor(Math.random() * levels.length)];
+  cell.className = 'hm-cell' + (lvl ? ' l'+lvl : '');
+  hm.appendChild(cell);
+}
+</script>
+</body>
+</html>
