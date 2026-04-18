@@ -18,6 +18,9 @@ import { ExecutionTimelinePanel } from './ui/ExecutionTimelinePanel'
 import { intakeStore, type IntakePhase } from './store/intakeStore'
 import { missionStore }           from './store/missionStore'
 import { WsClient }               from './ws/client'
+import { RightPanelController }   from './rightPanel/controller'
+import { rightPanelStore }        from './rightPanel/store'
+import { normalizeWsEvent }       from './rightPanel/wsAdapter'
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const leftEl  = document.getElementById('left-panel')  as HTMLElement
@@ -47,6 +50,10 @@ let timelinePanel: ExecutionTimelinePanel | null = null
 let timelineEl: HTMLElement | null = null
 let wsClient: WsClient | null = null
 
+// ── Right panel (AI process view) ────────────────────────────────────────────
+const rpContainerEl = document.getElementById('rp-container') as HTMLElement
+const rpController  = new RightPanelController(rpContainerEl)
+
 // ── Welcome view / panels toggle ─────────────────────────────────────────────
 const welcomeView  = document.getElementById('welcome-view')  as HTMLElement | null
 const mainArea     = document.getElementById('main')          as HTMLElement | null
@@ -61,6 +68,21 @@ function setWelcomeVisible(show: boolean): void {
 // ── Phase routing ─────────────────────────────────────────────────────────────
 let currentPhase: IntakePhase = 'welcome'
 
+function setRightCardMode(mode: 'contract' | 'process'): void {
+  const leftPanel      = document.getElementById('left-panel')
+  const rpContainer    = document.getElementById('rp-container')
+  const sectionLabel   = document.getElementById('rc-section-label')
+  if (mode === 'process') {
+    if (leftPanel)    leftPanel.style.display    = 'none'
+    if (rpContainer)  rpContainer.style.display  = 'flex'
+    if (sectionLabel) sectionLabel.textContent   = 'AI 进程'
+  } else {
+    if (leftPanel)    leftPanel.style.display    = ''
+    if (rpContainer)  rpContainer.style.display  = 'none'
+    if (sectionLabel) sectionLabel.textContent   = '合约规划'
+  }
+}
+
 function onPhaseChange(phase: IntakePhase): void {
   if (phase === currentPhase) return
   currentPhase = phase
@@ -70,8 +92,10 @@ function onPhaseChange(phase: IntakePhase): void {
 
   if (phase === 'executing' || phase === 'complete' || phase === 'failed') {
     showExecutionTimeline()
+    setRightCardMode('process')
   } else {
     hideExecutionTimeline()
+    setRightCardMode('contract')
   }
 
   // Bottom bar: hide readiness row during execution
@@ -238,6 +262,18 @@ window.addEventListener('axelo:mission-started', (e: Event) => {
   activateSidebarSession(sessionId)
 })
 
+// ── WsEvent → rightPanelStore bridge ─────────────────────────────────────────
+// Detects newly appended WsEvents and normalizes them into AgentEvents.
+let _rpEventCursor = 0
+missionStore.subscribe((mState) => {
+  const incoming = mState.events.slice(_rpEventCursor)
+  _rpEventCursor = mState.events.length
+  for (const wsEv of incoming) {
+    const agentEv = normalizeWsEvent(wsEv)
+    if (agentEv) rightPanelStore.dispatch(agentEv)
+  }
+})
+
 // ── Session selector ──────────────────────────────────────────────────────────
 const sessionSelect = document.getElementById('session-select') as HTMLSelectElement
 sessionSelect?.addEventListener('change', async () => {
@@ -245,6 +281,8 @@ sessionSelect?.addEventListener('change', async () => {
   if (!sessionId) return
   if (wsClient) wsClient.disconnect()
   missionStore.selectSession(sessionId)
+  rightPanelStore.reset()
+  _rpEventCursor = 0
   wsClient = new WsClient(sessionId)
   wsClient.connect()
 })
@@ -320,5 +358,6 @@ window.addEventListener('beforeunload', () => {
   chatPanel.dispose()
   contractPanel.dispose()
   timelinePanel?.dispose()
+  rpController.dispose()
   wsClient?.disconnect()
 })

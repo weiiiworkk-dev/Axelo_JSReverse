@@ -685,6 +685,237 @@
       .etp-verdict-icon { font-size: 16px; flex-shrink: 0; }
       .etp-verdict-tier { font-size: 12px; font-weight: 700; }
       .etp-verdict-msg  { font-size: 11px; color: var(--text2); margin-top: 2px; line-height: 1.5; }
+
+      /* ════════════════════════════════════════════
+         RIGHT PANEL CONTROLLER
+      ════════════════════════════════════════════ */
+      #rp-container {
+        flex: 1; overflow-y: auto; overflow-x: hidden;
+        display: flex; flex-direction: column;
+        padding: 8px; gap: 8px;
+      }
+
+      #rp-container::-webkit-scrollbar { width: 3px; }
+      #rp-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+      /* Slot wrappers — each holds exactly one card */
+      #rp-slot-goal, #rp-slot-plan, #rp-slot-checkpoint, #rp-slot-timeline {
+        display: flex; flex-direction: column; flex-shrink: 0;
+      }
+
+      #rp-slot-goal:empty, #rp-slot-plan:empty,
+      #rp-slot-checkpoint:empty, #rp-slot-timeline:empty { display: none; }
+
+      /* ── Base card ── */
+      .rp-card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg);
+        overflow: hidden;
+      }
+
+      .rp-card--empty {
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        padding: 18px 16px; gap: 6px; opacity: 0.45;
+      }
+
+      .rp-card__empty-icon { font-size: 16px; color: var(--text3); }
+      .rp-card__empty-label { font-size: 11.5px; color: var(--text3); }
+
+      .rp-card__header {
+        display: flex; align-items: center;
+        padding: 9px 12px 4px; gap: 6px;
+      }
+
+      .rp-card__title {
+        font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--text2); flex: 1;
+      }
+
+      .rp-card__meta { font-size: 11px; color: var(--text3); }
+
+      /* Status border variants */
+      .rp-card--complete  { border-color: var(--success); background: #f0fdf4; }
+      .rp-card--failed    { border-color: var(--danger);  background: #fff5f5; }
+      .rp-card--paused    { border-color: var(--warn);    background: #fffcf0; }
+      .rp-card--checkpoint { border-color: var(--warn);   background: #fffcf0; }
+
+      /* ── Status badge ── */
+      .rp-badge {
+        font-size: 9px; font-weight: 700; text-transform: uppercase;
+        padding: 1px 7px; border-radius: 100px; letter-spacing: 0.04em;
+      }
+
+      .rp-badge--idle      { background: var(--border2); color: var(--text3); }
+      .rp-badge--planning  { background: var(--accent-soft); color: var(--accent); }
+      .rp-badge--executing { background: #dbeafe; color: #1d4ed8; }
+      .rp-badge--paused    { background: #fef9c3; color: #854d0e; }
+      .rp-badge--complete  { background: #dcfce7; color: #15803d; }
+      .rp-badge--failed    { background: #fee2e2; color: var(--danger); }
+
+      /* ── Goal card ── */
+      .rp-goal__desc {
+        font-size: 12.5px; color: var(--text);
+        line-height: 1.55; padding: 0 12px 10px;
+      }
+
+      .rp-goal__url {
+        display: flex; align-items: center; gap: 5px;
+        padding: 5px 12px; border-top: 1px solid var(--border2);
+        font-size: 11px; color: var(--text2);
+      }
+
+      .rp-goal__url-text {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      /* ── Progress bar ── */
+      .rp-progress {
+        height: 3px; background: var(--border);
+        margin: 2px 12px 8px; border-radius: 2px; overflow: hidden;
+      }
+
+      .rp-progress__fill {
+        height: 100%; border-radius: 2px;
+        background: var(--accent); transition: width 0.4s ease;
+      }
+
+      /* ── Steps ── */
+      .rp-steps {
+        padding: 0 8px 10px;
+        display: flex; flex-direction: column; gap: 3px;
+      }
+
+      .rp-step {
+        display: flex; align-items: flex-start; gap: 7px;
+        padding: 5px 7px; border-radius: 6px;
+        border: 1px solid transparent;
+        transition: background 0.2s, border-color 0.2s;
+      }
+
+      .rp-step--pending   { color: var(--text3); }
+      .rp-step--running   { background: var(--accent-soft); border-color: rgba(124,58,237,0.3); }
+      .rp-step--completed { color: var(--success); }
+      .rp-step--failed    { background: #fff5f5; border-color: rgba(220,38,38,0.3); }
+      .rp-step--skipped   { opacity: 0.4; }
+
+      .rp-step__icon {
+        font-size: 10px; width: 13px; flex-shrink: 0;
+        margin-top: 2px; text-align: center;
+      }
+
+      .rp-step--running .rp-step__icon { color: var(--accent); animation: rp-pulse 1.4s ease-in-out infinite; }
+      .rp-step--completed .rp-step__icon { color: var(--success); }
+      .rp-step--failed    .rp-step__icon { color: var(--danger); }
+
+      @keyframes rp-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+      .rp-step__body {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 1px;
+      }
+
+      .rp-step__title {
+        font-size: 11.5px; font-weight: 500; line-height: 1.4;
+        color: var(--text); overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      .rp-step--completed .rp-step__title { color: var(--text2); }
+      .rp-step--failed    .rp-step__title { color: var(--danger); }
+      .rp-step--running   .rp-step__title { color: var(--accent); }
+      .rp-step--pending   .rp-step__title { color: var(--text3); }
+
+      .rp-step__tool { font-size: 9.5px; font-family: var(--mono); color: var(--text3); }
+      .rp-step__note { font-size: 9.5px; color: var(--text3); font-style: italic; }
+
+      /* ── Action timeline ── */
+      #rp-slot-timeline { flex-shrink: 1; min-height: 0; }
+
+      .rp-card--timeline {
+        display: flex; flex-direction: column;
+        min-height: 0; flex: 1;
+      }
+
+      .rp-timeline {
+        overflow-y: auto; padding: 4px 10px 10px;
+        display: flex; flex-direction: column; gap: 1px;
+        max-height: 260px;
+      }
+
+      .rp-timeline::-webkit-scrollbar { width: 2px; }
+      .rp-timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
+
+      .rp-tl-entry {
+        display: flex; align-items: baseline; gap: 6px;
+        padding: 2px 6px; border-radius: 4px;
+        transition: background 0.15s;
+      }
+
+      .rp-tl-entry--latest { background: var(--accent-soft); }
+
+      .rp-tl-icon {
+        font-size: 9px; width: 13px; flex-shrink: 0;
+        text-align: center; color: var(--text3);
+      }
+
+      .rp-tl-entry--step_started    .rp-tl-icon { color: var(--accent); }
+      .rp-tl-entry--step_completed  .rp-tl-icon { color: var(--success); }
+      .rp-tl-entry--mission_complete .rp-tl-icon { color: var(--success); }
+      .rp-tl-entry--checkpoint_waiting .rp-tl-icon { color: var(--warn); }
+      .rp-tl-entry--mission_failed   .rp-tl-icon { color: var(--danger); }
+
+      .rp-tl-body {
+        flex: 1; min-width: 0;
+        display: flex; align-items: baseline; gap: 6px;
+      }
+
+      .rp-tl-content {
+        font-size: 11px; color: var(--text); flex: 1;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      .rp-tl-time { font-size: 9.5px; color: var(--text3); flex-shrink: 0; white-space: nowrap; }
+
+      /* ── Checkpoint card ── */
+      .rp-checkpoints { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+      .rp-checkpoint__q {
+        font-size: 12.5px; color: var(--text);
+        line-height: 1.55; margin-bottom: 8px;
+      }
+
+      .rp-checkpoint__actions { display: flex; gap: 8px; }
+
+      .rp-btn {
+        flex: 1; padding: 6px 10px; border-radius: 7px;
+        border: 1px solid; cursor: pointer;
+        font-family: var(--font); font-size: 12px; font-weight: 500;
+        transition: opacity 0.12s, background 0.12s;
+      }
+
+      .rp-btn--approve { background: var(--success); border-color: var(--success); color: #fff; }
+      .rp-btn--approve:hover { opacity: 0.82; }
+
+      .rp-btn--reject { background: transparent; border-color: var(--border); color: var(--text2); }
+      .rp-btn--reject:hover { background: var(--hover); }
+
+      /* ── Animations ── */
+      .entering { animation: rp-slide-in 0.28s ease-out; }
+
+      @keyframes rp-slide-in {
+        from { opacity: 0; transform: translateY(-5px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .pulse { animation: rp-flash 0.6s ease-out; }
+
+      @keyframes rp-flash {
+        0%   { background: rgba(124,58,237,0.14); }
+        100% { background: transparent; }
+      }
     </style>
     <script type="module" src="/src/main.ts"></script>
   </head>
@@ -913,9 +1144,11 @@
               </button>
             </div>
 
-            <div class="rc-section-label">合约规划</div>
-            <!-- MissionContractPanel injects here -->
+            <div class="rc-section-label" id="rc-section-label">合约规划</div>
+            <!-- Intake phase: MissionContractPanel -->
             <div id="left-panel"></div>
+            <!-- Execution phase: RightPanelController (hidden until executing) -->
+            <div id="rp-container" style="display:none"></div>
           </div>
         </div>
 
