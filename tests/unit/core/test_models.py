@@ -61,3 +61,24 @@ def test_session_state_transition():
     assert s.status == SessionStatus.PLANNING
     assert len(s.history) == 1
     assert s.history[0]["to"] == "planning"
+
+
+import asyncio
+from axelo.core.base_agent import BaseAgent
+from axelo.core.models import SubTask, AgentResult, ResultStatus
+
+
+class DummyAgent(BaseAgent):
+    name = "dummy"
+
+    async def execute(self, task: SubTask) -> AgentResult:
+        return AgentResult(agent=self.name, status=ResultStatus.SUCCESS, data={"done": True})
+
+
+def test_base_agent_run():
+    agent = DummyAgent()
+    task = SubTask(agent="dummy", objective="test")
+    result = asyncio.run(agent.run(task))
+    assert result.ok
+    assert result.agent == "dummy"
+    assert task.status.value == "complete"
