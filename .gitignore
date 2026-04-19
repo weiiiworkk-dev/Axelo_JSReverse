@@ -13,3 +13,15 @@ axelo/js_tools/scripts/node_modules/
 .tmp_pytest/
 axelo_test_*/
 # axelo/web/ui/src/generated/ — committed intentionally (auto-generated TS contracts)
+
+# Temporary test artifacts
+.tmp_*/
+axelo_test_*/
+batch_results/
+debug*.log
+
+# Artifacts (runtime output, not source)
+artifacts/session_*/
+
+# Superpowers
+.superpowers/

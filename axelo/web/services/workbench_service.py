@@ -659,3 +659,15 @@ def _contract_value(contract: Any, key: str, default: Any = "") -> Any:
     if isinstance(contract, dict):
         return contract.get(key, default)
     return getattr(contract, key, default)
+
+
+async def run_router_session(target_url: str, objective: str) -> dict[str, Any]:
+    """Start a Router AI session. Returns session_id and final status."""
+    from axelo.core.router.router import Router
+    from axelo.core.router.default_registry import build_default_registry
+
+    router = Router(
+        registry=build_default_registry(),
+        artifacts_root=settings.workspace.parent / "artifacts",
+    )
+    return await router.run(target_url=target_url, objective=objective)

@@ -71,5 +71,25 @@ def web(
     run_server(port=port, open_browser=open_browser)
 
 
+@app.command()
+def run(
+    url: str = typer.Argument(..., help="Target URL to reverse-engineer"),
+    objective: str = typer.Option("extract auth token", "--objective", "-o", help="Session objective"),
+    log_level: str = typer.Option("info", "--log-level", "-l", help="Log level"),
+) -> None:
+    """Run Router orchestrator for a target URL."""
+    _setup_logging(log_level)
+    from axelo.core.router.router import Router
+    from axelo.core.router.default_registry import build_default_registry
+    from axelo.config import settings
+
+    router = Router(
+        registry=build_default_registry(),
+        artifacts_root=settings.workspace.parent / "artifacts",
+    )
+    result = asyncio.run(router.run(target_url=url, objective=objective))
+    typer.echo(f"Session: {result['session_id']}  Status: {result['status']}")
+
+
 if __name__ == "__main__":
     app()
